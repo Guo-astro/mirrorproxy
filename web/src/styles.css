@@ -1972,3 +1972,16 @@ p {
 :where(button, a, summary):active:not(:disabled) { transform: translateY(1px); }
 :where(button, input, select, textarea):disabled { cursor: not-allowed; opacity: .55; }
 :where(button, a, summary, input, select, textarea):focus-visible { outline: var(--rule-fine) solid var(--color-focus) !important; outline-offset: 2px !important; }
+
+.connection-notice {
+  margin-block: 1rem;
+  border-color: var(--color-warning);
+}
+.connection-notice h4 { display: flex; align-items: center; gap: 0.5rem; }
+.connection-notice p, .connection-notice li { overflow-wrap: anywhere; line-height: 1.65; }
+.connection-notice ol { list-style: decimal; padding-inline-start: 1.4rem; margin-block: 0.75rem; }
+.connection-notice li + li { margin-block-start: 0.4rem; }
+.connection-notice .console-actions { flex-wrap: wrap; }
+.connection-notice summary { cursor: pointer; font-weight: 600; margin-block: 0.75rem; }
+.connection-notice summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.connection-notice .console-actions a { display: inline-flex; align-items: center; gap: 0.35rem; }

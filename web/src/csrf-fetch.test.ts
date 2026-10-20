@@ -36,3 +36,30 @@ describe('browser CSRF fetch', () => {
     expect(fetch.mock.lastCall![1].headers).toBeUndefined()
   })
 })
+
+it('reports CSRF errors without consuming the response or retrying the rejected mutation', async () => {
+  const error = { error: 'invalid CSRF proof', code: 'csrf_invalid' }
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(error), { status: 403 }))
+  const dispatchEvent = vi.fn()
+  vi.stubGlobal('window', { fetch, dispatchEvent, location: { protocol: 'https:', origin: 'https://mirror.example', href: 'https://mirror.example/admin' } })
+  vi.spyOn(document, 'cookie', 'get').mockReturnValue('mirrorproxy_admin_csrf_http=stale')
+  installCsrfFetch()
+  const response = await window.fetch('/admin/api/auth-providers', { method: 'POST' })
+  expect(await response.json()).toEqual(error)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.lastCall![1].headers).toBeUndefined()
+  expect(dispatchEvent).toHaveBeenCalledTimes(1)
+  const event = dispatchEvent.mock.lastCall![0] as CustomEvent
+  expect(event.type).toBe('mirrorproxy:csrf-error')
+  expect(event.detail).toEqual({ audience: 'admin' })
+})
+
+it('does not turn unrelated authorization failures into CSRF warnings', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'super administrator required' }), { status: 403 }))
+  const dispatchEvent = vi.fn()
+  vi.stubGlobal('window', { fetch, dispatchEvent, location: { protocol: 'https:', origin: 'https://mirror.example', href: 'https://mirror.example/admin' } })
+  vi.spyOn(document, 'cookie', 'get').mockReturnValue('')
+  installCsrfFetch()
+  await window.fetch('/admin/api/config', { method: 'PUT' })
+  expect(dispatchEvent).not.toHaveBeenCalled()
+})

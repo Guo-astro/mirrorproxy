@@ -5,6 +5,7 @@ mod config;
 mod database;
 mod email;
 mod geoip;
+mod local_accounts;
 mod oauth;
 mod observability;
 mod proxy;
@@ -1898,6 +1899,7 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
         .route("/admin/api/auth/login", post(admin_cookie_login))
         .route("/admin/api/auth/logout", post(admin_cookie_logout))
         .route("/admin/api/auth/session", get(admin_session))
+        .route("/admin/api/connection-info", get(admin_connection_info))
         .route(
             "/admin/api/auth/passkey/options",
             get(admin_passkey_options),
@@ -2030,6 +2032,21 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
         .route(
             "/admin/api/auth-providers/{id}/test",
             post(oauth::test_provider),
+        )
+        .route("/admin/api/local-users", post(local_accounts::create))
+        .route(
+            "/admin/api/registration-invitations",
+            get(local_accounts::list).post(local_accounts::invite),
+        )
+        .route(
+            "/admin/api/registration-invitations/{id}",
+            delete(local_accounts::revoke),
+        )
+        .route("/api/auth/password/login", post(local_accounts::login))
+        .route("/api/auth/register", post(local_accounts::register))
+        .route(
+            "/api/account/password",
+            post(local_accounts::change_password),
         )
         .route("/api/auth/email/request", post(email::request_email_login))
         .route("/api/auth/email/verify", post(email::verify_email_login))
@@ -2460,6 +2477,33 @@ fn build_webauthn(config: &Config) -> anyhow::Result<Option<Arc<Webauthn>>> {
     Ok(Some(Arc::new(webauthn)))
 }
 
+#[derive(Clone, Serialize)]
+struct ConnectionDiagnostics {
+    peer_ip: Option<IpAddr>,
+    trusted_proxy: bool,
+    forwarded_https: bool,
+    effective_https: bool,
+}
+
+async fn admin_connection_info(State(state): State<AppState>, request: Request) -> Response {
+    match authenticated_admin(request.headers(), &state).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return unauthorized_response(),
+        Err(error) => {
+            tracing::error!(%error, "connection diagnostics authorization failed");
+            return internal_error_response();
+        }
+    }
+    let Some(diagnostics) = request.extensions().get::<ConnectionDiagnostics>() else {
+        return internal_error_response();
+    };
+    let mut response = Json(diagnostics).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
 async fn strip_untrusted_forwarded_headers(
     State(state): State<AppState>,
     mut request: Request,
@@ -2469,6 +2513,19 @@ async fn strip_untrusted_forwarded_headers(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .is_some_and(|peer| state.config().is_trusted_proxy(peer.0.ip()));
+    // Retain bounded observations for authenticated diagnostics only. These values
+    // do not grant trust and are never used to recover stripped forwarding headers.
+    let diagnostics = ConnectionDiagnostics {
+        peer_ip: request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|peer| peer.0.ip()),
+        trusted_proxy: trusted,
+        forwarded_https: forwarded_header_value(request.headers(), "x-forwarded-proto")
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https")),
+        effective_https: request_uses_https(&request, &state.config()),
+    };
+    request.extensions_mut().insert(diagnostics);
     if !trusted {
         request.headers_mut().remove("x-forwarded-host");
         request.headers_mut().remove("x-forwarded-proto");
@@ -2566,7 +2623,7 @@ async fn csrf_protection_middleware(request: Request, next: Next) -> Response {
     {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "invalid CSRF proof" })),
+            Json(serde_json::json!({ "error": "invalid CSRF proof", "code": "csrf_invalid" })),
         )
             .into_response();
     }
@@ -6441,6 +6498,139 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn connection_diagnostics_explain_untrusted_https_without_granting_trust() {
+        let (state, credentials) = admin_test_state().await;
+        let session = state
+            .database
+            .login(&credentials.username, &credentials.password)
+            .await
+            .unwrap()
+            .unwrap();
+        let peer: SocketAddr = "192.168.64.1:4242".parse().unwrap();
+        let app = Router::new()
+            .route("/admin/api/connection-info", get(admin_connection_info))
+            .route(
+                "/admin/api/probe",
+                post(|| async { StatusCode::NO_CONTENT }),
+            )
+            .layer(middleware::from_fn(csrf_protection_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                strip_untrusted_forwarded_headers,
+            ))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                security_headers_middleware,
+            ))
+            .with_state(state.clone());
+        let make_request =
+            |path: &str, method: Method, cookie: Option<String>, proof: Option<String>| {
+                let mut builder = Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header(header::HOST, "mirror.example")
+                    .header(header::ORIGIN, "https://mirror.example")
+                    .header("x-forwarded-host", "mirror.example")
+                    .header("x-forwarded-proto", "https")
+                    .header("x-forwarded-for", "203.0.113.99");
+                if let Some(cookie) = cookie {
+                    builder = builder.header(header::COOKIE, cookie);
+                }
+                if let Some(proof) = proof {
+                    builder = builder.header(CSRF_HEADER, proof);
+                }
+                let mut request = builder.body(Body::empty()).unwrap();
+                request.extensions_mut().insert(ConnectInfo(peer));
+                request
+            };
+        let response = app
+            .clone()
+            .oneshot(make_request(
+                "/admin/api/connection-info",
+                Method::GET,
+                None,
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let http_cookie = format!("mirrorproxy_admin_session_http={}", session.token);
+        let response = app
+            .clone()
+            .oneshot(make_request(
+                "/admin/api/connection-info",
+                Method::GET,
+                Some(http_cookie.clone()),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let info: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            info,
+            serde_json::json!({"peer_ip":"192.168.64.1","trusted_proxy":false,"forwarded_https":true,"effective_https":false})
+        );
+        assert!(!String::from_utf8_lossy(&body).contains(&session.token));
+        assert!(!state.config().is_trusted_proxy(peer.ip()));
+        let response = app
+            .clone()
+            .oneshot(make_request(
+                "/admin/api/probe",
+                Method::POST,
+                Some(http_cookie),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["code"], "csrf_invalid");
+        assert!(error.get("peer_ip").is_none());
+        // Only an explicit administrator configuration change establishes trust.
+        state
+            .config
+            .write()
+            .unwrap()
+            .trusted_proxies
+            .push(peer.ip().to_string());
+        let https_cookie = format!("{ADMIN_SESSION_COOKIE}={}", session.token);
+        let response = app
+            .clone()
+            .oneshot(make_request(
+                "/admin/api/connection-info",
+                Method::GET,
+                Some(https_cookie.clone()),
+                None,
+            ))
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let info: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(info["trusted_proxy"], true);
+        assert_eq!(info["effective_https"], true);
+        for (proof, expected) in [
+            ("wrong".into(), StatusCode::FORBIDDEN),
+            (csrf_token(&session.token), StatusCode::NO_CONTENT),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(make_request(
+                    "/admin/api/probe",
+                    Method::POST,
+                    Some(https_cookie.clone()),
+                    Some(proof),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+    }
+
+    #[tokio::test]
     async fn browser_login_round_trip_supports_http_and_preserves_https_cookie_security() {
         for secure in [false, true] {
             let (state, credentials) = admin_test_state().await;
@@ -6737,6 +6927,75 @@ mod tests {
             "mirrorproxy-alt.service"
         );
         assert!(systemd_unit_name(Path::new("/tmp/mirrorproxy.unit")).is_err());
+    }
+
+    #[tokio::test]
+    async fn local_registration_respects_policy_origin_and_password_validation() {
+        use tower::ServiceExt;
+        let (state, credentials) = admin_test_state().await;
+        let session = state
+            .database
+            .login(&credentials.username, &credentials.password)
+            .await
+            .unwrap()
+            .unwrap();
+        let app = Router::new()
+            .route(
+                "/admin/api/registration-invitations",
+                post(local_accounts::invite),
+            )
+            .route("/api/auth/register", post(local_accounts::register))
+            .route("/api/auth/password/login", post(local_accounts::login))
+            .layer(axum::Extension(ConnectInfo(
+                "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+            )))
+            .with_state(state.clone());
+        let billing = serde_json::json!({"quota_mode":"default","group_id":null,"monthly_gb":null});
+        state.config.write().unwrap().registration.mode = "disabled".into();
+        for (path, body, expected) in [
+            (
+                "/admin/api/registration-invitations",
+                serde_json::json!({"billing":billing,"expires_in_hours":72}),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/api/auth/register",
+                serde_json::json!({"token":"x".repeat(48),"username":"friend","password":"a-unique-user-passphrase","display_name":"Friend"}),
+                StatusCode::FORBIDDEN,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(path)
+                        .header("host", "mirror.example")
+                        .header("origin", "https://mirror.example")
+                        .header("content-type", "application/json")
+                        .header(
+                            "cookie",
+                            format!("{ADMIN_SESSION_COOKIE}={}", session.token),
+                        )
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+        state.config.write().unwrap().registration.mode = "invite_only".into();
+        for (origin, password, expected) in [
+            (
+                "https://attacker.example",
+                "a-unique-user-passphrase",
+                StatusCode::FORBIDDEN,
+            ),
+            ("https://mirror.example", "short", StatusCode::BAD_REQUEST),
+        ] {
+            let response = app.clone().oneshot(Request::builder().method("POST").uri("/api/auth/register").header("host","mirror.example").header("origin",origin).header("content-type","application/json").body(Body::from(serde_json::json!({"token":"x".repeat(48),"username":"friend","password":password,"display_name":"Friend"}).to_string())).unwrap()).await.unwrap();
+            assert_eq!(response.status(), expected);
+        }
     }
 
     async fn admin_test_state() -> (AppState, database::InitialAdminCredentials) {

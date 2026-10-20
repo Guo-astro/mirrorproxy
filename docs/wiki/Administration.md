@@ -29,7 +29,7 @@ Open **`https://your-host/admin`**. The first account is `admin`; use the config
 Enable registration or invitations as needed, then configure billing groups and user quotas. Monthly limits can apply globally, per group, and per user;
 the selected policy controls overages. Delivered bytes and billable bytes can differ when bidirectional accounting includes uploads.
 
-Alerts support webhooks, mail, or both, with separate cooldowns. Mail alerts and invitations require SMTP first.
+Alerts support webhooks, mail, or both, with separate cooldowns. Mail alerts and email invitations require SMTP first; password accounts and registration links do not.
 Access & quotas configures site title, description, keywords, icon, and left footer text; the project link and version remain fixed.
 
 ## Advanced: protect settings and data
@@ -42,3 +42,15 @@ See [Advanced deployment](Advanced-Deployment) for backups, restore, systemd, pr
 or [GeoIP and IP rules](GeoIP-and-IP-Access-Control) for regional access control.
 
 [简体中文](Administration-zh-CN)
+
+## Password accounts and registration links (without SMTP)
+
+In **Users & groups**, choose **Create user account** and enter an account name, initial password, display name, billing group and initial quota. Account names are case-insensitive and contain 3–64 ASCII letters, digits, dots, underscores or hyphens. Passwords need at least 12 characters and must not be common passwords or match the account name. Users sign in at `/login` and can change their password in the account page; changing it revokes all their sessions. Five failed password attempts lock the account for 15 minutes, including across restarts.
+
+Alternatively, set the billing group, quota and lifetime (1–720 hours, default 72) under **Registration invitation links**, then generate and copy a link. Configure the public base URL in **Access & quotas** first. Share the link privately: whoever receives it can register one account. The recipient chooses their own account name, display name and password; quota settings are fixed by the administrator. Registration does not require an email address or SMTP. An explicit administrator invitation permits password registration in invitation-only, open, and email-domain modes; **New users disabled** blocks creating and redeeming registration links. Administrators can still create accounts directly.
+
+Opening a link, a chat preview, or a failed registration does not consume it. Successful registration atomically creates the account, applies its quota, and consumes the link; concurrent attempts cannot reuse it. The list shows pending, accepted, revoked and expired links, and supports revocation. Raw links are shown only at creation and cannot be retrieved later; revoke an unused link and generate a replacement if lost. Tokens are carried in URL fragments and only their hashes are stored. Do not paste the link into logs or public channels.
+
+Existing email/third-party accounts and email invitations keep working. Password accounts use a separate username and an internal non-deliverable email identifier for compatibility; it is not a verified email identity. Database schema 4 is applied automatically without deleting existing accounts, sessions or quota data. Back up the database before upgrading. For rollback, use the pre-upgrade database backup together with the previous binary; new password accounts require the new server. No new TOML settings are required.
+
+API: privileged browser/automation clients can use `POST /admin/api/local-users` with `{username,password,display_name,billing}`, or `GET/POST /admin/api/registration-invitations` and `DELETE /admin/api/registration-invitations/{id}`. `billing` contains `group_id` (nullable), `quota_mode` (`default`, `unlimited`, `custom`) and `monthly_gb` (required only for `custom`, otherwise null). Link creation also requires `expires_in_hours`. `POST /api/auth/register` accepts only `{token,username,password,display_name}`; it cannot override billing. Password sign-in uses `POST /api/auth/password/login` with `{username,password}`; changing a password uses `POST /api/account/password` with `{current_password,new_password}`. Anonymous password sign-in and registration require a same-origin browser request; authenticated cookie mutations require the existing CSRF proof. Existing `POST /admin/api/users` remains compatible for email-account creation.

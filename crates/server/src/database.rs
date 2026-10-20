@@ -30,7 +30,8 @@ const ADMIN_LOGIN_LOCK_SECS: i64 = 15 * 60;
 const WEBAUTHN_CHALLENGE_LIFETIME_SECS: i64 = 5 * 60;
 const ROUTING_ID_INSERT_ATTEMPTS: usize = 16;
 const USER_SESSION_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub mod local_accounts;
 
 #[derive(Debug, Serialize)]
 pub struct DatabaseHealth {
@@ -115,6 +116,7 @@ pub struct StoredAdminPasskey {
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct UserAccount {
+    pub username: Option<String>,
     pub id: i64,
     pub email: String,
     pub display_name: String,
@@ -473,10 +475,11 @@ impl Database {
         self.ensure_plaintext_secret_columns().await?;
         self.ensure_email_outbox_columns().await?;
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, 'v1.3-baseline', ?)")
-            .bind(CURRENT_SCHEMA_VERSION)
+            .bind(3_i64)
             .bind(unix_timestamp())
             .execute(&self.pool)
             .await?;
+        self.migrate_local_accounts().await?;
         Ok(())
     }
 
@@ -1714,6 +1717,7 @@ impl Database {
         .await?;
         transaction.commit().await?;
         Ok(Some(UserAccount {
+            username: None,
             id: user_id,
             email,
             display_name: display_name.to_string(),
@@ -1788,6 +1792,7 @@ impl Database {
         }
         transaction.commit().await?;
         Ok(Some(UserAccount {
+            username: None,
             id: user_id,
             email,
             display_name: registration.display_name.to_string(),
@@ -1801,7 +1806,7 @@ impl Database {
 
     pub async fn list_users(&self) -> anyhow::Result<Vec<UserAccount>> {
         sqlx::query(
-            "SELECT u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM users u JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE u.deleted_at IS NULL ORDER BY u.id",
+            "SELECT u.username, u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM users u JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE u.deleted_at IS NULL ORDER BY u.id",
         )
         .fetch_all(&self.pool)
         .await?
@@ -1996,7 +2001,7 @@ impl Database {
 
     pub async fn user_account(&self, user_id: i64) -> anyhow::Result<Option<UserAccount>> {
         sqlx::query(
-            "SELECT u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM users u JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE u.id = ? AND u.deleted_at IS NULL",
+            "SELECT u.username, u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM users u JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE u.id = ? AND u.deleted_at IS NULL",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
@@ -2008,7 +2013,7 @@ impl Database {
 
     pub async fn user_by_email(&self, email: &str) -> anyhow::Result<Option<UserAccount>> {
         sqlx::query(
-            "SELECT u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM users u JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE u.email = ? AND u.deleted_at IS NULL",
+            "SELECT u.username, u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM users u JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE u.email = ? AND u.deleted_at IS NULL",
         )
         .bind(normalize_email(email))
         .fetch_optional(&self.pool)
@@ -2211,7 +2216,7 @@ impl Database {
         provider_slug: &str,
         subject: &str,
     ) -> anyhow::Result<Option<UserAccount>> {
-        sqlx::query("SELECT u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM user_identities i JOIN users u ON u.id = i.user_id JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE i.provider_id = ? COLLATE NOCASE AND i.provider_subject = ? AND u.deleted_at IS NULL")
+        sqlx::query("SELECT u.username, u.id, u.email, u.display_name, u.disabled, u.created_at, u.updated_at, r.routing_id, r.created_at AS routing_rotated_at FROM user_identities i JOIN users u ON u.id = i.user_id JOIN user_routing_ids r ON r.user_id = u.id AND r.active = 1 WHERE i.provider_id = ? COLLATE NOCASE AND i.provider_subject = ? AND u.deleted_at IS NULL")
             .bind(provider_slug).bind(subject).fetch_optional(&self.pool).await?.map(user_account_from_row).transpose().map_err(Into::into)
     }
 
@@ -3644,6 +3649,7 @@ fn acme_config_from_row(row: SqliteRow, secrets: &SecretCipher) -> anyhow::Resul
 
 fn user_account_from_row(row: SqliteRow) -> Result<UserAccount, sqlx::Error> {
     Ok(UserAccount {
+        username: row.try_get("username")?,
         id: row.try_get("id")?,
         email: row.try_get("email")?,
         display_name: row.try_get("display_name")?,

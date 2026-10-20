@@ -1,3 +1,5 @@
+import { AdminConnectionNotice, csrfErrorMessage } from './connection-notice'
+import { AdminLocalAccounts, PasswordAccess, UserPasswordChange } from './local-accounts'
 import { StrictMode } from 'react'
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
@@ -604,7 +606,7 @@ export function HttpSecurityBanner({ locale, protocol = window.location.protocol
   </aside>
 }
 
-type UserProfile = { user: { id: number; email: string; display_name: string; routing_id: string; routing_rotated_at: number }; proxy_base_url: string | null }
+type UserProfile = { user: { username?: string | null; id: number; email: string; display_name: string; routing_id: string; routing_rotated_at: number }; proxy_base_url: string | null }
 type QuotaUsage = { limit_bytes: number | null; used_bytes: number; remaining_bytes: number | null }
 type UserUsage = {
   month: string
@@ -628,7 +630,7 @@ const accountMessages = {
     inviteTitle: 'Registration is invitation only', inviteBody: 'Existing users can sign in. New users need the personal invitation link sent by an administrator.',
     invitedTitle: 'Accepting your invitation', invitedBody: 'This one-time link is creating your account and signing you in. No second email or verification code is required.',
     disabledTitle: 'New registration is closed', disabledBody: 'Only existing users can sign in. Contact the administrator if you need an account.',
-    allowedDomains: 'Allowed domains', emailMethod: 'Continue with email', emailMethodHint: 'We will send a six-digit code and a one-time sign-in link. No password is stored.', providerMethod: 'Continue with a configured provider', providerMethodHint: 'Only providers enabled by the administrator are shown.',
+    allowedDomains: 'Allowed domains', emailMethod: 'Continue with email', emailMethodHint: 'We will send a six-digit code and a one-time sign-in link. No password is needed for email sign-in.', providerMethod: 'Continue with a configured provider', providerMethodHint: 'Only providers enabled by the administrator are shown.',
     email: 'Email address', sendCode: 'Send magic link', sending: 'Sending…', code: 'Six-digit code', verify: 'Verify and continue', verifying: 'Verifying…', codeFallback: 'Or use the verification code', codeHint: 'For the fastest sign-in, open the magic link in your email. Enter this code only as a fallback; it expires shortly and can be used once.',
     emailSent: 'Check your inbox and open the magic link to continue. A six-digit code is included as a fallback.', emailUnavailable: 'Email sign-in is not configured on this service.', noMethods: 'No sign-in method is available. Ask the administrator to configure SMTP or an identity provider.', invalidCode: 'The verification code is invalid or expired.', invalidLink: 'This sign-in link is invalid or expired.', loginOnly: 'Existing accounts only', canRegister: 'Registration enabled',
     oauthRegistrationClosed: 'This registration policy does not allow a new account for this identity. Ask the administrator to review the global registration mode.', oauthVerifiedEmail: 'The identity provider did not return a verified email address.', oauthManualLink: 'An account already uses this email. Sign in to that account first, then connect this provider from the account page.', oauthDenied: 'Authorization was cancelled or denied by the identity provider.', oauthFailed: 'Third-party sign-in failed. Please try again or contact the administrator.',
@@ -641,7 +643,7 @@ const accountMessages = {
     inviteTitle: '当前仅允许邀请注册', inviteBody: '已有用户可以直接登录；新用户必须使用管理员发送的专属邀请链接。',
     invitedTitle: '正在接受邀请', invitedBody: '系统正在通过这条一次性链接创建账户并登录，无需再次接收邮件或输入验证码。',
     disabledTitle: '当前未开放新用户注册', disabledBody: '只有已有用户可以登录。如需账户，请联系管理员。',
-    allowedDomains: '允许注册的邮箱域名', emailMethod: '使用邮箱继续', emailMethodHint: '系统会发送六位验证码和一次性登录链接，不保存用户密码。', providerMethod: '使用第三方账号继续', providerMethodHint: '这里只展示管理员已经启用的登录方式。',
+    allowedDomains: '允许注册的邮箱域名', emailMethod: '使用邮箱继续', emailMethodHint: '系统会发送六位验证码和一次性登录链接，邮箱登录无需密码。', providerMethod: '使用第三方账号继续', providerMethodHint: '这里只展示管理员已经启用的登录方式。',
     email: '邮箱地址', sendCode: '发送 Magic Link', sending: '发送中…', code: '六位验证码', verify: '验证并继续', verifying: '验证中…', codeFallback: '或者使用邮件验证码', codeHint: '推荐直接点击邮件中的 Magic Link；验证码仅作为备用方式，短时间内有效且只能使用一次。',
     emailSent: '请查看邮箱并点击 Magic Link 继续；邮件中同时附带六位验证码作为备用方式。', emailUnavailable: '管理员尚未配置邮件登录。', noMethods: '当前没有可用的登录方式，请联系管理员配置 SMTP 或第三方登录。', invalidCode: '验证码无效或已经过期。', invalidLink: '登录链接无效或已经过期。', loginOnly: '仅限已有账户登录', canRegister: '支持注册新账户',
     oauthRegistrationClosed: '当前全局注册模式不允许这个身份创建新账户，请联系管理员检查注册模式。', oauthVerifiedEmail: '第三方登录没有返回已验证的邮箱地址，无法创建账户。', oauthManualLink: '该邮箱已经存在账户。请先登录原账户，再从用户中心绑定这个第三方登录。', oauthDenied: '你取消了授权，或者第三方平台拒绝了授权请求。', oauthFailed: '第三方登录失败，请重试或联系管理员。',
@@ -664,6 +666,7 @@ function UserPage() {
   const [sending, setSending] = React.useState(false)
   const [verifying, setVerifying] = React.useState(false)
   const invitation = new URLSearchParams(location.search).get('invitation')
+  const [registrationToken, setRegistrationToken] = React.useState(() => new URLSearchParams(location.hash.slice(1)).get('register'))
   const magicToken = new URLSearchParams(location.search).get('token')
   const oauthError = new URLSearchParams(location.search).get('oauth_error')
   const automaticToken = magicToken
@@ -681,7 +684,7 @@ function UserPage() {
             : ''
   const feedback = message || oauthErrorMessage
   const profileAvatarUrl = profile
-    ? `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(multiavatar(profile.user.email))}`
+    ? `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(multiavatar(profile.user.username ?? profile.user.email))}`
     : null
 
   React.useEffect(() => {
@@ -761,6 +764,7 @@ function UserPage() {
   }
 
   const policy = (() => {
+    if (registrationToken) return { tone: 'invite', title: locale === 'zh' ? '邀请注册' : 'Invitation registration', body: locale === 'zh' ? '填写账号密码完成注册，无需邮件验证。' : 'Choose an account and password to register. No email verification is needed.' }
     if (!registration) return null
     if (registration.mode === 'open') return { tone: 'open', title: t.openTitle, body: t.openBody }
     if (registration.mode === 'domain_allowlist') return { tone: 'domain', title: t.domainTitle, body: t.domainBody }
@@ -770,7 +774,7 @@ function UserPage() {
   })()
   const registrationAvailable = registration?.mode === 'open' || registration?.mode === 'domain_allowlist' || (registration?.mode === 'invite_only' && Boolean(magicToken || invitation))
 
-  return <main className="account-page"><header className="account-topbar"><a className="brand-mark" href="/"><ServerCog size={18} /> {t.account}</a><div className="toolbar"><a className="account-back" href="/"><ArrowLeft size={16} /> {t.back}</a><button className="icon-button" onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')} title={t.language}><Languages size={18} /></button><button className="icon-button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title={t.theme}>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</button></div></header><HttpSecurityBanner locale={locale} /><section className="account-shell" aria-label={t.account}><div className="account-heading"><div><span className="console-kicker">{t.identity}</span><h1>{profile ? t.existingWelcome : registrationAvailable ? t.signInOrRegister : t.signIn}</h1></div>{profile ? <button className="account-signout" onClick={signOut}><LogOut size={16} /> {t.signOut}</button> : null}</div>{profile ? <div className="account-dashboard"><section className="account-profile-card">{profileAvatarUrl ? <img className="account-avatar" src={profileAvatarUrl} alt="" /> : null}<div><h2>{profile.user.display_name}</h2><p>{profile.user.email}</p></div>{profile.proxy_base_url ? <div className="account-routing-address"><label>{t.trafficAddress}<input readOnly value={profile.proxy_base_url} /></label><p className="account-help">{t.trafficAddressHint}</p><button className="secondary-button" onClick={rotate}>{t.rotate}</button></div> : null}<div className="identity-panel"><h3>{t.connectedMethods}</h3>{identities.map((identity) => <div className="identity-row" key={identity.id}><span><strong>{identity.provider_name}</strong><small>{identity.email ?? identity.provider_subject}</small></span><button className="revoke-button" onClick={() => unlink(identity)}>{t.disconnect}</button></div>)}{providers.some((provider) => !identities.some((identity) => identity.provider_slug === provider.slug)) ? <div className="provider-actions">{providers.filter((provider) => !identities.some((identity) => identity.provider_slug === provider.slug)).map((provider) => <a className="provider-button" href={providerUrl(provider, true)} key={provider.slug}>{t.connect} {provider.display_name}</a>)}</div> : null}</div>{feedback ? <p className="account-feedback">{feedback}</p> : null}</section>{usage ? <section className="account-usage"><div className="console-section-head"><div><h2>{t.trafficUsage}</h2><p>{usage.month}{usage.group ? ` · ${usage.group.name}` : ''}</p></div></div><div className="console-metrics"><ConsoleMetric label={t.today} value={byteLabel(usage.today_response_bytes)} /><ConsoleMetric label={t.thisMonth} value={byteLabel(usage.response_bytes)} /><ConsoleMetric label={t.personalRemaining} value={usage.quota.remaining_bytes === null ? '∞' : byteLabel(usage.quota.remaining_bytes)} /><ConsoleMetric label={t.requests} value={usage.request_count.toLocaleString()} /></div>{usage.group ? <p className="account-help">{t.groupRemaining}: {usage.group.quota.remaining_bytes === null ? '∞' : byteLabel(usage.group.quota.remaining_bytes)}</p> : null}<div className="stats-columns"><div><h3>{t.byMirror}</h3>{usage.targets.map((target) => <div className="stat-row" key={target.target_code}><span>{target.target_code}</span><strong>{byteLabel(target.response_bytes)}</strong><small>{target.request_count} req</small></div>)}</div><div><h3>{t.recentTrend}</h3>{usage.daily.slice(-30).map((point) => <div className="stat-row" key={`${point.day}-${point.target_code}`}><span>{point.day.slice(5)} · {point.target_code}</span><strong>{byteLabel(point.response_bytes)}</strong><small>{point.error_count} err</small></div>)}</div></div></section> : null}</div> : <div className="account-auth-layout"><aside className={`registration-policy registration-policy-${policy?.tone ?? 'loading'}`}><span className="registration-policy-icon"><UserRound size={21} /></span><div><span className="eyebrow">REGISTRATION POLICY</span><h2>{policy?.title ?? '…'}</h2><p>{policy?.body}</p>{registration?.mode === 'domain_allowlist' && registration.allowed_email_domains.length ? <div className="allowed-domain-list"><small>{t.allowedDomains}</small>{registration.allowed_email_domains.map((domain) => <code key={domain}>@{domain}</code>)}</div> : null}</div></aside><div className="auth-methods">{providers.length ? <section className="auth-method-card"><div className="auth-method-head"><span><UserRound size={19} /></span><div><h2>{t.providerMethod}</h2><p>{t.providerMethodHint}</p></div></div><div className="provider-actions provider-actions-stacked">{providers.map((provider) => <a className="provider-button" href={providerUrl(provider)} key={provider.slug}><span><LogIn size={16} /> {provider.display_name}</span><small>{registrationAvailable ? t.canRegister : t.loginOnly}</small></a>)}</div></section> : null}{registration?.email_login_enabled ? <section className="auth-method-card email-auth-card"><div className="auth-method-head"><span><Mail size={19} /></span><div><h2>{t.emailMethod}</h2><p>{t.emailMethodHint}</p></div></div><form className="account-form" onSubmit={requestLogin}><label>{t.email}<input required autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><button className="primary-button" disabled={sending} type="submit">{sending ? t.sending : t.sendCode}</button></form><div className="auth-divider"><span>{t.codeFallback}</span></div><form className="account-form account-code-form" onSubmit={verify}><label>{t.code}<input required autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} /></label><p>{t.codeHint}</p><button className="primary-button" disabled={verifying} type="submit">{verifying ? t.verifying : t.verify}</button></form></section> : null}{registration && !registration.email_login_enabled && providers.length === 0 ? <section className="auth-empty-state"><KeyRound size={25} /><h2>{t.emailUnavailable}</h2><p>{t.noMethods}</p></section> : null}{feedback ? <p className="account-feedback" role="status">{feedback}</p> : null}</div></div>}</section></main>
+  return <main className="account-page"><header className="account-topbar"><a className="brand-mark" href="/"><ServerCog size={18} /> {t.account}</a><div className="toolbar"><a className="account-back" href="/"><ArrowLeft size={16} /> {t.back}</a><button className="icon-button" onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')} title={t.language}><Languages size={18} /></button><button className="icon-button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title={t.theme}>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</button></div></header><HttpSecurityBanner locale={locale} /><section className="account-shell" aria-label={t.account}><div className="account-heading"><div><span className="console-kicker">{t.identity}</span><h1>{profile ? t.existingWelcome : registrationAvailable ? t.signInOrRegister : t.signIn}</h1></div>{profile ? <button className="account-signout" onClick={signOut}><LogOut size={16} /> {t.signOut}</button> : null}</div>{profile ? <div className="account-dashboard"><section className="account-profile-card">{profileAvatarUrl ? <img className="account-avatar" src={profileAvatarUrl} alt="" /> : null}<div><h2>{profile.user.display_name}</h2><p>{profile.user.username ?? profile.user.email}</p></div>{profile.proxy_base_url ? <div className="account-routing-address"><label>{t.trafficAddress}<input readOnly value={profile.proxy_base_url} /></label><p className="account-help">{t.trafficAddressHint}</p><button className="secondary-button" onClick={rotate}>{t.rotate}</button></div> : null}<div className="identity-panel"><h3>{t.connectedMethods}</h3>{identities.map((identity) => <div className="identity-row" key={identity.id}><span><strong>{identity.provider_name}</strong><small>{identity.email ?? identity.provider_subject}</small></span><button className="revoke-button" onClick={() => unlink(identity)}>{t.disconnect}</button></div>)}{providers.some((provider) => !identities.some((identity) => identity.provider_slug === provider.slug)) ? <div className="provider-actions">{providers.filter((provider) => !identities.some((identity) => identity.provider_slug === provider.slug)).map((provider) => <a className="provider-button" href={providerUrl(provider, true)} key={provider.slug}>{t.connect} {provider.display_name}</a>)}</div> : null}</div>{profile.user.username ? <UserPasswordChange locale={locale} onChanged={() => { setProfile(null); setUsage(null); setIdentities([]); setMessage(locale === 'zh' ? '密码已修改，请重新登录。' : 'Password changed. Please sign in again.') }} /> : null}{feedback ? <p className="account-feedback">{feedback}</p> : null}</section>{usage ? <section className="account-usage"><div className="console-section-head"><div><h2>{t.trafficUsage}</h2><p>{usage.month}{usage.group ? ` · ${usage.group.name}` : ''}</p></div></div><div className="console-metrics"><ConsoleMetric label={t.today} value={byteLabel(usage.today_response_bytes)} /><ConsoleMetric label={t.thisMonth} value={byteLabel(usage.response_bytes)} /><ConsoleMetric label={t.personalRemaining} value={usage.quota.remaining_bytes === null ? '∞' : byteLabel(usage.quota.remaining_bytes)} /><ConsoleMetric label={t.requests} value={usage.request_count.toLocaleString()} /></div>{usage.group ? <p className="account-help">{t.groupRemaining}: {usage.group.quota.remaining_bytes === null ? '∞' : byteLabel(usage.group.quota.remaining_bytes)}</p> : null}<div className="stats-columns"><div><h3>{t.byMirror}</h3>{usage.targets.map((target) => <div className="stat-row" key={target.target_code}><span>{target.target_code}</span><strong>{byteLabel(target.response_bytes)}</strong><small>{target.request_count} req</small></div>)}</div><div><h3>{t.recentTrend}</h3>{usage.daily.slice(-30).map((point) => <div className="stat-row" key={`${point.day}-${point.target_code}`}><span>{point.day.slice(5)} · {point.target_code}</span><strong>{byteLabel(point.response_bytes)}</strong><small>{point.error_count} err</small></div>)}</div></div></section> : null}</div> : <div className="account-auth-layout"><aside className={`registration-policy registration-policy-${policy?.tone ?? 'loading'}`}><span className="registration-policy-icon"><UserRound size={21} /></span><div><span className="eyebrow">REGISTRATION POLICY</span><h2>{policy?.title ?? '…'}</h2><p>{policy?.body}</p>{registration?.mode === 'domain_allowlist' && registration.allowed_email_domains.length ? <div className="allowed-domain-list"><small>{t.allowedDomains}</small>{registration.allowed_email_domains.map((domain) => <code key={domain}>@{domain}</code>)}</div> : null}</div></aside><div className="auth-methods"><PasswordAccess locale={locale} token={registrationToken} onSignedIn={async () => { await loadProfile(); setRegistrationToken(null) }} />{!registrationToken && providers.length ? <section className="auth-method-card"><div className="auth-method-head"><span><UserRound size={19} /></span><div><h2>{t.providerMethod}</h2><p>{t.providerMethodHint}</p></div></div><div className="provider-actions provider-actions-stacked">{providers.map((provider) => <a className="provider-button" href={providerUrl(provider)} key={provider.slug}><span><LogIn size={16} /> {provider.display_name}</span><small>{registrationAvailable ? t.canRegister : t.loginOnly}</small></a>)}</div></section> : null}{!registrationToken && registration?.email_login_enabled ? <section className="auth-method-card email-auth-card"><div className="auth-method-head"><span><Mail size={19} /></span><div><h2>{t.emailMethod}</h2><p>{t.emailMethodHint}</p></div></div><form className="account-form" onSubmit={requestLogin}><label>{t.email}<input required autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><button className="primary-button" disabled={sending} type="submit">{sending ? t.sending : t.sendCode}</button></form><div className="auth-divider"><span>{t.codeFallback}</span></div><form className="account-form account-code-form" onSubmit={verify}><label>{t.code}<input required autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} /></label><p>{t.codeHint}</p><button className="primary-button" disabled={verifying} type="submit">{verifying ? t.verifying : t.verify}</button></form></section> : null}{feedback ? <p className="account-feedback" role="status">{feedback}</p> : null}</div></div>}</section></main>
 }
 
 function PublicApp() {
@@ -845,7 +849,7 @@ function PublicApp() {
 
   const personalBaseUrl = publicProfile?.proxy_base_url ?? null
   const avatarUrl = publicProfile
-    ? `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(multiavatar(publicProfile.user.email))}`
+    ? `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(multiavatar(publicProfile.user.username ?? publicProfile.user.email))}`
     : null
   const baseUrl = (personalBaseUrl || config.public_base_url).replace(/\/$/, '')
   const githubCommand = `${baseUrl}/https://github.com/inbjo/Conductor/releases/download/nightly/conductor-client-linux-amd64.deb`
@@ -1368,6 +1372,7 @@ function AdminPage() {
 }
 
 function adminConfigErrorMessage(reason: string, status: number, locale: Locale, fallback: string) {
+  if (reason === 'invalid CSRF proof') return csrfErrorMessage(reason, locale)
   if (reason.includes('super administrator access required')) {
     return locale === 'zh' ? '只有超级管理员可以修改访问、注册或 Passkey 策略。' : 'Only a super administrator can change access, registration, or passkey policies.'
   }
@@ -1531,7 +1536,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
     ? {
         title: '运行控制台', login: '管理员登录', username: '管理员账号', password: '管理员密码', signIn: '登录', signOut: '退出登录',
         overview: '本月概览', sent: '已发送', billed: '计费流量', remaining: '配额剩余', requests: '请求', errors: '错误',
-        configuration: '运行时配置', publicUrl: '公开地址', trustedProxies: '可信反向代理', trustedProxiesHint: '逗号分隔的 IP 或 CIDR；只有这些来源的 X-Forwarded-* 头会被使用。', quota: '启用总流量限制', quotaGb: '总流量（GB）', retentionDays: '明细保留天数', timezone: '时区', cache: '启用小对象磁盘缓存', cacheDirectory: '缓存目录', cacheMaxEntry: '单项上限（MB）', cacheMaxTotal: '总容量（MB）', cacheDefaultTtl: '默认有效期（秒）', cacheMaxTtl: '最长有效期（秒）',
+        configuration: '运行时配置', publicUrl: '公开地址', trustedProxies: '可信反向代理', trustedProxiesHint: '逗号分隔的 IP 或 CIDR；仅信任你控制的反代实际连接 IP。Docker 中可能是网桥网关，只有可信来源的 X-Forwarded-* 头会被使用。', quota: '启用总流量限制', quotaGb: '总流量（GB）', retentionDays: '明细保留天数', timezone: '时区', cache: '启用小对象磁盘缓存', cacheDirectory: '缓存目录', cacheMaxEntry: '单项上限（MB）', cacheMaxTotal: '总容量（MB）', cacheDefaultTtl: '默认有效期（秒）', cacheMaxTtl: '最长有效期（秒）',
         action: '超限动作', forwardAuth: '转发客户端认证头', rate: '启用请求限流', rpm: '每分钟请求数', adapters: '启用代理', upstreams: '上游地址', baseDomain: '用户子域名主域', accessMode: '包代理访问模式', infrastructureReady: '我已完成通配符 DNS、TLS 和原始 Host 转发配置', routingLength: '子域名最短长度', rotationCooldown: '子域名更换冷却（小时）', registrationMode: '注册模式', allowedDomains: '企业邮箱域名', emailTtl: '邮件登录有效期（分钟）',
         save: '保存配置', saving: '保存中…', refresh: '刷新统计', top: 'Top targets', daily: '当月日明细',
         badLogin: '登录失败，请检查管理员密码。', saveError: '配置保存失败。', saveErrorTitle: '保存失败', saveSuccessTitle: '配置已保存', saveSuccess: '新配置已生效。', closeNotice: '关闭提示', restart: '以下字段将在重启后生效：',
@@ -1547,7 +1552,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
     : {
         title: 'Operations console', login: 'Administrator sign in', username: 'Administrator username', password: 'Administrator password', signIn: 'Sign in', signOut: 'Sign out',
         overview: 'Month at a glance', sent: 'Sent', billed: 'Billed traffic', remaining: 'Quota remaining', requests: 'Requests', errors: 'Errors',
-        configuration: 'Runtime configuration', publicUrl: 'Public URL', trustedProxies: 'Trusted reverse proxies', trustedProxiesHint: 'Comma-separated IPs or CIDRs. Only these peers may supply X-Forwarded-* headers.', quota: 'Enable total traffic limit', quotaGb: 'Total traffic (GB)', retentionDays: 'Event retention (days)', timezone: 'Timezone', cache: 'Enable small-response disk cache', cacheDirectory: 'Cache directory', cacheMaxEntry: 'Per-entry limit (MB)', cacheMaxTotal: 'Total capacity (MB)', cacheDefaultTtl: 'Default freshness (seconds)', cacheMaxTtl: 'Maximum freshness (seconds)',
+        configuration: 'Runtime configuration', publicUrl: 'Public URL', trustedProxies: 'Trusted reverse proxies', trustedProxiesHint: 'Comma-separated IPs or CIDRs. Use the actual connection IP of a proxy you control (possibly a Docker bridge gateway). Only trusted peers may supply X-Forwarded-* headers.', quota: 'Enable total traffic limit', quotaGb: 'Total traffic (GB)', retentionDays: 'Event retention (days)', timezone: 'Timezone', cache: 'Enable small-response disk cache', cacheDirectory: 'Cache directory', cacheMaxEntry: 'Per-entry limit (MB)', cacheMaxTotal: 'Total capacity (MB)', cacheDefaultTtl: 'Default freshness (seconds)', cacheMaxTtl: 'Maximum freshness (seconds)',
         action: 'Exceeded action', forwardAuth: 'Forward client authorization', rate: 'Enable request rate limit', rpm: 'Requests / minute', adapters: 'Enabled adapters', upstreams: 'Upstream endpoints', baseDomain: 'User subdomain base', accessMode: 'Package proxy access mode', infrastructureReady: 'I have configured wildcard DNS, TLS, and original Host forwarding', routingLength: 'Minimum routing ID length', rotationCooldown: 'Rotation cooldown (hours)', registrationMode: 'Registration mode', allowedDomains: 'Allowed email domains', emailTtl: 'Email login lifetime (minutes)',
         save: 'Save configuration', saving: 'Saving…', refresh: 'Refresh stats', top: 'Top targets', daily: 'Daily detail',
         badLogin: 'Sign in failed. Check the administrator password.', saveError: 'Configuration save failed.', saveErrorTitle: 'Save failed', saveSuccessTitle: 'Configuration saved', saveSuccess: 'The new configuration is active.', closeNotice: 'Dismiss notification', restart: 'These fields apply after restart:',
@@ -1697,7 +1702,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
       const start = await fetch('/admin/api/auth/passkey/login/start', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username }),
       })
-      if (!start.ok) throw new Error('passkey start failed')
+      if (!start.ok) throw new Error(await responseError(start) || 'passkey start failed')
       const challenge = await start.json() as { challenge_id: string; options: { publicKey: Record<string, any> } }
       const credential = await navigator.credentials.get(requestOptions(challenge.options)) as PublicKeyCredential | null
       if (!credential) throw new Error('passkey cancelled')
@@ -1705,11 +1710,11 @@ function AdminConsole({ locale }: { locale: Locale }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ challenge_id: challenge.challenge_id, credential: authenticationCredentialJson(credential) }),
       })
-      if (!finish.ok) throw new Error('passkey finish failed')
+      if (!finish.ok) throw new Error(await responseError(finish) || 'passkey finish failed')
       const value = await finish.json() as AdminIdentity
       setIdentity(value); setToken('cookie')
-    } catch {
-      setError(text.passkeyError)
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message === 'invalid CSRF proof' ? csrfErrorMessage(reason.message, locale) : text.passkeyError)
     } finally {
       setPasskeyBusy(false)
     }
@@ -1801,7 +1806,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
       const saved = await save()
       if (!saved) return
       const start = await fetch('/admin/api/auth/passkeys/register/start', { method: 'POST' })
-      if (!start.ok) throw new Error('passkey start failed')
+      if (!start.ok) throw new Error(await responseError(start) || 'passkey start failed')
       const challenge = await start.json() as { challenge_id: string; options: { publicKey: Record<string, any> } }
       const credential = await navigator.credentials.create(creationOptions(challenge.options)) as PublicKeyCredential | null
       if (!credential) throw new Error('passkey cancelled')
@@ -1809,10 +1814,10 @@ function AdminConsole({ locale }: { locale: Locale }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ challenge_id: challenge.challenge_id, name: passkeyName, credential: registrationCredentialJson(credential) }),
       })
-      if (!finish.ok) throw new Error('passkey finish failed')
+      if (!finish.ok) throw new Error(await responseError(finish) || 'passkey finish failed')
       setPasskeyName(''); await loadPasskeys()
-    } catch {
-      setError(text.passkeyError)
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message === 'invalid CSRF proof' ? csrfErrorMessage(reason.message, locale) : text.passkeyError)
     } finally {
       setPasskeyBusy(false)
     }
@@ -1897,6 +1902,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
       {notice?.tone === 'error' ? <div className="admin-toast admin-toast-error" role="alert" aria-live="polite"><span className="admin-toast-icon"><CircleAlert size={19} /></span><span className="admin-toast-copy"><strong>{notice.title}</strong><span>{notice.message}</span></span><button type="button" onClick={() => setNotice(null)} aria-label={text.closeNotice}><X size={16} /></button></div> : null}
       <div className="console-head"><div><span className="console-kicker"><ShieldCheck size={15} /> ADMIN</span><h2>{text.title}</h2></div>{token ? <button className="secondary-button compact-button console-logout" onClick={() => signOut()}><LogOut size={15} /> {text.signOut}</button> : null}</div>
       {!token ? <form className="login-card admin-login-card" onSubmit={signIn}><div className="admin-login-intro"><h3>{text.login}</h3><p>{text.passwordHint}</p></div><label className="admin-username-field">{text.username}<input autoFocus required autoComplete="username webauthn" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="admin-password-field">{text.password}<input required={!passkeyEnabled} autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error ? <p className="form-error admin-login-error">{error}</p> : null}<div className="login-actions admin-login-actions"><button className="primary-button password-login-button" type="submit"><LogIn size={17} /> {text.signIn}</button>{passkeyEnabled ? <button className="secondary-button passkey-login-button" disabled={passkeyBusy || !username.trim()} type="button" onClick={signInWithPasskey}><KeyRound size={17} /> {text.usePasskey}</button> : null}</div></form> : null}
+      {token ? <AdminConnectionNotice locale={locale} onConfigure={() => { setActiveTab('advanced'); requestAnimationFrame(() => document.getElementById('trusted-proxies')?.focus()) }} /> : null}
       {token && draft && stats ? <div className="console-workspace">
         <nav className="admin-tabs" aria-label={text.title}>{tabs.map((tab) => <button aria-current={activeTab === tab.id ? 'page' : undefined} aria-label={tab.label} className={activeTab === tab.id ? 'active' : ''} key={tab.id} title={tab.label} onClick={() => setActiveTab(tab.id)}>{locale === 'en' ? compactEnglishTabLabels[tab.id] : tab.label}</button>)}</nav>
         <div className="admin-tab-toolbar"><div><h3>{activeTabCopy.label}</h3><p>{activeTabCopy.hint}</p></div><div className="console-actions">{activeTab === 'overview' || activeTab === 'audit' ? <button onClick={() => (activeTab === 'audit' ? loadAudit(auditPage) : load(token)).catch(() => setError(text.saveError))}>{text.refresh}</button> : null}{activeTab === 'health' ? <button className="primary-button" disabled={sourceHealthBusy || sourceHealth?.running} onClick={runSourceHealth}><RefreshCw className={sourceHealthBusy || sourceHealth?.running ? 'spin' : ''} size={16} /> {locale === 'zh' ? (sourceHealthBusy || sourceHealth?.running ? '检测中…' : '立即检测') : (sourceHealthBusy || sourceHealth?.running ? 'Checking…' : 'Run check')}</button> : null}{activeTab === 'access' || activeTab === 'advanced' || activeTab === 'security' ? <button className="primary-button" disabled={saving} onClick={save}><Save size={16} /> {saving ? text.saving : text.save}</button> : null}</div></div>
@@ -1924,7 +1930,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
             <div className="runtime-config-groups">
               <section className="runtime-config-group runtime-config-group-wide">
                 <div className="runtime-config-group-head"><h5>{locale === 'zh' ? '代理与请求头' : 'Proxy and request headers'}</h5><p>{locale === 'zh' ? '只有可信反向代理的转发头才会参与客户端地址识别。' : 'Only forwarding headers from trusted reverse proxies are used.'}</p></div>
-                <div className="runtime-config-fields"><label className="wide-field">{text.trustedProxies}<input aria-describedby="trusted-proxies-hint" value={draft.trusted_proxies.join(', ')} onChange={(event) => update('trusted_proxies', event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} /><small id="trusted-proxies-hint">{text.trustedProxiesHint}</small></label><label className="toggle-field wide-field"><input type="checkbox" checked={draft.forward_client_authorization} onChange={(event) => update('forward_client_authorization', event.target.checked)} />{text.forwardAuth}</label></div>
+                <div className="runtime-config-fields"><label className="wide-field">{text.trustedProxies}<input id="trusted-proxies" aria-label={text.trustedProxies} aria-describedby="trusted-proxies-hint" value={draft.trusted_proxies.join(', ')} onChange={(event) => update('trusted_proxies', event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} /><small id="trusted-proxies-hint">{text.trustedProxiesHint}</small></label><label className="toggle-field wide-field"><input type="checkbox" checked={draft.forward_client_authorization} onChange={(event) => update('forward_client_authorization', event.target.checked)} />{text.forwardAuth}</label></div>
               </section>
               <section className="runtime-config-group runtime-config-group-wide">
                 <div className="runtime-config-group-head"><h5>{locale === 'zh' ? '镜像上游代理' : 'Mirror upstream proxy'}</h5><p>{locale === 'zh' ? '让所有镜像上游请求通过一个 HTTP、HTTPS 或 SOCKS5 代理；保存后立即生效。' : 'Route every mirror-upstream request through one HTTP, HTTPS, or SOCKS5 proxy; changes apply immediately.'}</p></div>
@@ -2252,7 +2258,7 @@ function AdminAuthProviders({ locale }: { locale: Locale }) {
     const reason = response.ok ? '' : (await response.json().catch(() => ({})) as { error?: string }).error
     setNotice(response.ok
       ? { tone: 'success', title: locale === 'zh' ? '保存成功' : 'Provider saved', message: locale === 'zh' ? '第三方登录配置已保存。' : 'The identity provider configuration was saved.' }
-      : { tone: 'error', title: locale === 'zh' ? '保存失败' : 'Unable to save provider', message: reason ?? (locale === 'zh' ? '请检查配置后重试。' : 'Check the configuration and try again.') })
+      : { tone: 'error', title: locale === 'zh' ? '保存失败' : 'Unable to save provider', message: csrfErrorMessage(reason ?? '', locale) || (locale === 'zh' ? '请检查配置后重试。' : 'Check the configuration and try again.') })
     if (response.ok) { setDraft(emptyAuthProvider()); await load() }
   }
   const remove = async (provider: AuthProviderView) => {
@@ -2385,7 +2391,7 @@ function AdminEmailSettings({ locale }: { locale: Locale }) {
 }
 
 type BillingGroupView = { id: number; name: string; monthly_limit_bytes: number | null; member_count: number }
-type AdminUserView = { id: number; email: string; display_name: string; disabled: boolean; routing_id: string }
+type AdminUserView = { username?: string | null; id: number; email: string; display_name: string; disabled: boolean; routing_id: string }
 type UserBillingView = { group_id: number | null; quota_mode: 'default' | 'unlimited' | 'custom'; user_monthly_limit_bytes: number | null }
 
 function BillingGroupRow({ group, locale, reload }: { group: BillingGroupView; locale: Locale; reload: () => Promise<void> }) {
@@ -2424,7 +2430,7 @@ function BillingUserRow({ initialUser, groups, locale, reloadUsers }: { initialU
     if (!await confirmAction({
       locale,
       title: user.disabled ? (locale === 'zh' ? '启用用户' : 'Enable user') : (locale === 'zh' ? '禁用用户' : 'Disable user'),
-      message: user.disabled ? (locale === 'zh' ? `确定启用用户 ${user.email} 吗？` : `Enable ${user.email}?`) : (locale === 'zh' ? `确定禁用用户 ${user.email} 吗？该用户的登录会话会立即失效。` : `Disable ${user.email}? Their active sessions will be revoked immediately.`),
+      message: user.disabled ? (locale === 'zh' ? `确定启用用户 ${user.username ?? user.email} 吗？` : `Enable ${user.username ?? user.email}?`) : (locale === 'zh' ? `确定禁用用户 ${user.username ?? user.email} 吗？该用户的登录会话会立即失效。` : `Disable ${user.username ?? user.email}? Their active sessions will be revoked immediately.`),
       confirmLabel: user.disabled ? (locale === 'zh' ? '启用用户' : 'Enable user') : (locale === 'zh' ? '禁用用户' : 'Disable user'),
       tone: user.disabled ? 'primary' : 'danger',
     })) return
@@ -2432,28 +2438,28 @@ function BillingUserRow({ initialUser, groups, locale, reloadUsers }: { initialU
     if (response.ok) setUser({ ...user, disabled: !user.disabled })
   }
   const rotate = async () => {
-    if (!await confirmAction({ locale, title: locale === 'zh' ? '更换用户代理地址' : 'Rotate user routing address', message: locale === 'zh' ? `确定更换 ${user.email} 的专属代理地址吗？当前地址会立即失效。` : `Rotate the dedicated proxy address for ${user.email}? The current address will stop working immediately.`, confirmLabel: locale === 'zh' ? '确认更换' : 'Rotate address', tone: 'danger' })) return
+    if (!await confirmAction({ locale, title: locale === 'zh' ? '更换用户代理地址' : 'Rotate user routing address', message: locale === 'zh' ? `确定更换 ${user.username ?? user.email} 的专属代理地址吗？当前地址会立即失效。` : `Rotate the dedicated proxy address for ${user.username ?? user.email}? The current address will stop working immediately.`, confirmLabel: locale === 'zh' ? '确认更换' : 'Rotate address', tone: 'danger' })) return
     await fetch(`/admin/api/users/${user.id}/routing-id/rotate`, { method: 'POST' })
   }
   const loadIdentities = async () => { const response = await fetch(`/admin/api/users/${user.id}/identities`); if (response.ok) setIdentities(await response.json() as LinkedIdentity[]) }
   const unlink = async (identity: LinkedIdentity) => {
-    if (!await confirmAction({ locale, title: locale === 'zh' ? '解除登录身份绑定' : 'Unlink identity', message: locale === 'zh' ? `确定解除 ${user.email} 与 ${identity.provider_name} 的绑定吗？` : `Unlink ${identity.provider_name} from ${user.email}?`, confirmLabel: locale === 'zh' ? '解除绑定' : 'Unlink identity', tone: 'danger' })) return
+    if (!await confirmAction({ locale, title: locale === 'zh' ? '解除登录身份绑定' : 'Unlink identity', message: locale === 'zh' ? `确定解除 ${user.username ?? user.email} 与 ${identity.provider_name} 的绑定吗？` : `Unlink ${identity.provider_name} from ${user.username ?? user.email}?`, confirmLabel: locale === 'zh' ? '解除绑定' : 'Unlink identity', tone: 'danger' })) return
     const response = await fetch(`/admin/api/users/${user.id}/identities/${identity.id}`, { method: 'DELETE' }); if (response.ok) await loadIdentities()
   }
-  const remove = async () => { if (!await confirmAction({ locale, title: locale === 'zh' ? '删除用户' : 'Delete user', message: locale === 'zh' ? `确定删除 ${user.email}？历史流量和审计记录会保留。` : `Soft-delete ${user.email}? Existing traffic and audit history will be retained.`, confirmLabel: locale === 'zh' ? '删除用户' : 'Delete user', tone: 'danger' })) return; const response = await fetch(`/admin/api/users/${user.id}`, { method: 'DELETE' }); if (response.ok) await reloadUsers() }
+  const remove = async () => { if (!await confirmAction({ locale, title: locale === 'zh' ? '删除用户' : 'Delete user', message: locale === 'zh' ? `确定删除 ${user.username ?? user.email}？历史流量和审计记录会保留。` : `Soft-delete ${user.username ?? user.email}? Existing traffic and audit history will be retained.`, confirmLabel: locale === 'zh' ? '删除用户' : 'Delete user', tone: 'danger' })) return; const response = await fetch(`/admin/api/users/${user.id}`, { method: 'DELETE' }); if (response.ok) await reloadUsers() }
   return (
     <div className="admin-user-record">
       <div className="admin-user-summary">
         <div className="admin-user-identity">
           <strong>{user.display_name}</strong>
-          <small>{user.email}</small>
+          <small>{user.username ?? user.email}</small>
           <code>{user.disabled ? (locale === 'zh' ? '已禁用' : 'disabled') : user.routing_id}{usage ? ` · ${byteLabel(usage.response_bytes)} ${locale === 'zh' ? '本月' : 'this month'}` : ''}</code>
         </div>
         {billing ? <div className="admin-user-controls">
           <div className="admin-user-fields">
-            <label>{locale === 'zh' ? '计费组' : 'Billing group'}<select aria-label={`${user.email} billing group`} value={billing.group_id ?? ''} onChange={(event) => setBilling({ ...billing, group_id: event.target.value ? Number(event.target.value) : null })}><option value="">{locale === 'zh' ? '无计费组' : 'No billing group'}</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-            <label>{locale === 'zh' ? '用户配额' : 'User quota'}<select aria-label={`${user.email} quota mode`} value={billing.quota_mode} onChange={(event) => setBilling({ ...billing, quota_mode: event.target.value as UserBillingView['quota_mode'] })}><option value="default">{locale === 'zh' ? '默认配额' : 'Default quota'}</option><option value="unlimited">{locale === 'zh' ? '不限量' : 'Unlimited'}</option><option value="custom">{locale === 'zh' ? '自定义' : 'Custom'}</option></select></label>
-            {billing.quota_mode === 'custom' ? <label>{locale === 'zh' ? '自定义 GB' : 'Custom GB'}<input required aria-label={`${user.email} custom quota`} min="0" type="number" value={customGb} onChange={(event) => setCustomGb(event.target.value)} /></label> : null}
+            <label>{locale === 'zh' ? '计费组' : 'Billing group'}<select aria-label={`${user.username ?? user.email} billing group`} value={billing.group_id ?? ''} onChange={(event) => setBilling({ ...billing, group_id: event.target.value ? Number(event.target.value) : null })}><option value="">{locale === 'zh' ? '无计费组' : 'No billing group'}</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+            <label>{locale === 'zh' ? '用户配额' : 'User quota'}<select aria-label={`${user.username ?? user.email} quota mode`} value={billing.quota_mode} onChange={(event) => setBilling({ ...billing, quota_mode: event.target.value as UserBillingView['quota_mode'] })}><option value="default">{locale === 'zh' ? '默认配额' : 'Default quota'}</option><option value="unlimited">{locale === 'zh' ? '不限量' : 'Unlimited'}</option><option value="custom">{locale === 'zh' ? '自定义' : 'Custom'}</option></select></label>
+            {billing.quota_mode === 'custom' ? <label>{locale === 'zh' ? '自定义 GB' : 'Custom GB'}<input required aria-label={`${user.username ?? user.email} custom quota`} min="0" type="number" value={customGb} onChange={(event) => setCustomGb(event.target.value)} /></label> : null}
           </div>
           <div className="admin-user-actions">
             <button className="primary-button compact-button" disabled={billing.quota_mode === 'custom' && customGb === ''} onClick={save}>{locale === 'zh' ? '保存配额' : 'Save billing'}</button>
@@ -2493,12 +2499,12 @@ function AdminBillingManagement({ locale }: { locale: Locale }) {
     const response = await fetch('/admin/api/groups', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, monthly_gb: quota === '' ? null : Number(quota) }) })
     if (response.ok) { setName(''); setQuota(''); await load() }
   }
-  const visibleUsers = users.filter((user) => `${user.display_name} ${user.email} ${user.routing_id}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const visibleUsers = users.filter((user) => `${user.display_name} ${user.username ?? ''} ${user.email} ${user.routing_id}`.toLowerCase().includes(search.trim().toLowerCase()))
   const pageSize = 10
   const pageUsers = visibleUsers.slice((page - 1) * pageSize, page * pageSize)
   React.useEffect(() => setPage(1), [search])
   React.useEffect(() => setPage((current) => Math.min(current, Math.max(1, Math.ceil(visibleUsers.length / pageSize)))), [visibleUsers.length])
-  return <section className="admin-tab-panel settings-stack"><div className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '计费组' : 'Billing groups'}</h4><p>{locale === 'zh' ? '组内用户共享每月流量配额，每个用户只能属于一个计费组。' : 'Members share a monthly traffic quota; each user can belong to one billing group.'}</p></div><form className="compact-form inline-form" onSubmit={create}><label>{locale === 'zh' ? '组名称' : 'Group name'}<input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} /></label><label>{locale === 'zh' ? '共享月配额（GB）' : 'Shared monthly quota (GB)'}<input min="0" type="number" placeholder={locale === 'zh' ? '不限量' : 'Unlimited'} value={quota} onChange={(event) => setQuota(event.target.value)} /></label><button className="primary-button" type="submit">{locale === 'zh' ? '创建计费组' : 'Create billing group'}</button></form><div className="admin-account-list">{groups.map((group) => <BillingGroupRow key={group.id} group={group} locale={locale} reload={load} />)}</div></div><div className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '用户' : 'Users'}</h4><label className="user-search">{locale === 'zh' ? '搜索用户' : 'Search users'}<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'zh' ? '邮箱、姓名或子域名' : 'Email, name, or routing ID'} /></label></div><div className="admin-account-list">{pageUsers.map((user) => <BillingUserRow key={user.id} initialUser={user} groups={groups} locale={locale} reloadUsers={load} />)}</div><Pagination page={page} total={visibleUsers.length} pageSize={pageSize} locale={locale} onChange={setPage} /></div></section>
+  return <section className="admin-tab-panel settings-stack"><AdminLocalAccounts locale={locale} groups={groups} reload={load} /><div className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '计费组' : 'Billing groups'}</h4><p>{locale === 'zh' ? '组内用户共享每月流量配额，每个用户只能属于一个计费组。' : 'Members share a monthly traffic quota; each user can belong to one billing group.'}</p></div><form className="compact-form inline-form" onSubmit={create}><label>{locale === 'zh' ? '组名称' : 'Group name'}<input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} /></label><label>{locale === 'zh' ? '共享月配额（GB）' : 'Shared monthly quota (GB)'}<input min="0" type="number" placeholder={locale === 'zh' ? '不限量' : 'Unlimited'} value={quota} onChange={(event) => setQuota(event.target.value)} /></label><button className="primary-button" type="submit">{locale === 'zh' ? '创建计费组' : 'Create billing group'}</button></form><div className="admin-account-list">{groups.map((group) => <BillingGroupRow key={group.id} group={group} locale={locale} reload={load} />)}</div></div><div className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '用户' : 'Users'}</h4><label className="user-search">{locale === 'zh' ? '搜索用户' : 'Search users'}<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'zh' ? '账号、邮箱、姓名或子域名' : 'Account, email, name, or routing ID'} /></label></div><div className="admin-account-list">{pageUsers.map((user) => <BillingUserRow key={user.id} initialUser={user} groups={groups} locale={locale} reloadUsers={load} />)}</div><Pagination page={page} total={visibleUsers.length} pageSize={pageSize} locale={locale} onChange={setPage} /></div></section>
 }
 
 function Pagination({ page, total, pageSize, locale, onChange }: { page: number; total: number; pageSize: number; locale: Locale; onChange: (page: number) => void }) {
@@ -2655,7 +2661,7 @@ function ConsoleMetric({ label, value }: { label: string; value: string }) { ret
 function auditActionLabel(action: string, locale: Locale) {
   if (locale === 'en') return action.replaceAll('_', ' ')
   return ({
-    admin_login_succeeded: '管理员登录成功', admin_passkey_login_succeeded: 'Passkey 登录成功', change_admin_password: '修改管理员密码', change_admin_username: '修改管理员账号', admin_session_revoked: '撤销管理员会话', admin_status_changed: '修改管理员状态', admin_password_reset: '重置管理员密码', user_created: '创建用户', user_status_changed: '修改用户状态', user_soft_deleted: '删除用户', user_routing_id_rotated: '更换用户子域名', user_login_succeeded: '用户登录成功', auth_provider_saved: '保存第三方登录方式', auth_provider_deleted: '删除第三方登录方式', user_identity_bound: '绑定用户登录身份', user_identity_unbound: '解除用户登录身份', smtp_settings_updated: '更新发件设置', email_invitation_created: '创建邮件邀请', billing_group_created: '创建计费组', billing_group_updated: '更新计费组', user_billing_updated: '更新用户配额', 'update runtime configuration': '更新运行配置',
+    admin_login_succeeded: '管理员登录成功', admin_passkey_login_succeeded: 'Passkey 登录成功', change_admin_password: '修改管理员密码', change_admin_username: '修改管理员账号', admin_session_revoked: '撤销管理员会话', admin_status_changed: '修改管理员状态', admin_password_reset: '重置管理员密码', registration_invitation_created: '创建注册链接', registration_invitation_revoked: '撤销注册链接', user_password_changed: '修改用户密码', user_created: '创建用户', user_status_changed: '修改用户状态', user_soft_deleted: '删除用户', user_routing_id_rotated: '更换用户子域名', user_login_succeeded: '用户登录成功', auth_provider_saved: '保存第三方登录方式', auth_provider_deleted: '删除第三方登录方式', user_identity_bound: '绑定用户登录身份', user_identity_unbound: '解除用户登录身份', smtp_settings_updated: '更新发件设置', email_invitation_created: '创建邮件邀请', billing_group_created: '创建计费组', billing_group_updated: '更新计费组', user_billing_updated: '更新用户配额', 'update runtime configuration': '更新运行配置',
   } as Record<string, string>)[action] ?? action.replaceAll('_', ' ')
 }
 

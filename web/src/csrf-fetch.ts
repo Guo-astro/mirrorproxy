@@ -1,3 +1,5 @@
+export const CSRF_ERROR_EVENT = 'mirrorproxy:csrf-error'
+
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 function cookieValue(name: string) {
@@ -21,11 +23,20 @@ export function installCsrfFetch() {
       ? `__Host-mirrorproxy_${audience}_csrf`
       : `mirrorproxy_${audience}_csrf_http`
     const token = cookieValue(cookieName)
-    if (!token) return originalFetch(input, init)
-
     const headers = new Headers(input instanceof Request ? input.headers : undefined)
     new Headers(init?.headers).forEach((value, name) => headers.set(name, value))
-    headers.set('x-mirrorproxy-csrf', token)
-    return originalFetch(input, { ...init, headers })
+    if (token) headers.set('x-mirrorproxy-csrf', token)
+    const requestInit = token ? { ...init, headers } : init
+    return originalFetch(input, requestInit).then(async (response) => {
+      if (response.status === 403 && (url.pathname.startsWith('/admin/api/') || url.pathname.startsWith('/api/account/') || url.pathname === '/api/auth/logout')) {
+        try {
+          const body = await response.clone().json() as { code?: string; error?: string }
+          if (body.code === 'csrf_invalid' || body.error === 'invalid CSRF proof') {
+            window.dispatchEvent(new CustomEvent(CSRF_ERROR_EVENT, { detail: { audience } }))
+          }
+        } catch { /* Keep non-JSON errors and response bodies unchanged. */ }
+      }
+      return response
+    })
   }) as typeof window.fetch
 }
