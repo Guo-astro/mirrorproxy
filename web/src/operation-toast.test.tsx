@@ -27,3 +27,17 @@ it('auto-dismisses and pauses while hovered', () => {
   act(() => vi.advanceTimersByTime(4500))
   expect(screen.queryByRole('status')).toBeNull()
 })
+
+it('keeps undo available and invokes the latest action after a rerender', () => {
+  vi.useFakeTimers()
+  const previous = vi.fn()
+  const latest = vi.fn()
+  const { rerender } = render(<ToastProvider><OperationToast locale="en" notice={{ tone: 'success', message: 'Source removed', action: { label: 'Undo', run: previous } }} /></ToastProvider>)
+  act(() => vi.advanceTimersByTime(60000))
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+  rerender(<ToastProvider><OperationToast locale="en" notice={{ tone: 'success', message: 'Source removed', action: { label: 'Undo', run: latest } }} /></ToastProvider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+  expect(latest).toHaveBeenCalledOnce()
+  expect(previous).not.toHaveBeenCalled()
+  expect(screen.queryByRole('status')).toBeNull()
+})

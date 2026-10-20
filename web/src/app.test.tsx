@@ -301,7 +301,7 @@ describe('App preferences', () => {
     deleteDialog = await screen.findByRole('dialog', { name: 'Delete custom repository' })
     fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete repository' }))
     await waitFor(() => expect(screen.queryByLabelText('Upstream URL for clickhouse')).toBeNull())
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
     expect(await screen.findByLabelText('Upstream URL for clickhouse')).toHaveProperty('value', 'https://packages.clickhouse.com/deb')
     fireEvent.click(screen.getByRole('button', { name: 'Delete custom source clickhouse' }))
     deleteDialog = await screen.findByRole('dialog', { name: 'Delete custom repository' })
