@@ -34,7 +34,6 @@ cookie_jar="$smoke_dir/cookies.txt"
 cat >"$config_path" <<EOF
 listen_addr = "$listen_addr"
 database_path = "$database_path"
-public_base_url = "http://$listen_addr"
 enabled_proxies = ["npm"]
 
 [management]

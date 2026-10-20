@@ -223,7 +223,8 @@ impl Database {
         Ok(LocalCreateOutcome::Created(id))
     }
 
-    pub async fn local_password_login(
+    /// Verifies local credentials and returns a session with an independent random token.
+    pub async fn authenticate_local_user(
         &self,
         username: &str,
         password: String,
@@ -381,7 +382,7 @@ mod tests {
         LocalUserCreation {
             actor: "admin",
             username,
-            password: "a-unique-user-passphrase".into(),
+            password: random_secret(32),
             display_name: "Friend",
             billing,
             invitation_token: token,
@@ -402,10 +403,11 @@ mod tests {
             quota_mode: "custom".into(),
             monthly_gb: Some(5),
         };
-        let LocalCreateOutcome::Created(id) = db
-            .create_local_user(account("friend", &billing, None))
-            .await
-            .unwrap()
+        let new_account = account("friend", &billing, None);
+        let password = new_account.password.clone();
+        let replacement = random_secret(32);
+        let incorrect = random_secret(32);
+        let LocalCreateOutcome::Created(id) = db.create_local_user(new_account).await.unwrap()
         else {
             panic!("account not created")
         };
@@ -423,7 +425,8 @@ mod tests {
         .await
         .unwrap();
         assert!(hash.starts_with("$argon2"));
-        assert!(!hash.contains("a-unique-user-passphrase"));
+        assert!(!hash.contains(&password));
+        assert!(verify_password(&password, &hash));
         let quota = db.user_billing_profile(id).await.unwrap().unwrap();
         assert_eq!(quota.group_id, Some(group.id));
         assert_eq!(quota.user_monthly_limit_bytes, Some(5 * 1024 * 1024 * 1024));
@@ -434,25 +437,30 @@ mod tests {
             LocalCreateOutcome::UsernameExists
         );
         assert!(db
-            .local_password_login("friend", "wrong".into())
+            .authenticate_local_user("friend", incorrect.clone())
             .await
             .unwrap()
             .is_none());
         let session = db
-            .local_password_login("FRIEND", "a-unique-user-passphrase".into())
+            .authenticate_local_user("FRIEND", password.clone())
             .await
             .unwrap()
             .unwrap();
+        assert_ne!(session.token, password);
+        let session_hash: String =
+            sqlx::query_scalar("SELECT token_hash FROM user_sessions WHERE user_id = ?")
+                .bind(id)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(session_hash, hash_token(&session.token));
+        assert_ne!(session_hash, hash);
         assert!(!db
-            .change_local_password(id, "wrong".into(), "replacement-user-passphrase".into())
+            .change_local_password(id, incorrect.clone(), replacement.clone())
             .await
             .unwrap());
         assert!(db
-            .change_local_password(
-                id,
-                "a-unique-user-passphrase".into(),
-                "replacement-user-passphrase".into()
-            )
+            .change_local_password(id, password.clone(), replacement.clone())
             .await
             .unwrap());
         assert!(db
@@ -461,18 +469,18 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(db
-            .local_password_login("friend", "a-unique-user-passphrase".into())
+            .authenticate_local_user("friend", password.clone())
             .await
             .unwrap()
             .is_none());
         assert!(db
-            .local_password_login("friend", "replacement-user-passphrase".into())
+            .authenticate_local_user("friend", replacement.clone())
             .await
             .unwrap()
             .is_some());
         db.set_user_disabled("admin", id, true).await.unwrap();
         assert!(db
-            .local_password_login("friend", "replacement-user-passphrase".into())
+            .authenticate_local_user("friend", replacement.clone())
             .await
             .unwrap()
             .is_none());
@@ -624,18 +632,19 @@ mod tests {
         );
         assert!(db.list_users().await.unwrap().is_empty());
         let billing = AccountBilling::default();
-        db.create_local_user(account("locked", &billing, None))
-            .await
-            .unwrap();
+        let new_account = account("locked", &billing, None);
+        let password = new_account.password.clone();
+        let incorrect = random_secret(32);
+        db.create_local_user(new_account).await.unwrap();
         for _ in 0..5 {
             assert!(db
-                .local_password_login("locked", "wrong".into())
+                .authenticate_local_user("locked", incorrect.clone())
                 .await
                 .unwrap()
                 .is_none());
         }
         assert!(db
-            .local_password_login("locked", "a-unique-user-passphrase".into())
+            .authenticate_local_user("locked", password.clone())
             .await
             .unwrap()
             .is_none());
@@ -644,7 +653,7 @@ mod tests {
             .await
             .unwrap();
         assert!(db
-            .local_password_login("locked", "a-unique-user-passphrase".into())
+            .authenticate_local_user("locked", password.clone())
             .await
             .unwrap()
             .is_some());

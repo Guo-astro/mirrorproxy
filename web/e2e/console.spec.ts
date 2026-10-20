@@ -591,6 +591,10 @@ test('configures SMTP, queues a test email, and resends an invitation', async ({
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('button', { name: 'Email & invitations' }).click()
   await page.getByLabel('SMTP host').fill('smtp.internal.example')
+  const senderBounds = (await page.getByLabel('From address', { exact: true }).boundingBox())!
+  const toggleBounds = (await page.getByLabel('Enable email delivery').locator('..').boundingBox())!
+  expect(toggleBounds.y).toBe(senderBounds.y)
+  expect(toggleBounds.height).toBe(senderBounds.height)
   await page.getByRole('button', { name: 'Save mail settings' }).click()
   await expect.poll(() => smtpUpdate?.host).toBe('smtp.internal.example')
   await page.getByLabel('Test recipient').fill('ops@example.com')
@@ -736,7 +740,7 @@ test('revokes administrator sessions and searches and soft-deletes users', async
   await expect.poll(() => deletedUser).toBe(true)
 })
 
-test('creates password users and copies revocable registration links without SMTP', async ({ page }) => {
+test('creates password users and copies revocable registration links without SMTP', async ({ page }, testInfo) => {
   let created: Record<string, unknown> | undefined
   let invitation: Record<string, unknown> | undefined
   let pending = false
@@ -759,21 +763,37 @@ test('creates password users and copies revocable registration links without SMT
   await page.getByRole('button', { name: 'Users & groups', exact: true }).click()
   const create = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Create user account', exact: true }) }).last()
   await create.getByLabel('Account', { exact: true }).fill('friend')
-  await create.getByLabel('Initial password').fill('a-unique-user-passphrase')
+  await create.getByLabel('Initial password').fill('x')
   await create.getByLabel('Display name').fill('Friend')
   await create.getByLabel('Assigned billing group').selectOption('7')
   await create.getByLabel('Initial quota').selectOption('custom')
   await create.getByLabel('Monthly quota GB').fill('12')
   await create.getByRole('button', { name: 'Create user', exact: true }).click()
-  await expect.poll(() => created).toEqual({ username: 'friend', password: 'a-unique-user-passphrase', display_name: 'Friend', billing: { group_id: 7, quota_mode: 'custom', monthly_gb: 12 } })
+  await expect.poll(() => created).toEqual({ username: 'friend', password: 'x', display_name: 'Friend', billing: { group_id: 7, quota_mode: 'custom', monthly_gb: 12 } })
   const invite = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Registration invitation links', exact: true }) }).last()
   await invite.getByLabel('Initial quota').selectOption('unlimited')
   await invite.getByLabel('Valid for (hours)').fill('24')
   await invite.getByRole('button', { name: 'Generate invitation link' }).click()
   await expect.poll(() => invitation).toEqual({ billing: { group_id: null, quota_mode: 'unlimited', monthly_gb: null }, expires_in_hours: 24 })
+  const generateButton = invite.getByRole('button', { name: 'Generate invitation link' })
+  expect((await generateButton.boundingBox())!.height).toBe(44)
+  expect((await create.getByRole('button', { name: 'Create user', exact: true }).boundingBox())!.height).toBe(44)
+  const linkInput = invite.getByLabel('Registration link (shown only now)')
+  const copyButton = invite.getByRole('button', { name: 'Copy invitation link' })
+  const inputBox = (await linkInput.boundingBox())!
+  const buttonBox = (await copyButton.boundingBox())!
+  expect(inputBox.y).toBe(buttonBox.y)
+  expect(inputBox.height).toBe(buttonBox.height)
+  const style = await linkInput.evaluate(input => ({ border: getComputedStyle(input).borderTopStyle, width: getComputedStyle(input).borderTopWidth }))
+  expect(style).toEqual({ border: 'solid', width: '1px' })
+  await page.screenshot({ path: testInfo.outputPath('local-accounts-desktop.png'), fullPage: true })
   await invite.getByRole('button', { name: 'Copy invitation link' }).click()
   await expect(invite.getByRole('button', { name: 'Copied', exact: true })).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('http://localhost:4173/login#register=one-time-secret')
+  await page.setViewportSize({ width: 375, height: 900 })
+  await expect(linkInput).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('local-accounts-mobile.png'), fullPage: true })
   await invite.getByRole('button', { name: 'Revoke link' }).click()
   await expect(invite.getByRole('button', { name: 'Revoke link' })).toHaveCount(0)
   await page.setViewportSize({ width: 375, height: 900 })
@@ -875,7 +895,7 @@ test('warns proactively on HTTPS when the backend sees an untrusted HTTP connect
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
-test('switches an open login page to invitation registration on fragment navigation', async ({ page }) => {
+test('switches an open login page to invitation registration on fragment navigation', async ({ page }, testInfo) => {
   await page.route('**/api/auth/providers', route => route.fulfill({ json: [] }))
   await page.route('**/api/account/**', route => route.fulfill({ status: 401, json: {} }))
   await page.goto('/login')
@@ -883,6 +903,22 @@ test('switches an open login page to invitation registration on fragment navigat
   await page.goto('/login#register=one-time-invitation')
   await expect(page.getByRole('heading', { name: 'Accept invitation and register' })).toBeVisible()
   await expect(page.getByLabel('Confirm password')).toBeVisible()
+  await expect(page.getByLabel('Display name', { exact: true })).not.toHaveAttribute('required')
+  await expect(page.getByLabel('Display name', { exact: true })).toHaveAttribute('placeholder', 'Optional; defaults to your account name')
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 1000 })
+    const fields = await page.locator('.invitation-registration-form input').evaluateAll(inputs => inputs.map(input => {
+      const rect = input.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }))
+    await page.screenshot({ path: testInfo.outputPath(`invitation-registration-${width}.png`), fullPage: true })
+    expect(fields).toHaveLength(4)
+    for (let index = 1; index < fields.length; index++) {
+      expect(fields[index].x).toBeCloseTo(fields[0].x, 0)
+      expect(fields[index].width).toBeCloseTo(fields[0].width, 0)
+      expect(fields[index].y).toBeGreaterThan(fields[index - 1].y + fields[index - 1].height)
+    }
+  }
   await page.evaluate(() => { location.hash = '' })
   await expect(page.getByRole('heading', { name: 'Sign in with a password' })).toBeVisible()
 })

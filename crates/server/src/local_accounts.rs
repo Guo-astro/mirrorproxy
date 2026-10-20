@@ -7,7 +7,7 @@ use axum::{
     extract::{ConnectInfo, Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use std::{net::SocketAddr, time::Instant};
@@ -35,6 +35,7 @@ pub(crate) struct Registration {
     token: String,
     username: String,
     password: String,
+    #[serde(default)]
     display_name: String,
 }
 
@@ -58,11 +59,8 @@ fn validate_account(username: &str, password: &str, display_name: &str) -> anyho
         "display_name must contain 1 to 100 characters"
     );
     anyhow::ensure!(password.len() <= 1024, "password is too long");
-    validate_admin_password(username, password).map_err(|error| {
-        anyhow::anyhow!(error
-            .to_string()
-            .replace("administrator password", "password"))
-    })
+    anyhow::ensure!(!password.is_empty(), "password must not be empty");
+    Ok(())
 }
 
 pub(crate) async fn create(
@@ -101,6 +99,7 @@ pub(crate) async fn create(
 pub(crate) async fn invite(
     headers: HeaderMap,
     State(state): State<AppState>,
+    native_https: Option<Extension<HttpsTransport>>,
     Json(request): Json<NewInvitation>,
 ) -> Response {
     let actor = match require_super_admin(&headers, &state).await {
@@ -116,16 +115,28 @@ pub(crate) async fn invite(
     if let Err(error) = request.billing.validate() {
         return bad_request_response(error.to_string());
     }
-    // Use a configured public origin rather than trusting Host for links containing credentials.
-    let base = state.config().public_base_url.clone();
+    // Forwarded headers have already been stripped unless the immediate peer is
+    // trusted. Reuse the validated request authority when no public URL is set.
+    let config = state.config();
+    let base = state.public_base_url(&headers);
     let mut url = match Url::parse(&base) {
-        Ok(url) if matches!(url.scheme(), "http" | "https") => url,
+        Ok(url)
+            if matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none() =>
+        {
+            url
+        }
         _ => {
             return bad_request_response(
-                "configure public_base_url before generating an invitation".into(),
+                "cannot determine a valid public URL for the invitation".into(),
             )
         }
     };
+    if config.public_base_url.is_empty() && native_https.is_some() {
+        let _ = url.set_scheme("https");
+    }
     url.set_path("/login");
     url.set_query(None);
     match state
@@ -220,20 +231,21 @@ pub(crate) async fn register(
     if request.token.len() != 48 {
         return bad_request_response("invalid invitation".into());
     }
-    if let Err(error) = validate_account(
-        request.username.trim(),
-        &request.password,
-        request.display_name.trim(),
-    ) {
+    let username = request.username.trim();
+    let display_name = match request.display_name.trim() {
+        "" => username,
+        name => name,
+    };
+    if let Err(error) = validate_account(username, &request.password, display_name) {
         return bad_request_response(error.to_string());
     }
     let result = state
         .database
         .create_local_user(LocalUserCreation {
             actor: "invitation",
-            username: request.username.trim(),
+            username,
             password: request.password,
-            display_name: request.display_name.trim(),
+            display_name,
             billing: &AccountBilling::default(),
             invitation_token: Some(&request.token),
             routing_length: state.config().user_access.routing_id_min_length,
@@ -289,7 +301,7 @@ pub(crate) async fn login(
     }
     match state
         .database
-        .local_password_login(request.username.trim(), request.password)
+        .authenticate_local_user(request.username.trim(), request.password)
         .await
     {
         Ok(Some(session)) => session_response(session),
@@ -373,5 +385,29 @@ pub(crate) async fn change_password(
             tracing::error!(%error, "failed to change user password");
             internal_error_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod password_policy_tests {
+    use super::*;
+
+    #[test]
+    fn local_passwords_only_require_nonempty_content_with_bounded_size() {
+        let password = uuid::Uuid::new_v4().simple().to_string();
+        let password = password.repeat(33);
+        for length in [1, 3, 5, 12, 1024] {
+            assert!(validate_account("friend", &password[..length], "Friend").is_ok());
+        }
+        let whitespace = loop {
+            let candidate = char::from(rand::random::<u8>());
+            if candidate.is_whitespace() {
+                break candidate.to_string();
+            }
+        };
+        assert!(validate_account("friend", &whitespace, "Friend").is_ok());
+        let empty_password = String::new();
+        assert!(validate_account("friend", &empty_password, "Friend").is_err());
+        assert!(validate_account("friend", &password[..1025], "Friend").is_err());
     }
 }

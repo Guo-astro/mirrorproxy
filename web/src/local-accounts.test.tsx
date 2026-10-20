@@ -4,6 +4,21 @@ import { AdminLocalAccounts, PasswordAccess } from './local-accounts'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
+it('allows invitation registration with an empty optional display name', async () => {
+  const signedIn = vi.fn(async () => {})
+  const fetcher = vi.fn(async () => new Response('{}'))
+  vi.stubGlobal('fetch', fetcher)
+  render(<PasswordAccess locale="zh" token="invitation-token" onSignedIn={signedIn} />)
+  fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'friend' } })
+  fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'x' } })
+  fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'x' } })
+  const form = screen.getByRole('button', { name: '完成注册' }).closest('form')!
+  expect(form.checkValidity()).toBe(true)
+  fireEvent.submit(form)
+  await waitFor(() => expect(signedIn).toHaveBeenCalledOnce())
+  expect(fetcher).toHaveBeenCalledWith('/api/auth/register', expect.objectContaining({ body: JSON.stringify({ token: 'invitation-token', username: 'friend', password: 'x', display_name: '' }) }))
+})
+
 it('only submits invitation registration after matching passwords and retains failures for retry', async () => {
   const signedIn = vi.fn(async () => {})
   const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ error: 'account already exists' }), { status: 409 }))
@@ -40,4 +55,13 @@ it('generates and copies links with administrator-selected quota', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Copy invitation link' }))
   await waitFor(() => expect(clipboard).toHaveBeenCalledWith('https://mirror.example/login#register=secret'))
   expect(fetcher).toHaveBeenCalledWith('/admin/api/registration-invitations', expect.objectContaining({ body: JSON.stringify({ billing: { group_id: 7, quota_mode: 'custom', monthly_gb: 25 }, expires_in_hours: 72 }) }))
+})
+
+it('reports missing address configuration accurately instead of calling the invitation invalid', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify(init?.method === 'POST' ? { error: 'configure public_base_url before generating an invitation' } : []), { status: init?.method === 'POST' ? 400 : 200 })))
+  render(<AdminLocalAccounts locale="zh" groups={[]} reload={async () => {}} />)
+  fireEvent.submit(screen.getByRole('button', { name: '生成邀请链接' }).closest('form')!)
+  expect(await screen.findByText('无法确定访问地址，请检查当前访问地址或公开地址设置。')).toBeTruthy()
+  expect(screen.queryByText('邀请链接无效、已过期或已被使用，请联系管理员。')).toBeNull()
+  expect(screen.getByRole('alert').closest('.toast-region')).toBeTruthy()
 })

@@ -6991,10 +6991,80 @@ mod tests {
                 "a-unique-user-passphrase",
                 StatusCode::FORBIDDEN,
             ),
-            ("https://mirror.example", "short", StatusCode::BAD_REQUEST),
+            ("https://mirror.example", "", StatusCode::BAD_REQUEST),
         ] {
             let response = app.clone().oneshot(Request::builder().method("POST").uri("/api/auth/register").header("host","mirror.example").header("origin",origin).header("content-type","application/json").body(Body::from(serde_json::json!({"token":"x".repeat(48),"username":"friend","password":password,"display_name":"Friend"}).to_string())).unwrap()).await.unwrap();
             assert_eq!(response.status(), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn invitation_registration_defaults_optional_display_name_to_account() {
+        use tower::ServiceExt;
+        let (state, _) = admin_test_state().await;
+        state.config.write().unwrap().registration.mode = "invite_only".into();
+        let app = Router::new()
+            .route("/api/auth/register", post(local_accounts::register))
+            .layer(axum::Extension(ConnectInfo(
+                "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+            )))
+            .with_state(state.clone());
+        for (index, name) in [None, Some(""), Some("   "), Some("  自定义名称  ")]
+            .into_iter()
+            .enumerate()
+        {
+            let (_, token) = state
+                .database
+                .create_registration_invitation(
+                    "admin",
+                    &database::local_accounts::AccountBilling::default(),
+                    72,
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            let username = format!("invited-{index}");
+            let mut body = serde_json::json!({
+                "token": token, "username": format!(" {username} "),
+                "password": uuid::Uuid::new_v4().to_string(),
+            });
+            if let Some(name) = name {
+                body["display_name"] = name.into();
+            }
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/auth/register")
+                        .header("host", "mirror.example")
+                        .header("origin", "https://mirror.example")
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let response = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let response: serde_json::Value = serde_json::from_slice(&response).unwrap();
+            let user = state
+                .database
+                .user_account(response["user_id"].as_i64().unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(user.username.as_deref(), Some(username.as_str()));
+            assert_eq!(
+                user.display_name,
+                if index == 3 {
+                    "自定义名称"
+                } else {
+                    &username
+                }
+            );
         }
     }
 
@@ -9011,6 +9081,154 @@ on_exceeded = "stop_proxy"
         )
         .await;
         assert_eq!(repeated.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn registration_links_use_validated_request_origin_without_public_config() {
+        let (state, credentials) = admin_test_state().await;
+        let session = state
+            .database
+            .login(&credentials.username, &credentials.password)
+            .await
+            .unwrap()
+            .unwrap();
+        let app = Router::new()
+            .route(
+                "/admin/api/registration-invitations",
+                post(local_accounts::invite),
+            )
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                strip_untrusted_forwarded_headers,
+            ))
+            .with_state(state.clone());
+        for (host, peer, forwarded_host, forwarded_proto, native_tls, expected) in [
+            (
+                "127.0.0.1:3000",
+                "127.0.0.1:1234",
+                None,
+                None,
+                false,
+                "http://127.0.0.1:3000/login",
+            ),
+            (
+                "[::1]:3000",
+                "127.0.0.1:1234",
+                None,
+                None,
+                false,
+                "http://[::1]:3000/login",
+            ),
+            (
+                "backend.internal:3000",
+                "127.0.0.1:1234",
+                Some("mirror.example:8443"),
+                Some("https"),
+                false,
+                "https://mirror.example:8443/login",
+            ),
+            (
+                "127.0.0.1:3000",
+                "198.51.100.1:1234",
+                Some("attacker.example"),
+                Some("https"),
+                false,
+                "http://127.0.0.1:3000/login",
+            ),
+            (
+                "mirror.example:8443",
+                "198.51.100.1:1234",
+                None,
+                None,
+                true,
+                "https://mirror.example:8443/login",
+            ),
+        ] {
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri("/admin/api/registration-invitations")
+                .header(header::HOST, host)
+                .header(header::AUTHORIZATION, format!("Bearer {}", session.token))
+                .header(header::CONTENT_TYPE, "application/json");
+            if let Some(value) = forwarded_host {
+                builder = builder.header("x-forwarded-host", value);
+            }
+            if let Some(value) = forwarded_proto {
+                builder = builder.header("x-forwarded-proto", value);
+            }
+            let mut request = builder
+                .body(Body::from(r#"{"billing":{},"expires_in_hours":72}"#))
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+            if native_tls {
+                request.extensions_mut().insert(HttpsTransport);
+            }
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::CREATED);
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            let url = Url::parse(body["url"].as_str().unwrap()).unwrap();
+            let token = url.fragment().unwrap().strip_prefix("register=").unwrap();
+            assert_eq!(token.len(), 48);
+            let mut origin = url.clone();
+            origin.set_fragment(None);
+            assert_eq!(origin.as_str(), expected);
+        }
+        state.config.write().unwrap().public_base_url = "https://configured.example".into();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/admin/api/registration-invitations")
+            .header(header::HOST, "127.0.0.1:3000")
+            .header(header::AUTHORIZATION, format!("Bearer {}", session.token))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"billing":{},"expires_in_hours":72}"#))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://configured.example/login#register="));
+        state.config.write().unwrap().public_base_url.clear();
+        for host in [
+            "user:secret@mirror.example",
+            "mirror.example/path",
+            "mirror.example?query",
+        ] {
+            let before = state
+                .database
+                .registration_invitations()
+                .await
+                .unwrap()
+                .len();
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/admin/api/registration-invitations")
+                        .header(header::HOST, host)
+                        .header(header::AUTHORIZATION, format!("Bearer {}", session.token))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(r#"{"billing":{},"expires_in_hours":72}"#))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                state
+                    .database
+                    .registration_invitations()
+                    .await
+                    .unwrap()
+                    .len(),
+                before
+            );
+        }
     }
 
     #[tokio::test]

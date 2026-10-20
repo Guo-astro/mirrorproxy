@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 
 base = sys.argv[1]
-password = "MirrorProxy-Local-Smoke-Passphrase!"
+password = "x"  # Ordinary user passwords only require nonempty content.
 
 
 def client():
@@ -79,6 +79,7 @@ request(friend, "/api/auth/password/login", {**login, "password": password + "-c
 invite = request(admin, "/admin/api/registration-invitations", {"billing": billing, "expires_in_hours": 72}, expected=201)
 url = urllib.parse.urlsplit(invite["url"])
 assert url.path == "/login" and not url.query
+assert url.scheme + "://" + url.netloc == base
 raw_token = urllib.parse.parse_qs(url.fragment)["register"][0]
 registration = {"token": raw_token, "username": "smoke-friend", "password": password, "display_name": "Invited Friend"}
 new_friend = client()
