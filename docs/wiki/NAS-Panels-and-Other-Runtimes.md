@@ -1,5 +1,7 @@
 # NAS, panels, and other runtimes
 
+> **Distinguish a Docker Hub mirror from a custom registry.** If a mirror setting is unavailable, use `mirror.example.com/<original-registry>/<image>`; Docker Hub can use `mirror.example.com/library/nginx:1.27`.
+
 NAS products and server panels may manage an underlying Docker Engine, or they may expose only a
 custom-registry form rather than a Docker Hub mirror. Identify what the field means and prove the
 result with a command-line pull.

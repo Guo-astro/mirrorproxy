@@ -36,13 +36,14 @@ jobs:
       - name: Rust format
         run: cargo fmt --check
       - name: Rust clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
       - name: Real server and administration smoke
         run: |
           cargo build --locked -p mirrorproxy-server
           ./scripts/smoke-admin-api.sh target/debug/mirrorproxy-server
+          node web/scripts/smoke-admin-browser.mjs target/debug/mirrorproxy-server
 
   supply-chain:
     name: Supply chain and coverage

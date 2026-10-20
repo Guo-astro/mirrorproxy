@@ -1,14 +1,25 @@
-# Container registries and runtimes
+# Container images: pull first, configure the runtime when needed
 
-MirrorProxy exposes one OCI Distribution endpoint for multiple public container registries. The
-Container Registry Workbench on the home page reads the live `/api/sources` capability catalog,
-validates image references, and rewrites Compose YAML or Dockerfiles.
+> **`registry-mirrors` covers Docker Hub only.** GHCR, Quay, MCR, and other supported registries need explicit image-host rewriting. Public pulls are supported; pushes are not.
 
-Choose the guide for your environment:
+## Use directly without changing runtime configuration
 
-- [Docker Engine and desktop runtimes](Docker-Engine-and-Desktop)
-- [containerd and K3s](Containerd-and-K3s)
-- [NAS, panels, and other runtimes](NAS-Panels-and-Other-Runtimes)
+Replace `mirror.example.com`:
+
+```bash
+docker pull mirror.example.com/library/busybox:1.36.1
+docker pull mirror.example.com/registry.k8s.io/pause:3.10
+```
+
+The home page's Container Registry Workbench converts image names, Compose, and Dockerfiles. Review the result and verify a real pull.
+
+## Configure your platform
+
+| Environment | Guide |
+| --- | --- |
+| Docker Engine, Docker Desktop, OrbStack | [Docker configuration](Docker-Engine-and-Desktop) |
+| K3s and containerd | [Node configuration](Containerd-and-K3s) |
+| NAS, Portainer, Podman, HPC, Harbor/Nexus | [Platform guides](NAS-Panels-and-Other-Runtimes) |
 
 ## Supported registries
 
@@ -35,82 +46,12 @@ license acceptance never borrow server-side MirrorProxy credentials. Upstream `4
 responses remain authorization boundaries. A registry in this table means that anonymous public
 projects can be pulled, not that private content is available.
 
-## Docker Engine: global Docker Hub acceleration
+## Troubleshooting checks
 
-Docker's `registry-mirrors` setting applies only to Docker Hub. Preview and then apply the system
-configuration:
-
-```bash
-mirrorproxy set docker --mirror mirrorproxy --base-url https://mirror.example.com \
-  --scope system --dry-run
-sudo mirrorproxy set docker --mirror mirrorproxy --base-url https://mirror.example.com \
-  --scope system
-```
-
-The client structurally merges `/etc/docker/daemon.json`, preserves fields such as `data-root`,
-`dns`, and runtimes, and stores a rollback record under
-`/var/lib/mirrorproxy/sources/docker.json`. It does not restart Docker automatically:
-
-```bash
-sudo systemctl restart docker
-docker info | sed -n '/Registry Mirrors/,+5p'
-docker pull busybox:1.36.1
-```
-
-Restore the previous file with `sudo mirrorproxy reset docker --scope system`, then restart Docker
-during a maintenance window.
-
-## Desktop, Compose, Dockerfile, containerd, and K3s
-
-Docker Desktop and compatible NAS panels can merge this into their Docker Engine settings:
-
-```json
-{ "registry-mirrors": ["https://mirror.example.com"] }
-```
-
-For every non-Docker-Hub registry, rewrite the image explicitly:
-
-```yaml
-services:
-  api:
-    image: mirror.example.com/ghcr.io/owner/api:1.0
-```
-
-```dockerfile
-FROM mirror.example.com/mcr.microsoft.com/dotnet/runtime:8.0
-```
-
-K3s can use the Docker Hub endpoint in `/etc/rancher/k3s/registries.yaml`:
-
-```yaml
-mirrors:
-  docker.io:
-    endpoint:
-      - "https://mirror.example.com"
-```
-
-For other registries, prefer explicit image rewrites in Helm values and workload manifests. Do not
-assume Docker's `registry-mirrors` setting covers GHCR, Quay, GCR, or MCR.
-
-## Podman and repository managers
-
-- Prefer explicit MirrorProxy image references with Podman; validate the distribution's
-  `registries.conf` version before editing system configuration.
-- Portainer can use the site as a custom registry while stacks use rewritten image references.
-- If Harbor or Nexus uses MirrorProxy as an upstream, enforce authentication and cache limits on
-  the private repository manager. Do not place private upstream credentials on a public instance.
-- Singularity and Apptainer can pull public images with
-  `docker://<mirror-host>/<original-image>`; upstream GPU/HPC license requirements still apply.
-
-## Verification and safety
-
-1. Check `GET /api/sources` and its `container_registries` list first.
-2. Treat `401` as a possible Bearer challenge; `403` commonly indicates upstream policy.
-3. Verify both manifests and blobs rather than relying on a successful `/v2/` ping.
-4. Avoid unversioned, unchecked `curl | sh` or `wget | bash` installers.
-5. If traffic still goes directly upstream, confirm that you edited the file used by the active
-   runtime. Docker, containerd, and K3s do not share configuration.
-6. `manifest unknown` usually means the image path or tag does not exist. A failed search in a NAS
-   GUI does not prove that command-line pulls are broken.
+- `container_registries` in `/api/sources` is the live list; do not guess paths from page names.
+- A 401 may be a normal Bearer challenge. Public proxying does not bypass 403 responses, license acceptance, or private-image authentication.
+- A successful `/v2/` checks reachability only. Verify both manifests and blobs with a real pull.
+- For direct-upstream traffic, check the active Docker/containerd/K3s configuration; they use different files.
+- NAS search and CLI pulls may use different paths. Diagnose with real pulls and logs.
 
 [简体中文](Container-Registries-and-Runtimes-zh-CN)

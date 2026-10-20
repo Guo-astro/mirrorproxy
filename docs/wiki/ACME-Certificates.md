@@ -1,24 +1,9 @@
-# Automatic ACME certificates
+# Native HTTPS and ACME (advanced)
 
-MirrorProxy can obtain and renew certificates through ACME and atomically write
-`fullchain.pem` and `privkey.pem`. A reverse proxy can consume them, or MirrorProxy can bind
-ports 80/443 and serve HTTPS itself. ACME is disabled by default. Account keys and certificates
-stay in the configured local directory. DNS API credentials entered in the admin console are
-stored in local SQLite as write-only secrets: APIs return only configured-state flags, never
-plaintext credentials.
+> **Already using Caddy, Traefik, Nginx, or another HTTPS gateway?** You usually do not need this page. Use [reverse proxy examples](Reverse-Proxy) and let the gateway own certificates instead of running two issuers.
 
-## Admin configuration
-
-Super administrators can configure HTTP-01, DNS-01, certificate domains, renewal intervals,
-and provider credentials under Advanced settings. The console writes a dedicated
-`acme_settings` table and never rewrites `config.toml`. Restart MirrorProxy after saving to
-replace the running ACME worker. Saving by itself never issues or replaces a certificate and
-never changes Caddy.
-
-When `MIRRORPROXY_ACME_*` or compatible acme.sh credential variables are present, environment
-configuration keeps precedence and the admin form becomes read-only. Without those variables,
-the first upgraded startup seeds database settings from the current TOML configuration so
-existing values are retained.
+Use this page for native MirrorProxy HTTPS or advanced certificate-file output.
+Initial deployments can use TOML without logging in first. Use HTTP-01 for an ordinary hostname and DNS-01 for wildcards.
 
 ## Serving HTTPS without a reverse proxy
 
@@ -176,5 +161,18 @@ In reverse-proxy mode, MirrorProxy updates the files atomically. Nginx, Apache, 
 systemd path unit, container orchestration, or configuration management to reload after file
 changes. Caddy deployments should normally keep Caddy's native certificate automation.
 Native HTTPS mode reloads renewed certificates itself.
+
+## Advanced: console settings and precedence
+
+Super administrators can configure HTTP-01, DNS-01, certificate domains, renewal intervals,
+and provider credentials under Advanced settings. The console writes a dedicated
+`acme_settings` table and never rewrites `config.toml`. Restart MirrorProxy after saving to
+replace the running ACME worker. Saving by itself never issues or replaces a certificate and
+never changes Caddy.
+
+When `MIRRORPROXY_ACME_*` or compatible acme.sh credential variables are present, environment
+configuration keeps precedence and the admin form becomes read-only. Without those variables,
+the first upgraded startup seeds database settings from the current TOML configuration so
+existing values are retained.
 
 [简体中文](ACME-Certificates-zh-CN)

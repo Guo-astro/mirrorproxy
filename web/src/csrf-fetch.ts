@@ -16,9 +16,10 @@ export function installCsrfFetch() {
     const url = new URL(rawUrl, window.location.href)
     if (url.origin !== window.location.origin) return originalFetch(input, init)
 
-    const cookieName = url.pathname.startsWith('/admin/')
-      ? '__Host-mirrorproxy_admin_csrf'
-      : '__Host-mirrorproxy_user_csrf'
+    const audience = url.pathname.startsWith('/admin/') ? 'admin' : 'user'
+    const cookieName = window.location.protocol === 'https:'
+      ? `__Host-mirrorproxy_${audience}_csrf`
+      : `mirrorproxy_${audience}_csrf_http`
     const token = cookieValue(cookieName)
     if (!token) return originalFetch(input, init)
 

@@ -1,16 +1,17 @@
-# Proxy Adapters
+# Supported sources
 
-`/api/sources` is the authoritative catalog for the console, client, and docs;
-do not infer a route from this page. **Advanced settings** controls adapter
-enablement and upstream groups. A field can contain comma-separated HTTP(S)
-endpoints, attempted in order.
+Open your instance's home page, choose a source, and copy its generated command. See [Client](Client) for local configuration and [Container images](Container-Registries-and-Runtimes) for image pulls.
+
+> **Server proxy support does not imply automatic client configuration for every target.** MirrorProxy is an on-demand read-only proxy/cache, not an unrestricted forward proxy or a private artifact upload service.
+
+`/api/sources` lists the active instance's capabilities. Advanced settings controls adapters and upstream groups; comma-separated endpoints follow the configured selection policy.
 
 ## Covered categories
 
 | Category | Representative targets |
 | --- | --- |
 | Code and releases | GitHub, GitHub Raw, Git smart HTTP clone. |
-| OCI | Docker Hub, GHCR, Quay, Kubernetes Registry, GCR, Microsoft MCR, Elastic Registry, and Homebrew OCI. |
+| OCI | Docker Hub, GHCR, Quay, Kubernetes Registry, GCR, Microsoft MCR, Elastic Registry, GitLab, NVIDIA NVCR, Oracle, and Homebrew OCI. |
 | Language ecosystems | Composer, npm, Go, Maven, RubyGems, NuGet, CPAN, CRAN, Hackage, Julia, LuaRocks, Clojars, CocoaPods, Pub, Anaconda, PyPI, Cargo. |
 | Toolchains | Rustup, NVM, Homebrew, WinGet, TeX Live, ELPA, Nix, Guix, Flatpak. |
 | Operating systems | Debian, Ubuntu, Fedora, Arch, Alpine, openSUSE, Void, Gentoo, FreeBSD, plus OpenWrt, Termux, MSYS2, ROS, and configured extra static directories. |
@@ -21,7 +22,7 @@ only writes targets defined as safely configurable on that platform. For example
 FreeBSD pkg is a proxy catalog target, not a claim of full system-scope automatic
 configuration in the client.
 
-## Upstreams and boundaries
+## Advanced: upstreams and boundaries
 
 - PyPI HTML indexes support `../../packages/...` download links, preserving query
   strings and hash fragments. Set `upstreams.pypi_files` to the file host/base

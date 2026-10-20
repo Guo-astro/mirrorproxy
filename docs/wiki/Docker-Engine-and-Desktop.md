@@ -1,5 +1,7 @@
 # Docker Engine and desktop runtimes
 
+> **Use `registry-mirrors` for Docker Hub only; rewrite other registry hosts.** For a one-off pull, use `docker pull mirror.example.com/library/busybox:1.36.1`.
+
 This page configures MirrorProxy for Docker Engine, Docker Desktop, and OrbStack. Replace
 `mirror.example.com` with your deployment hostname.
 

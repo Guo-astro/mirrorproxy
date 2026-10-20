@@ -5,6 +5,37 @@ does not need Python, Node.js, or the server runtime. Stable releases are
 distributed through GitHub Releases, a Homebrew tap, WinGet, and a signed APT
 repository. See the deployment guide for the server.
 
+> **These methods install the `mirrorproxy` client only.** For the server, see [Deployment](Deployment); for client commands, see [Client](Client).
+
+## Install scripts
+
+Linux/macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh
+mirrorproxy --version
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.ps1 | iex
+mirrorproxy --version
+```
+
+The scripts download the latest stable release, verify SHA-256, and install to a
+default directory. Version, destination, and download prefix can be explicit:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- \
+  --version v1.4.4 --install-dir "$HOME/.local/bin"
+```
+
+Equivalent environment variables are `MIRRORPROXY_VERSION`,
+`MIRRORPROXY_INSTALL_DIR`, `MIRRORPROXY_DOWNLOAD_MIRROR`, and
+`MIRRORPROXY_GITHUB_REPO`. The Windows script accepts `-Version`, `-InstallDir`,
+`-Mirror`, and `-Repository`.
+
 ## Homebrew (macOS/Linux)
 
 Add the official tap once, then install and upgrade normally:
@@ -67,35 +98,6 @@ Each stable `v*` tag on [GitHub Releases](https://github.com/inbjo/MirrorProxy/r
 Every asset has a matching `.sha256` file, and the release also includes an
 aggregate `SHA256SUMS`. Verify the checksum before installation.
 
-## Install scripts
-
-Linux/macOS:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh
-mirrorproxy --version
-```
-
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.ps1 | iex
-mirrorproxy --version
-```
-
-The scripts download the latest stable release, verify SHA-256, and install to a
-default directory. Version, destination, and download prefix can be explicit:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- \
-  --version v1.1.0 --install-dir "$HOME/.local/bin"
-```
-
-Equivalent environment variables are `MIRRORPROXY_VERSION`,
-`MIRRORPROXY_INSTALL_DIR`, `MIRRORPROXY_DOWNLOAD_MIRROR`, and
-`MIRRORPROXY_GITHUB_REPO`. The Windows script accepts `-Version`, `-InstallDir`,
-`-Mirror`, and `-Repository`.
-
 ## Manual installation
 
 Download the matching asset and `.sha256` from a Release, verify it, extract it,
@@ -105,37 +107,4 @@ The archives contain only the client executable.
 Run `mirrorproxy --version` and `mirrorproxy list` after installation. See
 [Standalone Client](Client) for client operations.
 
-## One-time publisher setup
-
-1. Create the public `inbjo/homebrew-tap` repository with `main` as its default branch.
-2. Create a fine-grained PAT with Contents read/write access only to that tap and
-   save it as the `HOMEBREW_TAP_TOKEN` Actions secret in this repository.
-3. Create a dedicated APT signing key. Save its ASCII-armored private key as
-   `APT_GPG_PRIVATE_KEY` and, when applicable, its passphrase as
-   `APT_GPG_PASSPHRASE`. Never commit the private key.
-
-   ```bash
-   gpg --quick-generate-key "MirrorProxy APT Repository <noreply@github.com>" ed25519 sign 3y
-   gpg --list-secret-keys --keyid-format=long
-   gpg --armor --export-secret-keys <fingerprint> >mirrorproxy-apt-private.asc
-   ```
-
-   After storing the complete exported file in the secret, back it up offline
-   and remove it from the working directory. Losing the key prevents existing
-   clients from authenticating future repository updates.
-4. The Release workflow publishes the signed repository to the dedicated `apt`
-   branch at `https://raw.githubusercontent.com/inbjo/MirrorProxy/apt`.
-5. After the first WinGet manifest is accepted into `microsoft/winget-pkgs`, add
-   a `WINGET_TOKEN` capable of creating the update PR and set the repository
-   variable `WINGET_AUTO_SUBMIT` to `true`.
-
-   For the first release, download `mirrorproxy-winget-manifests.zip` from the
-   GitHub Release, run `winget validate <manifest-directory>`, and submit the
-   `manifests/i/Inbjo/MirrorProxy/<version>` directory to
-   `microsoft/winget-pkgs`. Do not enable automatic submission until it merges.
-
-On a stable `v*` tag, the release workflow builds the client packages and
-manifests, signs and deploys the APT repository, and updates the Homebrew tap.
-WinGet submission runs only after it is explicitly enabled.
-
-[简体中文](Distribution-zh-CN)
+[Maintainer publishing setup](Release-Maintenance) · [简体中文](Distribution-zh-CN)

@@ -1,5 +1,7 @@
 # Docker Engine 与桌面运行时
 
+> **Docker Hub 才使用 `registry-mirrors`；其他 Registry 必须改写镜像地址。** 只想临时拉取，可直接执行 `docker pull mirror.example.com/library/busybox:1.36.1`。
+
 本页说明如何为 Docker Engine、Docker Desktop 和 OrbStack 配置 MirrorProxy。示例中的
 `mirror.example.com` 应替换为实际部署域名。
 

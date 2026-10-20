@@ -1,18 +1,6 @@
 # GeoIP and IP Access Control
 
-MirrorProxy uses offline ip2region XDB v3 files for IPv4 and IPv6. Releases and
-images include pinned data; the console shows path, size, timestamp, and SHA-256
-and a super administrator can update it atomically. One-off lookups are not
-stored. Missing or invalid data becomes `Unknown` without stopping the proxy or
-IP rules.
-
-## Trusted client address
-
-GeoIP, access rules, and rate limits use the client source address. For direct
-connections this is the TCP peer. Behind a reverse proxy, `X-Forwarded-For` is
-read only when that peer matches `trusted_proxies`, and is resolved right to left.
-Only list real proxies, never `0.0.0.0/0`. A single Nginx hop should overwrite
-client-provided XFF; every hop in a multi-proxy chain must be trusted.
+> **Deny rules win; any enabled allow rule denies all non-matches.** IP rules apply to recognized package-proxy paths, not `/admin`. Verify real client addresses behind a proxy.
 
 ## Rules
 
@@ -33,5 +21,21 @@ counts. Billable bytes can exceed delivered bytes when bidirectional accounting
 is enabled. Historical aggregates do not store raw client IPs and are not
 rewritten after a GeoIP update. `Unknown` normally means private/reserved space,
 no XDB result, or an incorrect trusted-proxy configuration.
+
+## Trusted client address
+
+GeoIP, access rules, and rate limits use the client source address. For direct
+connections this is the TCP peer. Behind a reverse proxy, `X-Forwarded-For` is
+read only when that peer matches `trusted_proxies`, and is resolved right to left.
+Only list real proxies, never `0.0.0.0/0`. A single Nginx hop should overwrite
+client-provided XFF; every hop in a multi-proxy chain must be trusted.
+
+## Advanced: offline location data
+
+MirrorProxy uses offline ip2region XDB v3 files for IPv4 and IPv6. Releases and
+images include pinned data; the console shows path, size, timestamp, and SHA-256
+and a super administrator can update it atomically. One-off lookups are not
+stored. Missing or invalid data becomes `Unknown` without stopping the proxy or
+IP rules.
 
 [简体中文](GeoIP-and-IP-Access-Control-zh-CN)

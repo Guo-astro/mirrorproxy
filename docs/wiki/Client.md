@@ -1,5 +1,7 @@
 # Standalone Client
 
+> **This configures your computer; it does not deploy a server.** Have an existing server HTTPS root URL such as `https://mirror.example.com`, without `/npm` or other repository paths.
+
 `mirrorproxy` is an independent binary: it neither connects to nor manages the
 server database. It uses the shared catalog to write local source configuration
 and preserves previous content for exact reset. Stable releases include Linux
@@ -32,6 +34,7 @@ mirrorproxy list
 mirrorproxy list --category lang
 mirrorproxy mirrors
 mirrorproxy get npm --base-url https://mirror.example.com
+mirrorproxy set npm --base-url https://mirror.example.com --dry-run
 mirrorproxy set npm --base-url https://mirror.example.com
 mirrorproxy reset npm
 ```
@@ -41,7 +44,7 @@ use `--force` only after review. `--dry-run` previews changes. The `mirrorproxy`
 provider requires `--base-url` in `http(s)://host[:port]` form, without a package
 repository path.
 
-## Scope and safety
+## Advanced: scope and safety
 
 User scope covers npm, pip, Cargo, Go, Composer, and other supported targets.
 System scope is directly supported on Linux and changes APT, DNF, pacman, apk,

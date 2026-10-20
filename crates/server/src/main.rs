@@ -79,6 +79,18 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; base-uri 'none'; conn
 const PERMISSIONS_POLICY: &str = "accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(self), screen-wake-lock=(), usb=()";
 const STRICT_TRANSPORT_SECURITY: &str = "max-age=63072000";
 
+#[derive(Clone, Copy)]
+struct HttpsTransport;
+
+// Keep HTTP cookies separate so an HTTP login cannot overwrite an HTTPS
+// session, and switching to HTTPS requires a fresh, encrypted login.
+const HTTP_BROWSER_COOKIES: &[(&str, &str)] = &[
+    (ADMIN_SESSION_COOKIE, "mirrorproxy_admin_session_http"),
+    (ADMIN_CSRF_COOKIE, "mirrorproxy_admin_csrf_http"),
+    (USER_SESSION_COOKIE, "mirrorproxy_user_session_http"),
+    (USER_CSRF_COOKIE, "mirrorproxy_user_csrf_http"),
+];
+
 #[derive(Clone, Debug)]
 pub struct UserRoutingContext {
     pub user_id: i64,
@@ -842,7 +854,11 @@ async fn run_https_listener(
 
     let server = axum_server::from_tcp_rustls(listener, tls_config.clone())?
         .handle(handle)
-        .serve(router.into_make_service_with_connect_info::<SocketAddr>());
+        .serve(
+            router
+                .layer(axum::Extension(HttpsTransport))
+                .into_make_service_with_connect_info::<SocketAddr>(),
+        );
     tokio::pin!(server);
     https_ready.store(true, Ordering::Release);
     acme.set_https_active(true).await;
@@ -2313,12 +2329,16 @@ fn acme_environment_managed() -> bool {
 
 async fn security_headers_middleware(
     State(state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let secure_transport = request_uses_https(&request, &state.config());
+    normalize_browser_session_cookies(request.headers_mut(), secure_transport);
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
+    if !secure_transport {
+        adapt_http_browser_cookies(headers);
+    }
     headers.insert(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(CONTENT_SECURITY_POLICY),
@@ -2351,10 +2371,9 @@ async fn security_headers_middleware(
 }
 
 fn request_uses_https(request: &Request, config: &Config) -> bool {
-    if request.uri().scheme_str() == Some("https") || config.acme.direct_https {
-        return true;
-    }
-    if Url::parse(&config.public_base_url).is_ok_and(|url| url.scheme() == "https") {
+    if request.extensions().get::<HttpsTransport>().is_some()
+        || request.uri().scheme_str() == Some("https")
+    {
         return true;
     }
     let trusted_peer = request
@@ -2364,6 +2383,67 @@ fn request_uses_https(request: &Request, config: &Config) -> bool {
     trusted_peer
         && forwarded_header_value(request.headers(), "x-forwarded-proto")
             .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https"))
+}
+
+fn normalize_browser_session_cookies(headers: &mut HeaderMap, secure: bool) {
+    let cookies = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            for &(https_name, http_name) in HTTP_BROWSER_COOKIES {
+                if name == https_name {
+                    return secure.then(|| format!("{name}={value}"));
+                }
+                if name == http_name {
+                    return (!secure).then(|| format!("{https_name}={value}"));
+                }
+            }
+            Some(format!("{name}={value}"))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    headers.remove(header::COOKIE);
+    if !cookies.is_empty() {
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&cookies).expect("existing cookie header values are valid"),
+        );
+    }
+}
+
+fn adapt_http_browser_cookies(headers: &mut HeaderMap) {
+    let cookies = headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|cookie| {
+            let Some((http_name, value)) = cookie.to_str().ok().and_then(|cookie| {
+                HTTP_BROWSER_COOKIES
+                    .iter()
+                    .find_map(|&(https_name, http_name)| {
+                        cookie
+                            .strip_prefix(https_name)
+                            .and_then(|value| value.strip_prefix('='))
+                            .map(|value| (http_name, value))
+                    })
+            }) else {
+                return cookie.clone();
+            };
+            let value = value
+                .split(';')
+                .filter(|attribute| !attribute.trim().eq_ignore_ascii_case("secure"))
+                .collect::<Vec<_>>()
+                .join(";");
+            HeaderValue::from_str(&format!("{http_name}={value}"))
+                .expect("generated HTTP cookie is valid")
+        })
+        .collect::<Vec<_>>();
+    headers.remove(header::SET_COOKIE);
+    for cookie in cookies {
+        headers.append(header::SET_COOKIE, cookie);
+    }
 }
 
 fn build_webauthn(config: &Config) -> anyhow::Result<Option<Arc<Webauthn>>> {
@@ -6302,7 +6382,12 @@ mod tests {
         for uri in ["/", "/api/public-config"] {
             let response = app
                 .clone()
-                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("https://mirror.example{uri}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
                 .unwrap();
             assert_security_headers(response.headers(), true);
@@ -6333,6 +6418,235 @@ mod tests {
             .insert(ConnectInfo("127.0.0.1:4242".parse::<SocketAddr>().unwrap()));
         let response = app.oneshot(trusted_request).await.unwrap();
         assert_security_headers(response.headers(), true);
+    }
+
+    #[test]
+    fn https_detection_uses_the_connection_instead_of_public_url_or_acme_settings() {
+        let mut config = Config {
+            public_base_url: "https://mirror.example".to_string(),
+            ..Config::default()
+        };
+        config.acme.direct_https = true;
+        let mut request = Request::builder()
+            .uri("/admin")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            "198.51.100.10:4242".parse::<SocketAddr>().unwrap(),
+        ));
+        assert!(!request_uses_https(&request, &config));
+        request.extensions_mut().insert(HttpsTransport);
+        assert!(request_uses_https(&request, &config));
+    }
+
+    #[tokio::test]
+    async fn browser_login_round_trip_supports_http_and_preserves_https_cookie_security() {
+        for secure in [false, true] {
+            let (state, credentials) = admin_test_state().await;
+            let app = Router::new()
+                .route("/admin/api/auth/login", post(admin_cookie_login))
+                .route("/admin/api/auth/session", get(admin_session))
+                .route("/admin/api/auth/logout", post(admin_logout))
+                .layer(middleware::from_fn(csrf_protection_middleware))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    strip_untrusted_forwarded_headers,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    security_headers_middleware,
+                ))
+                .with_state(state);
+            let origin = if secure {
+                "https://mirror.example"
+            } else {
+                "http://mirror.example:8000"
+            };
+            let peer = ConnectInfo("198.51.100.10:4242".parse::<SocketAddr>().unwrap());
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri(format!("{origin}/admin/api/auth/login"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .extension(peer)
+                        .body(Body::from(
+                            serde_json::json!({
+                                "username": credentials.username,
+                                "password": credentials.password,
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let cookies = response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .map(|value| value.to_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(cookies.len(), 2);
+            let session_name = if secure {
+                ADMIN_SESSION_COOKIE
+            } else {
+                "mirrorproxy_admin_session_http"
+            };
+            let csrf_name = if secure {
+                ADMIN_CSRF_COOKIE
+            } else {
+                "mirrorproxy_admin_csrf_http"
+            };
+            assert!(cookies[0].starts_with(&format!("{session_name}=")));
+            assert!(cookies[1].starts_with(&format!("{csrf_name}=")));
+            assert!(cookies[0].contains("HttpOnly"));
+            for cookie in &cookies {
+                assert_eq!(cookie.contains("; Secure"), secure);
+                assert!(cookie.contains("SameSite=Strict"));
+                assert!(!cookie.contains("Domain="));
+            }
+            let cookie_header = cookies
+                .iter()
+                .map(|cookie| cookie.split(';').next().unwrap())
+                .collect::<Vec<_>>()
+                .join("; ");
+            let csrf = cookies[1]
+                .split(';')
+                .next()
+                .unwrap()
+                .split_once('=')
+                .unwrap()
+                .1;
+            let request = |method: Method, path: &str| {
+                Request::builder()
+                    .method(method)
+                    .uri(format!("{origin}{path}"))
+                    .header(
+                        header::HOST,
+                        if secure {
+                            "mirror.example"
+                        } else {
+                            "mirror.example:8000"
+                        },
+                    )
+                    .header(header::COOKIE, &cookie_header)
+                    .extension(peer)
+            };
+            let response = app
+                .clone()
+                .oneshot(
+                    request(Method::GET, "/admin/api/auth/session")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .any(|value| value
+                    .to_str()
+                    .unwrap()
+                    .starts_with(&format!("{csrf_name}="))));
+            // Both transports still require same-origin, session-bound CSRF proof.
+            for (supplied_origin, proof) in [(origin, ""), ("http://attacker.example", csrf)] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        request(Method::POST, "/admin/api/auth/logout")
+                            .header(header::ORIGIN, supplied_origin)
+                            .header(CSRF_HEADER, proof)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            }
+            let response = app
+                .clone()
+                .oneshot(
+                    request(Method::POST, "/admin/api/auth/logout")
+                        .header(header::ORIGIN, origin)
+                        .header(CSRF_HEADER, csrf)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            for cookie in response.headers().get_all(header::SET_COOKIE) {
+                let value = cookie.to_str().unwrap();
+                assert!(value.contains("Max-Age=0"));
+                assert_eq!(value.contains("; Secure"), secure);
+            }
+            let response = app
+                .oneshot(
+                    request(Method::GET, "/admin/api/auth/session")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    #[test]
+    fn browser_cookies_are_isolated_between_http_and_https() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, HeaderValue::from_static(
+            "mirrorproxy_admin_session=secure-session; mirrorproxy_admin_session_http=http-session; mirrorproxy_user_session=secure-user; mirrorproxy_user_session_http=http-user; other=preserved",
+        ));
+        let mut http_headers = headers.clone();
+        normalize_browser_session_cookies(&mut http_headers, false);
+        assert_eq!(
+            cookie_value(&http_headers, ADMIN_SESSION_COOKIE),
+            Some("http-session")
+        );
+        assert_eq!(
+            cookie_value(&http_headers, USER_SESSION_COOKIE),
+            Some("http-user")
+        );
+        normalize_browser_session_cookies(&mut headers, true);
+        assert_eq!(
+            cookie_value(&headers, ADMIN_SESSION_COOKIE),
+            Some("secure-session")
+        );
+        assert_eq!(
+            cookie_value(&headers, USER_SESSION_COOKIE),
+            Some("secure-user")
+        );
+        assert_eq!(
+            cookie_value(&headers, "mirrorproxy_admin_session_http"),
+            None
+        );
+        assert_eq!(cookie_value(&headers, "other"), Some("preserved"));
+        let mut headers = HeaderMap::new();
+        headers.append(header::SET_COOKIE, user_session_cookie("test-user-session"));
+        headers.append(header::SET_COOKIE, user_csrf_cookie("test-user-session"));
+        headers.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("unrelated=value; Secure"),
+        );
+        adapt_http_browser_cookies(&mut headers);
+        let cookies = headers
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(cookies[0].starts_with("mirrorproxy_user_session_http="));
+        assert!(cookies[0].contains("HttpOnly"));
+        assert!(cookies[0].contains("SameSite=Lax"));
+        assert!(!cookies[0].contains("Secure"));
+        assert!(cookies[1].starts_with("mirrorproxy_user_csrf_http="));
+        assert_eq!(cookies[2], "unrelated=value; Secure");
     }
 
     #[tokio::test]
@@ -6533,6 +6847,15 @@ mod tests {
     #[tokio::test]
     async fn native_https_serves_with_an_existing_certificate() {
         let _ = rustls::crypto::ring::default_provider().install_default();
+        let (state, credentials) = admin_test_state().await;
+        let router = Router::new()
+            .route("/healthz", get(|| async { "ok" }))
+            .route("/admin/api/auth/login", post(admin_cookie_login))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                security_headers_middleware,
+            ))
+            .with_state(state);
         let generated = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("generate test certificate");
         let directory =
@@ -6559,7 +6882,7 @@ mod tests {
         let task = tokio::spawn(run_https_listener(
             listener,
             handle.clone(),
-            Router::new().route("/healthz", get(|| async { "ok" })),
+            router,
             acme.clone(),
             directory.clone(),
             ready.clone(),
@@ -6583,6 +6906,31 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await.unwrap(), "ok");
+
+        let response = Client::builder()
+            .no_proxy()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .post(format!("https://{address}/admin/api/auth/login"))
+            .json(&serde_json::json!({
+                "username": credentials.username,
+                "password": credentials.password,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_security_headers(response.headers(), true);
+        let cookies = response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(cookies[0].starts_with("mirrorproxy_admin_session="));
+        assert!(cookies[1].starts_with("__Host-mirrorproxy_admin_csrf="));
+        assert!(cookies.iter().all(|value| value.contains("; Secure")));
 
         let renewed = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("generate renewed test certificate");

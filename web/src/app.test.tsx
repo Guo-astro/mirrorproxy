@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { App, containerRegistryInputTemplate, normalizeContainerImage, rewriteContainerConfig, sourceManualCommand } from './main'
+import { App, HttpSecurityBanner, containerRegistryInputTemplate, normalizeContainerImage, rewriteContainerConfig, sourceManualCommand } from './main'
 
 const containerRegistries = [
   { code: 'docker-hub', name: 'Docker Hub', host: 'docker.io', aliases: ['registry-1.docker.io'], example_image: 'nginx:latest', legacy: false },
@@ -313,5 +313,21 @@ describe('App preferences', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Email & invitations' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Save mail settings' }))
     expect(await screen.findByText(/SMTP settings saved/)).toBeTruthy()
+  })
+})
+
+
+describe('HTTP security notice', () => {
+  afterEach(cleanup)
+
+  it('shows persistent, bilingual guidance on HTTP and hides it on HTTPS', () => {
+    const { rerender } = render(<HttpSecurityBanner locale="en" protocol="http:" />)
+    expect(screen.getByRole('note').textContent).toContain('HTTP connection is not secure')
+    expect(screen.getByRole('link', { name: 'Set up HTTPS' }).getAttribute('href')).toBe('https://github.com/inbjo/MirrorProxy/wiki/Deployment')
+    rerender(<HttpSecurityBanner locale="zh" protocol="http:" />)
+    expect(screen.getByRole('note').textContent).toContain('密码和会话可能被窃听或篡改')
+    expect(screen.getByRole('link', { name: 'HTTPS 部署指南' }).getAttribute('href')).toContain('Deployment-zh-CN')
+    rerender(<HttpSecurityBanner locale="zh" protocol="https:" />)
+    expect(screen.queryByRole('note')).toBeNull()
   })
 })

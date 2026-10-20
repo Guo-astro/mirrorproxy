@@ -1,21 +1,9 @@
-# ACME 自动证书
+# 原生 HTTPS 与 ACME（进阶）
 
-MirrorProxy 可以通过 ACME 自动申请和续期证书，并把结果写入
-`fullchain.pem` 与 `privkey.pem`。既可以交给反向代理加载，也可以由 MirrorProxy
-直接监听 80/443 并提供 HTTPS。ACME 默认关闭。账户密钥与证书保存在配置指定的
-本地目录；通过后台填写的 DNS API 密钥保存在本机 SQLite 中，并且只写不读，配置
-接口只返回“已配置”状态，不返回密钥明文。
+> **已有 Caddy、Traefik、Nginx 或其他 HTTPS 入口？** 通常不需要本页。先用[反向代理指南](Reverse-Proxy-zh-CN)让入口管理证书，不要同时开启两套签发流程。
 
-## 后台配置
-
-超级管理员可以在“高级设置 → ACME 自动证书”中配置 HTTP-01、DNS-01、证书域名、
-续期周期和 DNS 提供商凭据。后台配置写入独立的 `acme_settings` 表，不会改写
-`config.toml`。保存后需要重启 MirrorProxy 才会替换运行中的 ACME Worker；保存动作
-本身不会签发证书、替换现有证书文件或修改 Caddy。
-
-如果进程设置了 `MIRRORPROXY_ACME_*` 或 acme.sh 兼容的 DNS 凭据环境变量，环境变量
-保持最高优先级，后台表单会变为只读。未使用环境变量时，首次升级会从当前 TOML 配置
-初始化后台设置表，避免丢失既有配置。
+本页用于让 MirrorProxy 直接提供 HTTPS，或需要由它输出证书文件的进阶场景。
+首次部署可直接使用 TOML，不必先登录后台。普通域名选 HTTP-01，通配符域名选 DNS-01。
 
 ## 不使用反向代理直接提供 HTTPS
 
@@ -169,5 +157,16 @@ Webhook 提供商会向 `webhook_url` 发送 JSON POST：
 反向代理模式下，MirrorProxy 负责安全、原子地更新文件；Nginx/Apache 等仍需由 systemd path unit、
 容器编排或配置管理工具在文件变化后执行平滑重载。Caddy 部署通常应优先使用 Caddy
 原生证书管理。原生 HTTPS 模式会在续签后自行热加载证书。
+
+## 进阶：后台配置和优先级
+
+超级管理员可以在“高级设置 → ACME 自动证书”中配置 HTTP-01、DNS-01、证书域名、
+续期周期和 DNS 提供商凭据。后台配置写入独立的 `acme_settings` 表，不会改写
+`config.toml`。保存后需要重启 MirrorProxy 才会替换运行中的 ACME Worker；保存动作
+本身不会签发证书、替换现有证书文件或修改 Caddy。
+
+如果进程设置了 `MIRRORPROXY_ACME_*` 或 acme.sh 兼容的 DNS 凭据环境变量，环境变量
+保持最高优先级，后台表单会变为只读。未使用环境变量时，首次升级会从当前 TOML 配置
+初始化后台设置表，避免丢失既有配置。
 
 [English](ACME-Certificates)

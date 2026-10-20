@@ -1,5 +1,7 @@
 # NAS、面板与其他运行时
 
+> **先分清“Docker Hub mirror”和“自定义 Registry”。** 无法设置 mirror 时，直接使用 `mirror.example.com/<原 Registry>/<镜像>`；Docker Hub 可用 `mirror.example.com/library/nginx:1.27`。
+
 NAS 和服务器面板通常只是管理底层 Docker Engine，也可能只提供自定义 Registry，而不是
 真正的 Docker Hub mirror。配置前先区分界面字段含义，并用命令行拉取验证。
 

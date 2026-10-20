@@ -6,6 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/inbjo/MirrorProxy?style=flat-square&logo=github&label=Release)](https://github.com/inbjo/MirrorProxy/releases/latest)
 [![License](https://img.shields.io/github/license/inbjo/MirrorProxy?style=flat-square&label=License)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/kudang/mirrorproxy?style=flat-square&logo=docker&logoColor=white&label=Docker%20Pulls)](https://hub.docker.com/r/kudang/mirrorproxy)
+[![Linux.do Community](https://img.shields.io/badge/Linux.do-Community-FFB300?style=flat-square)](https://linux.do)
 
 **Official sources unreachable and public mirrors unreliable? Deploy
 MirrorProxy—one self-hosted gateway for every source your builds depend on.**

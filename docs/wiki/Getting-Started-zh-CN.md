@@ -1,64 +1,93 @@
-# 快速开始
+# 快速开始：Docker + Caddy
 
-本页用于在一台主机上启动一个可登录、可代理的实例。生产环境的 TLS、备份、反向代理或
-原生 HTTPS 请继续阅读[部署](Deployment-zh-CN)和[ACME 自动证书](ACME-Certificates-zh-CN)。
+这条路径会启动 MirrorProxy，并由 Caddy 自动申请、续期 HTTPS 证书。
+已有 Nginx 等入口，或不使用 Docker？看[部署](Deployment-zh-CN)。
 
-## Docker Compose（推荐）
+> **准备好域名、Docker Compose，以及空闲的 80/443 端口。** 把下文所有 `mirror.example.com` 换成你的域名，A/AAAA 记录必须正确指向这台服务器。不要让其他 Web 服务同时占用这些端口。
 
-创建 `compose.yml`：
+## 1. 创建两个文件
+
+在新目录中创建 `compose.yml`，修改域名和初始密码：
 
 ```yaml
 services:
   mirrorproxy:
-    image: kudang/mirrorproxy:latest
+    image: kudang/mirrorproxy:1.4.4
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
     environment:
-      MIRRORPROXY_ADMIN_PASSWORD: "replace-with-a-long-unique-password"
+      MIRRORPROXY_ADMIN_PASSWORD: 'replace-with-a-long-unique-password'
+      MIRRORPROXY_PUBLIC_BASE_URL: 'https://mirror.example.com'
+      MIRRORPROXY_TRUSTED_PROXIES: '172.30.40.2'
     volumes:
       - mirrorproxy-data:/data
+    networks:
+      default:
+        ipv4_address: 172.30.40.3
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.40.2
 volumes:
   mirrorproxy-data:
+  caddy-data:
+  caddy-config:
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.40.0/24
+          gateway: 172.30.40.1
 ```
 
-启动并验证：
+同目录创建 `Caddyfile`：
+
+```caddyfile
+mirror.example.com {
+    reverse_proxy mirrorproxy:3000
+}
+```
+
+这里固定了两项容器地址，MirrorProxy 只信任 Caddy 的 `172.30.40.2`。
+如果示例网段与你的网络冲突，换一个未使用的网段，并同步调整网关、两个地址和可信代理。
+
+## 2. 启动并打开后台
 
 ```bash
+docker compose config --quiet
 docker compose up -d
-curl -f http://127.0.0.1:3000/healthz
-docker compose logs mirrorproxy
+docker compose logs --tail=50 caddy mirrorproxy
 ```
 
-访问 `http://127.0.0.1:3000/admin`，使用初始管理员登录。未设置
-`MIRRORPROXY_ADMIN_PASSWORD` 时服务会只在首次启动日志中打印随机密码；应立即修改并保存。
-务必保留 `/data` 卷，其中包含 SQLite、缓存、可写 GeoIP 数据库和后台保存的 ACME 机密。
+证书签发成功后，打开 **`https://mirror.example.com/admin`**，账号为 `admin`，密码为刚才填写的值。
+如果失败，先看 [HTTPS 排障](Troubleshooting-zh-CN)，不要删除数据卷。
 
-## 二进制或源码
+> **初始密码只使用一次。** 修改 `MIRRORPROXY_ADMIN_PASSWORD` 不会覆盖数据库里已有的管理员密码。
+> **请保留数据卷。** `mirrorproxy-data` 保存数据库等数据，`caddy-data` 保存证书；不要执行 `docker compose down -v`。
 
-发布包内包含 `mirrorproxy-server`、配置模板和 GeoIP 数据。复制模板后，以持久化目录运行：
+## 3. 验证一次真实代理请求
 
 ```bash
-cp config.example.toml config.toml
-./mirrorproxy-server --config ./config.toml serve
+curl -f https://mirror.example.com/healthz
+curl -f https://mirror.example.com/npm/is-number
 ```
 
-从源码运行前需拉取固定版本的 GeoIP 数据库：
+第一条验证服务，第二条应返回 npm 包元数据。再通过浏览器登录并刷新后台，确认会话正常。
+单独看到 HTTP 200 不代表整个代理链路都正常。
 
-```bash
-bash scripts/fetch-geoip.sh
-cargo run -p mirrorproxy-server -- --config config.example.toml serve
-```
+## 接下来
 
-默认模板仅监听 `127.0.0.1:3000`，适合先放在 Caddy/Nginx 后面。不要在未设置认证、可信
-代理和 TLS 策略前直接暴露管理端口。
+- 本机改源：[客户端](Client-zh-CN)。
+- 配置 Docker 拉取：[容器镜像](Container-Registries-and-Runtimes-zh-CN)。
+- 配额、管理员和监控：[后台管理](Administration-zh-CN)。
+- 升级、备份和 systemd：[进阶部署](Advanced-Deployment-zh-CN)。
 
-## 下一步
-
-1. 在后台“镜像检测”确认需要的代理目标可用；`/api/sources` 是实际目录来源。
-2. 在“高级设置”按需关闭未使用的适配器、设置上游、限速、缓存和出站代理。
-3. 配置可信反向代理或 ACME 原生 HTTPS，再公开域名。
-4. 用独立客户端执行 `mirrorproxy list`，再以 `mirrorproxy set npm --base-url https://你的域名`
-   等命令配置本机软件源。
-
-[English](Getting-Started) · [完整部署文档](Deployment-zh-CN) · [客户端](Client-zh-CN)
+[Caddy 官方说明](https://caddyserver.com/docs/automatic-https) · [English](Getting-Started)

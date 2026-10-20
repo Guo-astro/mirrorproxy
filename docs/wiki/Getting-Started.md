@@ -1,61 +1,93 @@
-# Getting Started
+# Getting started: Docker + Caddy
 
-This page starts a login-capable proxy on one host. Read [Deployment](Deployment)
-and [ACME Certificates](ACME-Certificates) before a production TLS cutover.
+This path runs MirrorProxy with Caddy handling HTTPS certificates and renewal.
+Already have Nginx or another gateway, or prefer the binary? See [Deployment](Deployment).
 
-## Docker Compose
+> **Prepare a hostname, Docker Compose, and free ports 80/443.** Replace every `mirror.example.com` below. Its A/AAAA records must point correctly to this server. Other web servers must not occupy these ports.
 
-Create `compose.yml`:
+## 1. Create two files
+
+Create `compose.yml` in a new directory. Change the hostname and initial password:
 
 ```yaml
 services:
   mirrorproxy:
-    image: kudang/mirrorproxy:latest
+    image: kudang/mirrorproxy:1.4.4
     restart: unless-stopped
-    ports: ["127.0.0.1:3000:3000"]
     environment:
-      MIRRORPROXY_ADMIN_PASSWORD: "replace-with-a-long-unique-password"
-    volumes: ["mirrorproxy-data:/data"]
+      MIRRORPROXY_ADMIN_PASSWORD: 'replace-with-a-long-unique-password'
+      MIRRORPROXY_PUBLIC_BASE_URL: 'https://mirror.example.com'
+      MIRRORPROXY_TRUSTED_PROXIES: '172.30.40.2'
+    volumes:
+      - mirrorproxy-data:/data
+    networks:
+      default:
+        ipv4_address: 172.30.40.3
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.40.2
 volumes:
   mirrorproxy-data:
+  caddy-data:
+  caddy-config:
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.40.0/24
+          gateway: 172.30.40.1
 ```
 
+Create `Caddyfile` beside it:
+
+```caddyfile
+mirror.example.com {
+    reverse_proxy mirrorproxy:3000
+}
+```
+
+The two container addresses are fixed; MirrorProxy trusts only Caddy at `172.30.40.2`.
+If this subnet conflicts with your network, choose an unused subnet and update the gateway, both addresses, and trusted proxy together.
+
+## 2. Start and sign in
+
 ```bash
+docker compose config --quiet
 docker compose up -d
-curl -f http://127.0.0.1:3000/healthz
-docker compose logs mirrorproxy
+docker compose logs --tail=50 caddy mirrorproxy
 ```
 
-Open `/admin` and sign in as the initial administrator. Without
-`MIRRORPROXY_ADMIN_PASSWORD`, a random password appears only in the first
-startup log; save it and change it immediately. Keep `/data`: it contains
-SQLite, cache, writable GeoIP data, and admin-stored ACME secrets.
+After certificate issuance succeeds, open **`https://mirror.example.com/admin`**.
+Use `admin` and the password you configured. If it fails, check [Troubleshooting](Troubleshooting); do not delete the data volume.
 
-## Binary or source
+> **The initial password is used once.** Changing `MIRRORPROXY_ADMIN_PASSWORD` does not replace an administrator password already in the database.
+> **Keep the volumes.** `mirrorproxy-data` stores application data; `caddy-data` stores certificates. Do not run `docker compose down -v`.
 
-The server archive contains `mirrorproxy-server`, a configuration example, and
-GeoIP data. Run it from persistent storage:
+## 3. Verify a real proxy request
 
 ```bash
-cp config.example.toml config.toml
-./mirrorproxy-server --config ./config.toml serve
+curl -f https://mirror.example.com/healthz
+curl -f https://mirror.example.com/npm/is-number
 ```
 
-For a source checkout, fetch pinned GeoIP data first:
+The first request checks the service; the second should return npm package metadata.
+Also sign in and reload the console to verify the browser session. An HTTP 200 alone does not prove the whole proxy path works.
 
-```bash
-bash scripts/fetch-geoip.sh
-cargo run -p mirrorproxy-server -- --config config.example.toml serve
-```
+## Next
 
-The example listens on `127.0.0.1:3000`. Do not expose the admin endpoint until
-authentication, trusted proxies, and TLS are intentionally configured.
+- Configure your computer: [Client](Client).
+- Configure container pulls: [Container images](Container-Registries-and-Runtimes).
+- Manage accounts, quotas, and monitoring: [Administration](Administration).
+- Upgrade, back up, or use systemd: [Advanced deployment](Advanced-Deployment).
 
-## Next steps
-
-1. Check required targets under **Source health**; `/api/sources` is the live catalog.
-2. Configure enabled adapters, upstreams, rate limits, cache, and outbound proxy.
-3. Put the service behind a trusted reverse proxy or enable native ACME HTTPS.
-4. Run `mirrorproxy list`, then use `mirrorproxy set npm --base-url https://your-host`.
-
-[简体中文](Getting-Started-zh-CN) · [Deployment](Deployment) · [Client](Client)
+[Caddy documentation](https://caddyserver.com/docs/automatic-https) · [简体中文](Getting-Started-zh-CN)

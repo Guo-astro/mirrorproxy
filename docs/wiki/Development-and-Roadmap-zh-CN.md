@@ -1,34 +1,59 @@
 # 开发与路线图
 
-工作区由 `crates/server`（`mirrorproxy-server`）、`crates/client`（`mirrorproxy`）、
-`crates/catalog`（共享目录）和 `web`（React/Vite 管理后台）组成。任何新增目标都应同步
-更新目录、服务路由/适配器、配置、门户、客户端能力、文档和 smoke 覆盖，避免“页面显示支持
-但真实路径不可用”的漂移。
+本页面向贡献者。只想运行服务，请看[部署](Deployment-zh-CN)，无需安装开发工具链。
 
-`./build.sh` 是 Linux 静态发布的标准路径，会先构建 Web，再下载经 SHA-256 固定的 GeoIP
-数据并编译服务端与客户端。Release workflow 为客户端构建 Linux、macOS、Windows 资产，
-为服务端构建 Linux 资产并附带校验和。
+## 从源码构建
 
-```text
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-(cd web && npm test && npm run build)
+需要 Rust stable、Node.js 24 和 npm。服务端内嵌前端，因此先构建 Web，再编译 Rust：
+
+```bash
+cd web
+npm ci
+npm run build
+cd ..
+bash scripts/fetch-geoip.sh
+cargo build --workspace --locked
 ```
 
-真实客户端 smoke 脚本使用隔离的临时包管理器目录，不会修改开发者真实配置：
+发布式 Linux 静态构建使用 `./build.sh`，还需要目标工具链、`musl-tools` 与联网获取固定校验和的 GeoIP 数据。
+生产环境仍应按部署指南配置 HTTPS。
 
-```text
+## 本地检查
+
+浏览器测试首次运行前，在 `web` 下执行 `npx playwright install chromium`。
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+(cd web && npm test && npm run build && npm run test:e2e)
+cargo build --locked -p mirrorproxy-server
+./scripts/smoke-admin-api.sh target/debug/mirrorproxy-server
+```
+
+真实客户端协议验证：
+
+```bash
 bash scripts/smoke-clients.sh
 ```
 
-可选的 OS 客户端 smoke 与 Docker smoke 是更窄的环境验证，不应把语言生态的通过结果
-表述成所有 OS 仓库均已验证。稳定标签会发布归档、DEB/RPM、Homebrew 与 WinGet manifest，
-并部署经过签名的客户端 APT 仓库。
+它使用隔离的临时客户端目录，需要相应生态工具与公网访问，不修改开发者真实配置。
+某个生态通过，不代表所有 OS 仓库和容器运行时都已验证。
+依赖检查使用 `cargo audit --ignore RUSTSEC-2023-0071`（仅沿用项目已说明的 RSA 私钥路径例外）和 `web` 下的 `npm audit`。
 
-早期阶段性实施计划不再作为当前路线图，已从主分支移除，历史内容仍可通过 Git 记录查看。后续
-功能、缺陷和版本安排通过项目的 [GitHub Issues](https://github.com/inbjo/MirrorProxy/issues)、
-Milestones 与 [Release notes](https://github.com/inbjo/MirrorProxy/releases) 跟踪；文档只描述
-当前已经提供的能力。
+## 进阶：仓库结构与交付
+
+| 目录 | 内容 |
+| --- | --- |
+| `crates/server` | 服务、协议适配器、后台 API |
+| `crates/client` | 本机改源客户端 |
+| `crates/catalog` | 共用软件源目录和能力 |
+| `web` | React 管理界面与浏览器测试 |
+
+新增目标需同步目录、路由、配置、界面、客户端能力、文档和真实协议验证，不能只新增一个卡片。
+发布流程见仓库 `AGENTS.md`、`.github/workflows` 和[发布维护者配置](Release-Maintenance-zh-CN)。
+
+后续功能与缺陷通过 [Issues](https://github.com/inbjo/MirrorProxy/issues)、Milestones 和
+[发布说明](https://github.com/inbjo/MirrorProxy/releases) 跟踪；计划中的功能要明确标注，不能当作当前版本能力。
 
 [English](Development-and-Roadmap)

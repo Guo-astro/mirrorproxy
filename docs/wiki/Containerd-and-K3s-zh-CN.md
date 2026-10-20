@@ -1,67 +1,11 @@
-# containerd 与 K3s
+# K3s 与 containerd
 
-containerd、K3s 和 Docker 使用不同配置。开始前先确认运行时及版本，并备份已有文件：
+> **先选你实际使用的运行时。** K3s 通常用内置 containerd，不读取 Docker 的 `daemon.json`。每个能运行 Pod 的节点都需要配置。
+> 以下只配置 Docker Hub mirror；其他 Registry 应在工作负载里显式改写镜像地址。
 
-```bash
-containerd --version
-sudo cp -a /etc/containerd/config.toml /etc/containerd/config.toml.before-mirrorproxy
-```
-
-本页仅把 MirrorProxy 根地址配置为 Docker Hub mirror。其他受支持 Registry 应在 Helm
-values、Pod 清单或离线镜像清单中显式改写为
-`mirror.example.com/<原 Registry>/<仓库>:<标签>`。
-
-## containerd 1.x
-
-较旧的 CRI 配置通常位于 `/etc/containerd/config.toml`。不要直接用
-`containerd config default` 覆盖生产配置；在现有对应节点中合并 Docker Hub endpoint：
-
-```toml
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-  endpoint = ["https://mirror.example.com", "https://registry-1.docker.io"]
-```
-
-不同发行版和 Kubernetes 安装器可能生成不同的 `version` 与插件结构。修改前应检查当前文件，
-不能在同一 TOML 中重复声明表。完成后重启并检查日志：
-
-```bash
-sudo systemctl restart containerd
-sudo systemctl is-active containerd
-sudo journalctl -u containerd -n 100 --no-pager
-sudo crictl pull docker.io/library/busybox:1.36.1
-```
-
-也可用 `sudo nerdctl pull docker.io/library/busybox:1.36.1` 验证。测试命令必须使用运行中
-Kubernetes 实际使用的 namespace、socket 和 CRI 配置。
-
-## hosts.toml 模式
-
-新版本 containerd 推荐使用 registry host 配置目录。先确认当前插件节点，并把
-`config_path` 指向 `/etc/containerd/certs.d`。containerd 2.x 常见结构为：
-
-```toml
-[plugins."io.containerd.cri.v1.images".registry]
-  config_path = "/etc/containerd/certs.d"
-```
-
-具体插件键以当前 `containerd config dump` 为准。为 Docker Hub 创建：
-
-```text
-/etc/containerd/certs.d/docker.io/hosts.toml
-```
-
-内容：
-
-```toml
-server = "https://registry-1.docker.io"
-
-[host."https://mirror.example.com"]
-  capabilities = ["pull", "resolve"]
-  skip_verify = false
-```
-
-首次设置 `config_path` 后重启 containerd。后续仅更新 `hosts.toml` 是否热加载取决于运行版本，
-应通过实际拉取和日志验证，不能只假定配置已经生效。
+- 使用 K3s：先看下节。
+- 独立 containerd：先看 下方的 hosts.toml 模式，旧版 CRI 配置放在后面，不要把两套配置一起粘贴。
+- 修改已有文件前先保留副本，在维护窗口重启并实际拉取验证。
 
 ## K3s
 
@@ -97,6 +41,67 @@ sudo journalctl -u k3s -n 100 --no-pager
 `rancher/...` 仍是 Docker Hub 仓库路径，不应把 `rancher` 配成一个虚构的 Registry。
 `k8s.gcr.io` 已是旧地址；新清单应使用 `registry.k8s.io`，再显式改写为
 `mirror.example.com/registry.k8s.io/...`。
+
+## containerd：hosts.toml 模式
+
+新版本 containerd 推荐使用 registry host 配置目录。先确认当前插件节点，并把
+`config_path` 指向 `/etc/containerd/certs.d`。containerd 2.x 常见结构为：
+
+```toml
+[plugins."io.containerd.cri.v1.images".registry]
+  config_path = "/etc/containerd/certs.d"
+```
+
+具体插件键以当前 `containerd config dump` 为准。为 Docker Hub 创建：
+
+```text
+/etc/containerd/certs.d/docker.io/hosts.toml
+```
+
+内容：
+
+```toml
+server = "https://registry-1.docker.io"
+
+[host."https://mirror.example.com"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = false
+```
+
+首次设置 `config_path` 后重启 containerd。后续仅更新 `hosts.toml` 是否热加载取决于运行版本，
+应通过实际拉取和日志验证，不能只假定配置已经生效。
+
+containerd 1.x 启用 host 目录时，对应插件节点通常是：
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".registry]
+  config_path = "/etc/containerd/certs.d"
+```
+
+两个版本的插件节点不要混用；以正在运行实例的配置为准。
+
+## 进阶：旧版 containerd 1.x
+
+较旧的 CRI 配置通常位于 `/etc/containerd/config.toml`。不要直接用
+`containerd config default` 覆盖生产配置；在现有对应节点中合并 Docker Hub endpoint：
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+  endpoint = ["https://mirror.example.com", "https://registry-1.docker.io"]
+```
+
+不同发行版和 Kubernetes 安装器可能生成不同的 `version` 与插件结构。修改前应检查当前文件，
+不能在同一 TOML 中重复声明表。完成后重启并检查日志：
+
+```bash
+sudo systemctl restart containerd
+sudo systemctl is-active containerd
+sudo journalctl -u containerd -n 100 --no-pager
+sudo crictl pull docker.io/library/busybox:1.36.1
+```
+
+也可用 `sudo nerdctl pull docker.io/library/busybox:1.36.1` 验证。测试命令必须使用运行中
+Kubernetes 实际使用的 namespace、socket 和 CRI 配置。
 
 ## 排障清单
 

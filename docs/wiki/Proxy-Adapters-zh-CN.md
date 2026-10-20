@@ -1,15 +1,17 @@
-# 代理适配器
+# 支持的软件源
 
-`/api/sources` 是 Web 门户、客户端和文档均应遵循的权威目录；不要根据本文手工猜测 URL。
-后台“高级设置”控制适配器开关与上游组。一个上游字段可填多个逗号分隔的 HTTP(S) 地址，
-服务会按顺序尝试可用入口。
+先打开实例首页，选择软件源，复制生成的命令；本机自动改源见[客户端](Client-zh-CN)，容器镜像见[容器指南](Container-Registries-and-Runtimes-zh-CN)。
+
+> **服务端支持代理，不代表客户端能自动修改每一种配置。** MirrorProxy 是按需的只读代理/缓存，不是任意转发代理，也不提供私有制品上传。
+
+当前实例支持列表以 `/api/sources` 为准；后台“高级设置”可开关适配器、修改上游组。多个上游地址以逗号分隔，按配置策略尝试。
 
 ## 已覆盖类别
 
 | 类别 | 代表目标 |
 | --- | --- |
 | 代码与发布 | GitHub、GitHub Raw、Git smart HTTP clone。 |
-| OCI | Docker Hub、GHCR、Quay、Kubernetes Registry、GCR、Microsoft MCR、Elastic Registry、Homebrew OCI。 |
+| OCI | Docker Hub、GHCR、Quay、Kubernetes Registry、GCR、Microsoft MCR、Elastic Registry、GitLab、NVIDIA NVCR、Oracle、Homebrew OCI。 |
 | 语言生态 | Composer、npm、Go、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Julia、LuaRocks、Clojars、CocoaPods、Pub、Anaconda、PyPI、Cargo。 |
 | 工具链 | Rustup、NVM、Homebrew、WinGet、TeX Live、ELPA、Nix、Guix、Flatpak。 |
 | 操作系统仓库 | Debian、Ubuntu、Fedora、Arch、Alpine、openSUSE、Void、Gentoo、FreeBSD，以及 OpenWrt、Termux、MSYS2、ROS 和配置的额外目录源。 |
@@ -18,7 +20,7 @@
 目录中定义且本机可安全编辑的目标生成改源配置。FreeBSD pkg 等 OS 目标属于代理目录覆盖，
 不应推断为客户端已实现完整系统级自动改源。
 
-## 上游与安全边界
+## 进阶：上游与安全边界
 
 - PyPI HTML 索引支持 `../../packages/...` 下载链接，并保留查询参数和哈希片段。
   `upstreams.pypi_files` 应设置为 `packages/` 之前的文件主机或基础目录；

@@ -1,69 +1,11 @@
-# containerd and K3s
+# K3s and containerd
 
-containerd, K3s, and Docker use different configuration files. Identify the runtime and version,
-then back up the current configuration:
+> **Choose the runtime you actually use.** K3s normally uses bundled containerd, not Docker's `daemon.json`. Configure every node that can run Pods.
+> These examples configure Docker Hub mirrors only; rewrite other registry hosts in workload manifests.
 
-```bash
-containerd --version
-sudo cp -a /etc/containerd/config.toml /etc/containerd/config.toml.before-mirrorproxy
-```
-
-This page configures the MirrorProxy root endpoint as a Docker Hub mirror only. Rewrite images from
-other supported registries explicitly in Helm values, workload manifests, or offline image lists as
-`mirror.example.com/<original-registry>/<repository>:<tag>`.
-
-## containerd 1.x
-
-Older CRI installations commonly use `/etc/containerd/config.toml`. Do not replace production
-configuration with the output of `containerd config default`. Merge this Docker Hub endpoint into
-the matching existing section:
-
-```toml
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-  endpoint = ["https://mirror.example.com", "https://registry-1.docker.io"]
-```
-
-Distribution packages and Kubernetes installers may generate different `version` values and plugin
-trees. Inspect the current file and avoid declaring the same TOML table twice. Restart and verify:
-
-```bash
-sudo systemctl restart containerd
-sudo systemctl is-active containerd
-sudo journalctl -u containerd -n 100 --no-pager
-sudo crictl pull docker.io/library/busybox:1.36.1
-```
-
-`sudo nerdctl pull docker.io/library/busybox:1.36.1` is another useful check. Use the namespace,
-socket, and CRI configuration of the containerd instance that Kubernetes actually runs.
-
-## hosts.toml mode
-
-Current containerd releases support registry host configuration directories. Confirm the active
-plugin tree, then point `config_path` at `/etc/containerd/certs.d`. A common containerd 2.x shape is:
-
-```toml
-[plugins."io.containerd.cri.v1.images".registry]
-  config_path = "/etc/containerd/certs.d"
-```
-
-Treat `containerd config dump` as authoritative for the running installation. Create:
-
-```text
-/etc/containerd/certs.d/docker.io/hosts.toml
-```
-
-with:
-
-```toml
-server = "https://registry-1.docker.io"
-
-[host."https://mirror.example.com"]
-  capabilities = ["pull", "resolve"]
-  skip_verify = false
-```
-
-Restart containerd after setting `config_path`. Whether later `hosts.toml` changes reload without a
-restart depends on the deployed version; prove the result with a real pull and logs.
+- K3s: start with the next section.
+- Standalone containerd: use [hosts.toml](#containerd-hoststoml-mode) first. Legacy CRI configuration appears later; do not paste both methods together.
+- Retain existing files before editing, restart during a maintenance window, and verify real pulls.
 
 ## K3s
 
@@ -99,6 +41,68 @@ sudo journalctl -u k3s -n 100 --no-pager
 `rancher/...` is still a Docker Hub repository path; do not invent a `rancher` registry entry.
 `k8s.gcr.io` is legacy. New manifests should use `registry.k8s.io`, then explicitly rewrite the
 reference as `mirror.example.com/registry.k8s.io/...`.
+
+## containerd: hosts.toml mode
+
+Current containerd releases support registry host configuration directories. Confirm the active
+plugin tree, then point `config_path` at `/etc/containerd/certs.d`. A common containerd 2.x shape is:
+
+```toml
+[plugins."io.containerd.cri.v1.images".registry]
+  config_path = "/etc/containerd/certs.d"
+```
+
+Treat `containerd config dump` as authoritative for the running installation. Create:
+
+```text
+/etc/containerd/certs.d/docker.io/hosts.toml
+```
+
+with:
+
+```toml
+server = "https://registry-1.docker.io"
+
+[host."https://mirror.example.com"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = false
+```
+
+Restart containerd after setting `config_path`. Whether later `hosts.toml` changes reload without a
+restart depends on the deployed version; prove the result with a real pull and logs.
+
+For containerd 1.x using a host directory, the matching plugin section is commonly:
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".registry]
+  config_path = "/etc/containerd/certs.d"
+```
+
+Do not mix plugin keys from different major versions. Check the running installation.
+
+## Advanced: legacy containerd 1.x
+
+Older CRI installations commonly use `/etc/containerd/config.toml`. Do not replace production
+configuration with the output of `containerd config default`. Merge this Docker Hub endpoint into
+the matching existing section:
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+  endpoint = ["https://mirror.example.com", "https://registry-1.docker.io"]
+```
+
+Distribution packages and Kubernetes installers may generate different `version` values and plugin
+trees. Inspect the current file and avoid declaring the same TOML table twice. Restart and verify:
+
+```bash
+sudo systemctl restart containerd
+sudo systemctl is-active containerd
+sudo journalctl -u containerd -n 100 --no-pager
+sudo crictl pull docker.io/library/busybox:1.36.1
+```
+
+`sudo nerdctl pull docker.io/library/busybox:1.36.1` is another useful check. Use the namespace,
+socket, and CRI configuration of the containerd instance that Kubernetes actually runs.
 
 ## Troubleshooting
 

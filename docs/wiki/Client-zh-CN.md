@@ -1,5 +1,7 @@
 # 独立客户端
 
+> **这里只配置你的电脑，不部署服务端。** 先准备已有实例的 HTTPS 根地址，例如 `https://mirror.example.com`，不要附加 `/npm` 等路径。
+
 `mirrorproxy` 是独立二进制，不连接或管理服务端数据库。它读取共享目录，生成并执行本机
 软件源配置，记录原始内容以便精确恢复。正式版本提供 Linux x86_64/arm64、macOS
 Intel/Apple Silicon 和 Windows x64 资产与 SHA-256 校验。
@@ -33,6 +35,7 @@ mirrorproxy mirrors
 
 # 查看或配置 npm 使用你的 MirrorProxy 实例
 mirrorproxy get npm --base-url https://mirror.example.com
+mirrorproxy set npm --base-url https://mirror.example.com --dry-run
 mirrorproxy set npm --base-url https://mirror.example.com
 
 # 恢复 set 前保存的原始配置
@@ -43,7 +46,7 @@ mirrorproxy reset npm
 `--dry-run` 先显示将执行的改动。选择 MirrorProxy 提供方时 `--base-url` 必填，格式为
 `http(s)://host[:port]`，不应带包仓库路径。
 
-## 用户与系统范围
+## 进阶：用户与系统范围
 
 用户范围适用于 npm、pip、Cargo、Go、Composer 等，回滚记录保存在用户状态目录下。
 系统范围仅在 Linux 上直接支持，并会修改 APT、DNF、pacman、apk、zypper、xbps、Portage

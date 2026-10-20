@@ -258,6 +258,40 @@ p {
   background: var(--bg);
 }
 
+.http-security-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: var(--admin-shell-max);
+  margin: 0 auto 20px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 55%, var(--line));
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-input);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-strong);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.http-security-banner > svg { flex: 0 0 auto; margin-top: 2px; }
+.http-security-banner > div { flex: 1; min-width: 0; }
+.http-security-banner p { margin: 4px 0 0; }
+.http-security-banner a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  color: inherit;
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+.account-page > .http-security-banner { margin: 0 24px 20px; }
+@media (max-width: 640px) {
+  .http-security-banner { flex-wrap: wrap; }
+  .http-security-banner a { margin-left: 32px; }
+  .account-page > .http-security-banner { margin-inline: 16px; }
+}
+
 .admin-page-header {
   max-width: var(--admin-shell-max);
   margin: 0 auto 18px;

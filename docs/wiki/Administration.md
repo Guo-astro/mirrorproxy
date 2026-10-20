@@ -1,73 +1,44 @@
 # Administration
 
-`/admin` is the embedded console. SQLite stores hashed sessions. The first
-administrator is configured through `MIRRORPROXY_ADMIN_PASSWORD`, or a random
-password is printed only in the first startup log. Change that password promptly
-and restrict log access in production.
+Open **`https://your-host/admin`**. The first account is `admin`; use the configured initial password or the random password in the first startup log.
 
-Set `MIRRORPROXY_MASTER_KEY` to a stable 32-byte hex or base64url value to encrypt
-persisted runtime configuration, SMTP/provider credentials, login-flow payloads,
-queued email bodies, and ACME DNS secrets with XChaCha20-Poly1305. The key is not
-stored in SQLite and must be backed up separately.
+> **Use HTTPS for sign-in.** v1.4.4 also supports HTTP password login with a persistent security warning. For older login failures, check [Troubleshooting](Troubleshooting); do not delete the database.
+> The password environment variable creates the first administrator only. Change an existing password in the console.
 
-## Administrators and security
+## Common tasks
 
-- `super_admin` changes service policy, ACME, access rules, administrators, and
-  sensitive runtime settings.
-- `admin` suits daily operations and read-only observation; the server checks
-  roles again for global-security actions.
-- Administrator creation/disablement, password reset, session revocation, and
-  optional WebAuthn passkeys are available. Before forcing passkeys, verify the
-  fixed HTTPS RP ID/origin and a break-glass administrator.
-- APIs never return DNS keys or upstream passwords; secret fields are write-only
-  or report only that a value is configured.
+| Task | Console page |
+| --- | --- |
+| Check service health, requests, and quotas | Overview |
+| Check an upstream source | Mirror health |
+| Change upstreams, adapters, outbound proxy, or cache | Advanced |
+| Change admin passwords, passkeys, or sessions | Administrators & security |
+| Manage users, quotas, billing groups, and site identity | Access & quotas; Users & groups |
+| Set up mail, invitations, and identity providers | Email & invitations; Identity providers |
+| Inspect regional traffic, IP rules, and actions | Regional traffic; IP access control; Audit log |
 
-## Users, quota, and traffic
+## Administrators and login
 
-Configure registration policy, invitations, allowed email domains, user routing,
-and billing groups. Monthly quota can be set globally, by billing group, and per
-user; the selected overage policy stops further proxying. Traffic uses bytes
-actually delivered to clients. Bidirectional accounting also counts upstream
-transfer. Request events expire according to `request_event_retention_days`,
-while daily aggregates remain for reporting.
+- `super_admin` changes global policy, administrators, and sensitive settings; `admin` handles daily operations and observation. The server enforces privileged actions.
+- Five consecutive failures lock an account for 15 minutes; restarts do not clear it. Per-account and real-source-IP throttling and auditing also apply.
+- Forgot a password? Use [local recovery](Troubleshooting).
+- Passkeys need a supported secure browser context. Before enforcing them, verify RP hostname/origin, the break-glass account, and sufficient credentials for required accounts.
 
-Billing groups also act as team/project boundaries. No selected mirror targets
-means compatible full access. Selecting targets turns the policy into an
-allowlist enforced for every authenticated proxy request from team members.
+## Users, quotas, and alerts
 
-## Daily operations
+Enable registration or invitations as needed, then configure billing groups and user quotas. Monthly limits can apply globally, per group, and per user;
+the selected policy controls overages. Delivered bytes and billable bytes can differ when bidirectional accounting includes uploads.
 
-1. Use **Overview** for service, database, and quota state.
-2. Use **Source health** for a target/upstream failure; then inspect adapter
-   enablement, upstream URLs, and outbound proxy settings.
-3. Use regional reports and audit logs for traffic and administrative activity,
-   not as raw-IP logs.
-4. Scrape `/metrics` with Prometheus and combine structured logs with optional
-   OTLP traces for upstream investigation.
+Alerts support webhooks, mail, or both, with separate cooldowns. Mail alerts and invitations require SMTP first.
+Access & quotas configures site title, description, keywords, icon, and left footer text; the project link and version remain fixed.
 
-Operational alerts cover quota and source-health thresholds. They can use a
-generic JSON webhook, SMTP email, or both; each delivery channel has independent
-cooldown suppression. Email delivery uses the SMTP settings and durable outbox.
-Webhook payloads contain `event`, `severity`, `message`, `value`, `threshold`,
-and `timestamp`. Advanced settings also show bounded disk-cache usage and
-provide an audited purge action.
+## Advanced: protect settings and data
 
-**Access & quotas → Site identity & SEO** configures the browser title,
-description, keywords, favicon, and the left-side footer text. MirrorProxy
-renders the metadata directly into the HTML response together with Open Graph
-and canonical metadata. The GitHub project link and service version on the
-right side of the footer remain fixed. Administrator, login, and account pages
-automatically emit `noindex,nofollow`.
+A stable `MIRRORPROXY_MASTER_KEY` (32 bytes, hex or base64url) encrypts persisted runtime settings, SMTP/provider credentials,
+mail-queue content, and ACME DNS secrets. **Back it up separately: it is not stored in SQLite, and losing it prevents recovery of the encrypted values.**
+The console does not return these secrets in plaintext; fields are write-only or report that a value is configured.
 
-## Database maintenance
-
-```bash
-mirrorproxy-server --config /etc/mirrorproxy/config.toml doctor --json
-mirrorproxy-server --config /etc/mirrorproxy/config.toml backup /srv/backups/mirrorproxy.sqlite3
-mirrorproxy-server --config /etc/mirrorproxy/config.toml restore /srv/backups/mirrorproxy.sqlite3 --force
-```
-
-Stop the service before restore. MirrorProxy validates and migrates the staged
-database, retains pre-restore copies, and then replaces the active file.
+See [Advanced deployment](Advanced-Deployment) for backups, restore, systemd, private management, and `/metrics`,
+or [GeoIP and IP rules](GeoIP-and-IP-Access-Control) for regional access control.
 
 [简体中文](Administration-zh-CN)

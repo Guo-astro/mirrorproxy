@@ -3,6 +3,32 @@
 All notable changes to MirrorProxy are documented in this file. Release tags
 follow semantic versioning.
 
+## [1.4.4] - 2026-10-20
+
+### Login and security
+
+- Fix remote HTTP browser login returning to the sign-in form in Docker and
+  binary deployments (Issue #10). Use separate HTTP/HTTPS session and CSRF
+  cookies, preserve secure HTTPS cookies, and show persistent bilingual HTTP
+  security warnings with HTTPS setup guidance.
+- Determine HTTPS from the actual TLS listener or trusted proxy rather than
+  the configured public URL. Preserve same-origin CSRF checks and login limits.
+- Verify that a non-empty `MIRRORPROXY_ADMIN_PASSWORD` is used verbatim only
+  when creating the first administrator; restarts never overwrite its password.
+- Update rustls to 0.23.46, quinn-proto to 0.11.18, source-map-js to 1.2.2,
+  and async-trait to 0.1.92 for security and CI compatibility.
+- Thanks to [@ignitiondl](https://github.com/ignitiondl) for reporting
+  [Issue #10](https://github.com/inbjo/MirrorProxy/issues/10).
+
+### Documentation and verification
+
+- Reorganize the bilingual Wiki around getting started, everyday use, and
+  advanced administration; simplify binary deployment and add HTTPS examples
+  for Nginx/OpenResty, Caddy, Traefik, Apache, HAProxy, and Nginx Proxy Manager.
+- Add real-browser HTTP/HTTPS login, CSRF, cookie isolation, and initial-password
+  persistence regression coverage to CI.
+- Add Linux.do community badges to both READMEs.
+
 ## [1.4.3] - 2026-09-30
 
 ### PyPI compatibility

@@ -1,34 +1,31 @@
-# MirrorProxy Wiki
+# MirrorProxy 使用指南
 
-MirrorProxy 是一个自部署的 Rust 镜像代理平台，由三个可独立演进的部分组成：
+MirrorProxy 把常用代码源、软件包和公开容器镜像集中到自己的域名，按需代理和缓存。
 
-- `mirrorproxy-server`：代理服务、SQLite 数据库和内嵌 React 管理后台。
-- `mirrorproxy`：独立的 Windows、macOS、Linux 改源客户端，不需要安装服务端。
-- `mirrorproxy-catalog`：服务端和客户端共用的目标、路径与改源能力目录。
+> **第一次使用？** 先看[快速开始](Getting-Started-zh-CN)。已有实例、只想给电脑改源，直接看[客户端](Client-zh-CN)。
 
-它将 GitHub、OCI、语言包仓库、开发工具链和多个操作系统仓库统一到一个可控入口。后台提供
-用户与配额、镜像健康检查、审计日志、GeoIP 地域报表、IP/CIDR 黑白名单和 ACME 证书管理。
-所有 IP 定位使用本地 XDB 数据库，不会把查询 IP 发给第三方。
+## 从你的需求开始
 
-## 选择部署模式
-
-| 场景 | 建议 |
+| 我想做什么 | 阅读这里 |
 | --- | --- |
-| 已有 Caddy/Nginx/Traefik | 保持反向代理终止 TLS，MirrorProxy 监听内部端口。 |
-| 单机、希望移除反向代理 | 启用 ACME `direct_https`，由 MirrorProxy 监听 80/443 并将 HTTP 重定向到 HTTPS。 |
-| 普通域名证书 | 使用 HTTP-01；公网 80 必须到达 MirrorProxy。 |
-| 通配符证书 | 使用 DNS-01；支持 Cloudflare、阿里云、DNSPod、Route53 和 Webhook。 |
+| 用 Docker 部署，自动开启 HTTPS | [快速开始](Getting-Started-zh-CN) |
+| 下载二进制运行，或使用已有反向代理 | [部署](Deployment-zh-CN) |
+| 配置 Nginx、Caddy、Traefik、Apache、HAProxy | [反向代理示例](Reverse-Proxy-zh-CN) |
+| 让 npm、pip、Cargo 等使用我的实例 | [客户端](Client-zh-CN) |
+| 加速 Docker Hub、GHCR 等镜像拉取 | [容器镜像](Container-Registries-and-Runtimes-zh-CN) |
+| 修改密码、设置配额、查看流量 | [后台管理](Administration-zh-CN) |
+| 无法登录、证书错误、下载失败 | [常见问题](Troubleshooting-zh-CN) |
 
-首次使用从“快速开始”进入；生产环境请完整阅读“部署”和“ACME 自动证书”。
+## 先记住这三点
 
-- [快速开始](Getting-Started-zh-CN)
-- [部署](Deployment-zh-CN)
-- [代理适配器](Proxy-Adapters-zh-CN)
-- [客户端](Client-zh-CN)
-- [客户端分发](Distribution-zh-CN)
-- [后台管理](Administration-zh-CN)
-- [GeoIP 与 IP 访问控制](GeoIP-and-IP-Access-Control-zh-CN)
-- [ACME 自动证书](ACME-Certificates-zh-CN)
-- [开发与路线图](Development-and-Roadmap-zh-CN)
+- **服务端是 `mirrorproxy-server`，客户端是 `mirrorproxy`。** 客户端安装脚本不会部署服务端。
+- **推荐使用 HTTPS。** v1.4.4 支持 HTTP 密码登录，但会持续显示不安全连接提醒；不要通过删除数据库解决登录问题。
+- **Docker mirror 只覆盖 Docker Hub。** 其他受支持 Registry 需要改写镜像地址；服务不接受镜像推送。
+
+## 用到时再看
+
+[支持的软件源](Proxy-Adapters-zh-CN) · [客户端安装方式](Distribution-zh-CN) ·
+[进阶部署](Advanced-Deployment-zh-CN) · [原生 HTTPS / ACME](ACME-Certificates-zh-CN) ·
+[GeoIP 与 IP 规则](GeoIP-and-IP-Access-Control-zh-CN) · [开发](Development-and-Roadmap-zh-CN)
 
 [English](Home)

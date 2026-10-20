@@ -1,127 +1,132 @@
-# 部署
+# 部署：先运行服务，再接入 HTTPS
 
-服务端发布包包含 `mirrorproxy-server`、`config.example.toml` 和 IPv4/IPv6 ip2region
-数据库。无论 Docker 还是二进制部署，都应将 SQLite、缓存、GeoIP 与 ACME 目录放在
-持久化存储中；升级二进制/镜像前先验证数据库文件可读，并保持数据目录不变。
+| 你的情况 | 从这里开始 |
+| --- | --- |
+| 新手，想用 Docker 一次配好 HTTPS | [Docker + Caddy 快速开始](Getting-Started-zh-CN) |
+| 已有宿主机 Nginx/Caddy 等入口 | 本页第一步 A，再选反向代理 |
+| 不使用 Docker | 本页第一步 B，下载二进制 |
+| 不使用任何反向代理 | [MirrorProxy 原生 HTTPS](ACME-Certificates-zh-CN) |
 
-## 可选管理监听地址
+> **v1.4.4 支持 HTTP 密码登录，并持续显示不安全连接提醒。** 密码和会话在 HTTP 下可能被窃听或篡改，推荐按下方步骤启用 HTTPS。旧版登录问题见[常见问题](Troubleshooting-zh-CN)。
 
-`/admin` 和管理 API 继续保留在公网监听地址，并由登录认证保护。如需从本机或可信内网运维，
-可以再增加一个管理监听地址；启用后不会隐藏公网管理入口：
+以下使用 `mirror.example.com`，请替换为你的真实域名，并让 DNS 指向服务器。
 
-```toml
-listen_addr = "0.0.0.0:3000"
+## 第一步 A：Docker 后端，接宿主机反向代理
 
-[management]
-enabled = true
-listen_addr = "127.0.0.1:3001"
-```
-
-管理员密码登录同时按账号和来源 IP 限流；同一账号连续失败五次后会持久化锁定 15 分钟，
-并记录审计事件。反向代理场景必须只把真实代理节点加入 `trusted_proxies`，以便防爆破逻辑
-使用真实客户端地址。
-
-`/metrics` 默认只允许本机客户端访问，并同样使用可信代理解析后的地址判断。确需远程采集时，
-可以显式设置 `metrics.local_only = false`，同时使用防火墙或带认证的监控代理限制访问。
-
-## 部署模式
-
-### 反向代理终止 TLS
-
-默认模式监听内部地址，例如 `127.0.0.1:3000`。由 Nginx、Caddy、Traefik、Apache 或
-HAProxy 对外提供 TLS，并将原始 `Host`、请求路径与方法转发给 MirrorProxy。此模式适合
-已经由入口统一管理证书的服务器。`trusted_proxies` 只填写真实反向代理节点；MirrorProxy
-仅在 TCP 对端可信时读取 `X-Forwarded-For`，且从右向左解析代理链。
-
-单层 Nginx 应使用 `$remote_addr` 覆盖该请求头，不能直接转发客户端自带值；多层代理只有
-在每个中间节点都可信时才可保留追加链。管理后台也应通过 HTTPS 暴露。
-
-### MirrorProxy 原生 HTTPS
-
-不使用 Caddy/Nginx 时，可在后台“高级设置 → ACME 自动证书”或 TOML 中启用
-`direct_https`。服务自行绑定 80 与 443，保留 HTTP-01 challenge，证书就绪后将其他 HTTP
-请求 308 重定向到 HTTPS；续期会热加载，不需要重启。详见[ACME 自动证书](ACME-Certificates-zh-CN)。
-
-二进制服务建议使用非 root 帐号，并通过 systemd 授予 `CAP_NET_BIND_SERVICE`；容器默认
-非 root，建议内部使用 3000/3443 再映射到宿主机 80/443。
-
-## Linux systemd（二进制发布包）
-
-发布包解压后，创建专用用户和可写工作目录；配置文件与数据目录建议归该用户所有：
-
-```bash
-sudo useradd --system --home-dir /var/lib/mirrorproxy --shell /usr/sbin/nologin mirrorproxy
-sudo install -d -o mirrorproxy -g mirrorproxy /opt/mirrorproxy /etc/mirrorproxy /var/lib/mirrorproxy
-sudo install -m 0755 mirrorproxy-server /opt/mirrorproxy/mirrorproxy-server
-sudo cp -a geoip /var/lib/mirrorproxy/
-sudo chown -R mirrorproxy:mirrorproxy /var/lib/mirrorproxy
-sudo install -m 0640 -o root -g mirrorproxy config.example.toml /etc/mirrorproxy/config.toml
-```
-
-`mirrorproxy-server install` 会使用明确的 `--config` 路径生成 unit。普通反向代理模式：
-
-```bash
-sudo /opt/mirrorproxy/mirrorproxy-server --config /etc/mirrorproxy/config.toml install \
-  --working-directory /var/lib/mirrorproxy --enable --start
-```
-
-原生 HTTPS 需要绑定 80/443 时加上 `--privileged-ports`：
-
-```bash
-sudo /opt/mirrorproxy/mirrorproxy-server --config /etc/mirrorproxy/config.toml install \
-  --working-directory /var/lib/mirrorproxy --privileged-ports --enable --start
-```
-
-默认写入 `/etc/systemd/system/mirrorproxy.service`。可通过 `--unit-path`、`--service-user`、
-`--binary-path` 和 `--working-directory` 显式覆盖；先加 `--dry-run` 可查看生成的 unit 而不写文件。
-未传 `--enable`/`--start` 时命令只安装 unit，并打印后续 `systemctl` 命令。服务日志使用：
-
-```bash
-systemctl status mirrorproxy
-journalctl -u mirrorproxy -f
-```
-
-## Docker 运行要点
-
-- 永久挂载 `/data`；镜像默认将数据库、缓存和可写 GeoIP 放在该目录。
-- 通过环境变量覆盖配置时，环境变量优先于 TOML；特别是 `MIRRORPROXY_ACME_*` 会让后台
-  ACME 表单变为只读。
-- 固定镜像版本后再升级；升级后检查 `/healthz`、`/admin` 登录、一个公共代理目标和日志。
-- 不要把 SQLite 放到网络文件系统；单实例使用本地磁盘最稳妥。
-
-## 用户子域名
-
-`subdomain_required` 是可选的按用户路由/计费模式，不是普通代理的必要条件。启用前必须
-同时完成通配符 DNS、通配符 TLS、入口保留原始 Host，并在后台确认基础设施就绪；否则主域名
-上的包代理路径会按策略拒绝。
-
-## 镜像上游的企业 CA
-
-MirrorProxy 的镜像上游客户端默认同时信任 WebPKI 公共根证书和操作系统根证书。
-如果企业 HTTPS 上游由私有 CA 签发，可额外挂载一个或多个 PEM Bundle：
-
-```toml
-[upstream_tls]
-ca_certificates = ["/etc/mirrorproxy/ca/company-root.pem"]
-insecure_skip_verify = false
-```
-
-Docker 部署必须先把证书文件挂载到容器内，例如：
+**如果已采用快速开始的 Docker + Caddy，就跳过本节。** 以下适用于反代软件装在宿主机的 Linux 服务器。
+创建 `compose.yml`：
 
 ```yaml
+services:
+  mirrorproxy:
+    image: kudang/mirrorproxy:1.4.4
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      MIRRORPROXY_ADMIN_PASSWORD: 'replace-with-a-long-unique-password'
+      MIRRORPROXY_PUBLIC_BASE_URL: 'https://mirror.example.com'
+      MIRRORPROXY_TRUSTED_PROXIES: '172.30.40.1'
+    volumes:
+      - mirrorproxy-data:/data
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.40.0/24
+          gateway: 172.30.40.1
 volumes:
-  - ./company-root.pem:/etc/mirrorproxy/ca/company-root.pem:ro
+  mirrorproxy-data:
 ```
 
-也可使用环境变量：
-
-```text
-MIRRORPROXY_UPSTREAM_TLS_CA_CERTIFICATES=/etc/mirrorproxy/ca/company-root.pem
-MIRRORPROXY_UPSTREAM_TLS_INSECURE_SKIP_VERIFY=false
+```bash
+docker compose config --quiet
+docker compose up -d
+curl -f http://127.0.0.1:3000/healthz
 ```
 
-`insecure_skip_verify = true` 会关闭所有镜像上游 HTTPS 的证书校验，存在中间人攻击
-风险，只能临时用于调试。该设置及附加 CA 不会应用到 ACME、DNS 服务商 API 或 OAuth
-等控制面请求。
+后台端口只发布到宿主机回环地址，不直接对公网开放。容器把本示例的宿主机网桥地址
+`172.30.40.1` 作为可信代理。网段冲突时同步修改网段、网关和可信地址；不要照搬到其他网络。
+已有数据库的运行设置可能由后台保存，可信代理和公开地址也要在后台核对。
 
-[English](Deployment)
+## 第一步 B：直接运行二进制
+
+适用于**全新 Linux x86_64 安装**，无需安装 Rust 或 Node.js。先确认架构：`uname -m`。
+ARM64 请把下面的归档名换成 `mirrorproxy-server-aarch64-unknown-linux-gnu.tar.gz`。
+
+下载、校验并解压，以下命令分步执行，校验失败时停止：
+
+```bash
+mkdir -p "$HOME/mirrorproxy"
+cd "$HOME/mirrorproxy"
+version=v1.4.4
+archive=mirrorproxy-server-x86_64-unknown-linux-musl.tar.gz
+curl -fLO "https://github.com/inbjo/MirrorProxy/releases/download/$version/$archive"
+curl -fLO "https://github.com/inbjo/MirrorProxy/releases/download/$version/$archive.sha256"
+sha256sum -c "$archive.sha256" && tar -xzf "$archive"
+```
+
+在 `~/mirrorproxy/config.toml` 新建最小配置，先替换域名。其余设置使用服务默认值；完整字段见随包的 `config.example.toml`。
+
+```toml
+listen_addr = "127.0.0.1:3000"
+public_base_url = "https://mirror.example.com"
+database_path = "mirrorproxy.sqlite3"
+trusted_proxies = ["127.0.0.1", "::1"]
+```
+
+从该目录启动，填写自己的初始密码：
+
+```bash
+MIRRORPROXY_ADMIN_PASSWORD='replace-with-a-long-unique-password'   ./mirrorproxy-server --config ./config.toml serve
+```
+
+保持这个终端运行，在另一终端验证 `curl -f http://127.0.0.1:3000/healthz`。
+接着配置下面的 HTTPS；全部正常后，按[systemd 常驻](Advanced-Deployment-zh-CN#systemd)改为后台服务。
+**不要安装成客户端 `mirrorproxy`，也不要只复制可执行文件而遗漏 `geoip/`。**
+
+## 第二步：选择反向代理，启用 HTTPS
+
+只选一种；Caddy、Nginx、Traefik 等不能同时占用同一台机器的 80/443。
+
+| 软件 | 完整配置 |
+| --- | --- |
+| Caddy（自动证书，最省步骤） | [Caddy 示例](Reverse-Proxy-zh-CN#caddy) |
+| Nginx / OpenResty / 使用 Nginx 的面板 | [Nginx 示例与证书申请](Reverse-Proxy-zh-CN#nginx) |
+| Traefik | [Traefik 静态和动态配置](Reverse-Proxy-zh-CN#traefik) |
+| Apache HTTP Server | [Apache 虚拟主机配置](Reverse-Proxy-zh-CN#apache) |
+| HAProxy | [HAProxy TLS 与后端配置](Reverse-Proxy-zh-CN#haproxy) |
+| Nginx Proxy Manager | [NPM 界面填写示例](Reverse-Proxy-zh-CN#npm) |
+
+例如，在**宿主机**上运行的 Caddy 使用以下 `Caddyfile`：
+
+```caddyfile
+mirror.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+域名解析正确且公网 80/443 可达时，Caddy 会自动处理证书和 HTTP 到 HTTPS 的跳转。
+安装、配置文件位置及重载命令见[完整示例](Reverse-Proxy-zh-CN#caddy)。
+
+> **反代也在容器里？** 容器内的 `127.0.0.1` 指它自己。请使用共享网络中的服务名，
+> 如快速开始的 `mirrorproxy:3000`，并只信任实际反代容器的地址。
+
+## 第三步：验证并登录
+
+```bash
+curl -f https://mirror.example.com/healthz
+curl -f https://mirror.example.com/version
+curl -f https://mirror.example.com/npm/is-number
+```
+
+打开 **`https://mirror.example.com/admin`**，使用 `admin` 和初始化密码登录，再刷新页面。
+这同时验证了证书、反代、真实包代理和登录会话。不要用 `curl -k` 跳过证书问题。
+
+## 日常操作与进阶
+
+- [常见问题](Troubleshooting-zh-CN)：登录、502、证书、权限和配置不生效。
+- [进阶部署](Advanced-Deployment-zh-CN)：systemd、升级回滚、备份、独立管理端口、企业 CA、用户子域名。
+- [原生 HTTPS / ACME](ACME-Certificates-zh-CN)：不用反代时自行签发证书。
+
+[Caddy 官方说明](https://caddyserver.com/docs/automatic-https) · [English](Deployment)
