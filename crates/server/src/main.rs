@@ -6896,23 +6896,38 @@ mod tests {
         })
         .await
         .expect("HTTPS listener should become ready");
-        let response = Client::builder()
-            .danger_accept_invalid_certs(true)
+        let base_url = format!("https://localhost:{}", address.port());
+        let certificate = Certificate::from_pem(generated.cert.pem().as_bytes()).unwrap();
+        let client = Client::builder()
+            .no_proxy()
+            .resolve("localhost", address)
+            .add_root_certificate(certificate)
+            .build()
+            .unwrap();
+        Client::builder()
+            .no_proxy()
+            .resolve("localhost", address)
             .build()
             .unwrap()
+            .get(format!("{base_url}/healthz"))
+            .send()
+            .await
+            .expect_err("the self-signed certificate must require explicit trust");
+        client
             .get(format!("https://{address}/healthz"))
+            .send()
+            .await
+            .expect_err("trusting the certificate must not bypass hostname verification");
+        let response = client
+            .get(format!("{base_url}/healthz"))
             .send()
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await.unwrap(), "ok");
 
-        let response = Client::builder()
-            .no_proxy()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap()
-            .post(format!("https://{address}/admin/api/auth/login"))
+        let response = client
+            .post(format!("{base_url}/admin/api/auth/login"))
             .json(&serde_json::json!({
                 "username": credentials.username,
                 "password": credentials.password,
@@ -6945,13 +6960,14 @@ mod tests {
         let renewed_certificate = Certificate::from_pem(renewed_pem.as_bytes()).unwrap();
         let renewed_client = Client::builder()
             .no_proxy()
+            .resolve("localhost", address)
             .add_root_certificate(renewed_certificate)
             .build()
             .unwrap();
         timeout(Duration::from_secs(3), async {
             loop {
                 if renewed_client
-                    .get(format!("https://localhost:{}/healthz", address.port()))
+                    .get(format!("{base_url}/healthz"))
                     .send()
                     .await
                     .is_ok()
