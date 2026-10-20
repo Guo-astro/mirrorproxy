@@ -667,6 +667,11 @@ function UserPage() {
   const [verifying, setVerifying] = React.useState(false)
   const invitation = new URLSearchParams(location.search).get('invitation')
   const [registrationToken, setRegistrationToken] = React.useState(() => new URLSearchParams(location.hash.slice(1)).get('register'))
+  React.useEffect(() => {
+    const readInvitation = () => setRegistrationToken(new URLSearchParams(window.location.hash.slice(1)).get('register'))
+    window.addEventListener('hashchange', readInvitation)
+    return () => window.removeEventListener('hashchange', readInvitation)
+  }, [])
   const magicToken = new URLSearchParams(location.search).get('token')
   const oauthError = new URLSearchParams(location.search).get('oauth_error')
   const automaticToken = magicToken

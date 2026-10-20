@@ -874,3 +874,15 @@ test('warns proactively on HTTPS when the backend sees an untrusted HTTP connect
   await page.setViewportSize({ width: 375, height: 900 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+test('switches an open login page to invitation registration on fragment navigation', async ({ page }) => {
+  await page.route('**/api/auth/providers', route => route.fulfill({ json: [] }))
+  await page.route('**/api/account/**', route => route.fulfill({ status: 401, json: {} }))
+  await page.goto('/login')
+  await expect(page.getByRole('heading', { name: 'Sign in with a password' })).toBeVisible()
+  await page.goto('/login#register=one-time-invitation')
+  await expect(page.getByRole('heading', { name: 'Accept invitation and register' })).toBeVisible()
+  await expect(page.getByLabel('Confirm password')).toBeVisible()
+  await page.evaluate(() => { location.hash = '' })
+  await expect(page.getByRole('heading', { name: 'Sign in with a password' })).toBeVisible()
+})
