@@ -1,3 +1,4 @@
+import { SourceCapabilityBadges, SourceCapabilityDetails, UpstreamSelectionDetails, type SourceCapabilities, type SelectionReport } from './source-details'
 import { OperationToast, ToastProvider } from './operation-toast'
 import { AdminConnectionNotice, csrfErrorMessage } from './connection-notice'
 import { AdminLocalAccounts, PasswordAccess, UserPasswordChange } from './local-accounts'
@@ -258,6 +259,7 @@ type MirrorProvider = {
   speed_test_url: string | null
 }
 type SourceTarget = {
+  capabilities?: SourceCapabilities
   code: string
   name: string
   category: 'lang' | 'os' | 'repo'
@@ -299,6 +301,7 @@ type SourceHealthItem = {
   endpoints: SourceEndpointHealthItem[]
 }
 type SourceHealthReport = {
+  selection?: SelectionReport
   running: boolean
   total: number
   healthy: number
@@ -918,7 +921,7 @@ function PublicApp() {
       </header>
 
       <HttpSecurityBanner locale={locale} />
-      <AccelerationWorkbench baseUrl={baseUrl} config={config} catalog={catalog} health={sourceHealth} labels={t} onCopy={copyCommand} copied={copied} />
+      <AccelerationWorkbench locale={locale} baseUrl={baseUrl} config={config} catalog={catalog} health={sourceHealth} labels={t} onCopy={copyCommand} copied={copied} />
 
       <SiteFooter footerText={config.site?.footer_text} />
 
@@ -1047,7 +1050,7 @@ function PublicApp() {
   )
 }
 
-function AccelerationWorkbench({ baseUrl, config, catalog, health, labels, onCopy, copied }: { baseUrl: string; config: PublicConfig; catalog: SourceCatalog | null; health: SourceHealthReport | null; labels: Record<string, string>; onCopy: (id: string, value: string) => void; copied: string | null }) {
+function AccelerationWorkbench({ baseUrl, config, catalog, health, labels, onCopy, copied, locale }: { locale: Locale; baseUrl: string; config: PublicConfig; catalog: SourceCatalog | null; health: SourceHealthReport | null; labels: Record<string, string>; onCopy: (id: string, value: string) => void; copied: string | null }) {
   const [githubInput, setGithubInput] = React.useState('')
   const [dockerInput, setDockerInput] = React.useState('')
   const [selectedTarget, setSelectedTarget] = React.useState<SourceTarget | null>(null)
@@ -1102,10 +1105,10 @@ function AccelerationWorkbench({ baseUrl, config, catalog, health, labels, onCop
       </div>
       {filteredTargets.length ? <div className="source-card-grid">{filteredTargets.map((item) => {
         const sourceState = sourceHealthLabel(item)
-        return <button className={`${item.code === selectedTarget?.code ? 'source-tile selected' : 'source-tile'}${sourceState?.status === 'unhealthy' ? ' source-tile-unhealthy' : ''}${sourceState?.status === 'degraded' ? ' source-tile-degraded' : ''}`} onClick={() => setSelectedTarget(item)} key={item.code}>{sourceCategoryIcon(item.category)}<span><strong>{item.name}</strong><small>{sourceCategoryLabel(item.category, labels)}</small></span><span className="source-tile-meta"><em>{item.supported_modes.includes('proxy') ? labels.proxyReady : labels.configOnly}</em>{sourceState ? <small className={`source-health-badge source-health-${sourceState.status}`}><i />{sourceState.label}</small> : null}</span></button>
+        return <button className={`${item.code === selectedTarget?.code ? 'source-tile selected' : 'source-tile'}${sourceState?.status === 'unhealthy' ? ' source-tile-unhealthy' : ''}${sourceState?.status === 'degraded' ? ' source-tile-degraded' : ''}`} onClick={() => setSelectedTarget(item)} key={item.code}>{sourceCategoryIcon(item.category)}<span><strong>{item.name}</strong><small>{sourceCategoryLabel(item.category, labels)}</small></span><span className="source-tile-meta"><em>{item.supported_modes.includes('proxy') ? labels.proxyReady : labels.configOnly}</em>{sourceState ? <small className={`source-health-badge source-health-${sourceState.status}`}><i />{sourceState.label}</small> : null}</span><SourceCapabilityBadges capabilities={item.capabilities} locale={locale} /></button>
       })}</div> : <p className="source-no-results">{labels.sourceNoResults}</p>}
     </div> : null}
-    {selectedTarget && catalog ? <SourceConfigModal target={selectedTarget} health={healthByTarget.get(selectedTarget.code)} baseUrl={baseUrl} catalog={catalog} labels={labels} copied={copied} onCopy={onCopy} onClose={() => setSelectedTarget(null)} /> : null}
+    {selectedTarget && catalog ? <SourceConfigModal locale={locale} target={selectedTarget} health={healthByTarget.get(selectedTarget.code)} baseUrl={baseUrl} catalog={catalog} labels={labels} copied={copied} onCopy={onCopy} onClose={() => setSelectedTarget(null)} /> : null}
   </section>
 }
 
@@ -1230,7 +1233,7 @@ function LinkConverter({ title, icon, hint, value, onChange, output, outputLabel
   return <section className="link-converter"><div className="converter-title">{icon}<div><h2>{title}</h2><p>{hint}</p></div></div><div className="converter-input"><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /><button disabled={!output} onClick={onCopy}>{copied ? copiedLabel : copyLabel}</button></div>{output ? <div className="converter-output"><span>{outputLabel}</span><code>{output}</code></div> : null}</section>
 }
 
-function SourceConfigModal({ target, health, baseUrl, catalog, labels, copied, onCopy, onClose }: { target: SourceTarget; health?: SourceHealthItem; baseUrl: string; catalog: SourceCatalog; labels: Record<string, string>; copied: string | null; onCopy: (id: string, value: string) => void; onClose: () => void }) {
+function SourceConfigModal({ target, health, baseUrl, catalog, labels, copied, onCopy, onClose, locale }: { locale: Locale; target: SourceTarget; health?: SourceHealthItem; baseUrl: string; catalog: SourceCatalog; labels: Record<string, string>; copied: string | null; onCopy: (id: string, value: string) => void; onClose: () => void }) {
   const source = catalog.sources.find((item) => item.target_code === target.code && item.provider_code === 'mirrorproxy')
   const customRepository = target.aliases.includes('additional_os')
   const template = catalog.templates.find((item) => item.target_code === target.code)
@@ -1244,6 +1247,7 @@ function SourceConfigModal({ target, health, baseUrl, catalog, labels, copied, o
       <h2>{target.name}</h2>
       <p>{source ? (customRepository ? labels.customRepositoryAvailable : labels.sourceAvailable) : labels.sourceUnavailable}</p>
       {target.code === 'huggingface' ? <p>{labels.huggingfaceHint}</p> : null}
+      <SourceCapabilityDetails capabilities={target.capabilities} locale={locale} />
       {health?.endpoints.length ? <section className="public-upstream-health"><div><strong>{labels.upstreamStatus ?? 'Upstream status'}</strong><span className={`source-health-badge source-health-${health.status}`}><i />{labels[`source${health.status[0].toUpperCase()}${health.status.slice(1)}`]}</span></div><div className="public-upstream-list">{health.endpoints.map((endpoint) => <div className={`public-upstream-row ${endpoint.status}`} key={`${endpoint.position}-${endpoint.endpoint}`}><i /><code>{endpoint.endpoint}</code><span>HTTP {endpoint.http_status ?? '—'} · {endpoint.latency_ms === null ? '—' : `${endpoint.latency_ms} ms`}</span></div>)}</div></section> : null}
       {source ? <ConfigOption title={customRepository ? labels.customRepositoryAddress : labels.mirrorproxyAddress} description={customRepository ? labels.customRepositoryAddressHint : labels.mirrorproxyAddressHint} value={proxyUrl} copyLabel={customRepository ? labels.copyAddress : labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-url'} onCopy={() => onCopy('source-url', proxyUrl)} /> : null}
       {source && !customRepository && target.code !== 'huggingface' ? <ConfigOption title={labels.mirrorproxyCli} description={labels.mirrorproxyCliHint} value={mirrorproxyCommand} copyLabel={labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-cli'} onCopy={() => onCopy('source-cli', mirrorproxyCommand)} /> : null}
@@ -1914,7 +1918,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
       {token ? <AdminConnectionNotice locale={locale} onConfigure={() => { setActiveTab('advanced'); requestAnimationFrame(() => document.getElementById('trusted-proxies')?.focus()) }} /> : null}
       {token && draft && stats ? <div className="console-workspace">
         <nav className="admin-tabs" aria-label={text.title}>{tabs.map((tab) => <button aria-current={activeTab === tab.id ? 'page' : undefined} aria-label={tab.label} className={activeTab === tab.id ? 'active' : ''} key={tab.id} title={tab.label} onClick={() => setActiveTab(tab.id)}>{locale === 'en' ? compactEnglishTabLabels[tab.id] : tab.label}</button>)}</nav>
-        <div className="admin-tab-toolbar"><div><h3>{activeTabCopy.label}</h3><p>{activeTabCopy.hint}</p></div><div className="console-actions">{activeTab === 'overview' || activeTab === 'audit' ? <button onClick={() => (activeTab === 'audit' ? loadAudit(auditPage) : load(token)).catch(() => setError(text.saveError))}>{text.refresh}</button> : null}{activeTab === 'health' ? <button className="primary-button" disabled={sourceHealthBusy || sourceHealth?.running} onClick={runSourceHealth}><RefreshCw className={sourceHealthBusy || sourceHealth?.running ? 'spin' : ''} size={16} /> {locale === 'zh' ? (sourceHealthBusy || sourceHealth?.running ? '检测中…' : '立即检测') : (sourceHealthBusy || sourceHealth?.running ? 'Checking…' : 'Run check')}</button> : null}{activeTab === 'access' || activeTab === 'advanced' || activeTab === 'security' ? <button className="primary-button" disabled={saving} onClick={save}><Save size={16} /> {saving ? text.saving : text.save}</button> : null}</div></div>
+        <div className="admin-tab-toolbar"><div><h3>{activeTabCopy.label}</h3><p>{activeTabCopy.hint}</p></div><div className="console-actions">{activeTab === 'overview' || activeTab === 'audit' ? <button onClick={() => (activeTab === 'audit' ? loadAudit(auditPage) : load(token)).catch(() => setError(text.saveError))}>{text.refresh}</button> : null}{activeTab === 'health' ? <button onClick={() => loadSourceHealth().catch(() => setError(text.saveError))}>{locale === 'zh' ? '刷新状态' : 'Refresh status'}</button> : null}{activeTab === 'health' ? <button className="primary-button" disabled={sourceHealthBusy || sourceHealth?.running} onClick={runSourceHealth}><RefreshCw className={sourceHealthBusy || sourceHealth?.running ? 'spin' : ''} size={16} /> {locale === 'zh' ? (sourceHealthBusy || sourceHealth?.running ? '检测中…' : '立即检测') : (sourceHealthBusy || sourceHealth?.running ? 'Checking…' : 'Run check')}</button> : null}{activeTab === 'access' || activeTab === 'advanced' || activeTab === 'security' ? <button className="primary-button" disabled={saving} onClick={save}><Save size={16} /> {saving ? text.saving : text.save}</button> : null}</div></div>
         {restartRequired.length ? <p className="restart-note">{text.restart} {restartRequired.join(', ')}</p> : null}
         {activeTab === 'overview' ? <section className="admin-tab-panel console-overview"><div className="console-section-head"><div><h3>{text.overview}</h3><p>{stats.month} · {stats.quota.timezone}</p></div></div>
           {stats.quota.exceeded ? <div className="quota-alert"><ChartNoAxesCombined size={18} /> {text.quotaStopped}</div> : null}
@@ -2531,6 +2535,7 @@ function AdminSourceHealthPanel({ report, locale }: { report: SourceHealthReport
       <div className="source-health-summary-copy"><span className="console-kicker"><CheckCircle2 size={15} /> HEALTH MATRIX</span><h3>{locale === 'zh' ? '镜像可用性' : 'Mirror availability'}</h3><p>{labels.auto}</p><small>{labels.checked}: {checkedAt}</small></div>
       <div className="source-health-counts"><div className="healthy"><span>{labels.healthy}</span><strong>{report?.healthy ?? 0}</strong></div><div className="degraded"><span>{labels.degraded}</span><strong>{report?.degraded ?? 0}</strong></div><div className="unhealthy"><span>{labels.unhealthy}</span><strong>{report?.unhealthy ?? 0}</strong></div><div><span>{labels.disabled}</span><strong>{report?.disabled ?? 0}</strong></div><div><span>{labels.unknown}</span><strong>{report?.unknown ?? report?.total ?? 60}</strong></div></div>
     </div>
+    <UpstreamSelectionDetails report={report?.selection} locale={locale} />
     {items.length ? <div className="source-health-table-wrap"><table className="source-health-table"><thead><tr><th>{labels.source}</th><th>{labels.adapter}</th><th>{labels.result}</th><th>{labels.latency}</th><th>{labels.checked}</th></tr></thead><tbody>{items.map((item) => <tr className={item.status} key={item.target_code}><td><strong>{item.target_code}</strong>{item.error ? <small>{item.error}</small> : null}{item.endpoints.length ? <details className="source-endpoint-details"><summary>{item.endpoints.length} {labels.upstreams}</summary><div>{item.endpoints.map((endpoint) => <article className={endpoint.status} key={`${endpoint.position}-${endpoint.endpoint}`}><span className={`source-health-badge source-health-${endpoint.status}`}><i />{labels[endpoint.status]}</span><code>{endpoint.endpoint}</code><small>HTTP {endpoint.http_status ?? '—'} · {endpoint.latency_ms === null ? '—' : `${endpoint.latency_ms} ms`}{endpoint.error ? ` · ${endpoint.error}` : ''}</small></article>)}</div></details> : null}</td><td><code>{item.adapter}</code></td><td><span className={`source-health-badge source-health-${item.status}`}><i />{labels[item.status]}</span></td><td>{item.latency_ms === null ? '—' : `${item.latency_ms} ms`}</td><td>{new Date(item.checked_at * 1000).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US')}</td></tr>)}</tbody></table></div> : <div className="source-health-empty"><Database size={24} /><p>{labels.empty}</p></div>}
   </section>
 }

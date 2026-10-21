@@ -9,7 +9,7 @@ const publicConfig = {
 
 const sources = {
   providers: [{ code: 'mirrorproxy', name: 'MirrorProxy', kind: 'builtin', homepage: 'https://mirror.example', speed_test_url: null }],
-  targets: [{ code: 'npm', name: 'npm', category: 'lang', aliases: [], supported_modes: ['proxy'], default_scope: 'user' }],
+  targets: [{ code: 'npm', name: 'npm', category: 'lang', aliases: [], supported_modes: ['proxy'], default_scope: 'user', capabilities: { cache: 'conditional', cache_enabled: false, authentication: 'operator_controlled', client_authorization_forwarding: false, clients: ['npm', 'Yarn', 'pnpm'], limitations: [] } }],
   sources: [{ target_code: 'npm', provider_code: 'mirrorproxy', repo_url: '/npm/', speed_url: null, capability: 'proxy' }],
   templates: [{ target_code: 'npm', os_family: 'any', scope: 'user', template: 'npm config set registry {repo_url}', requires_sudo: false }],
   container_registries: [
@@ -48,6 +48,59 @@ const adminStats = {
   daily: [], targets: [{ target_code: 'npm', request_count: 12, response_bytes: 2048, error_count: 0 }],
 }
 
+test('shows source capabilities in cards and setup details across themes and widths', async ({ page }) => {
+  await page.goto('/')
+  const card = page.locator('.source-tile').filter({ hasText: 'npm' })
+  await expect(card).toContainText('Cache off')
+  await expect(card).toContainText('Operator-controlled auth')
+  await card.click()
+  await expect(page.getByRole('dialog').getByText(/Client Authorization and cookies are not forwarded/)).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+  for (const width of [320, 375, 768]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+    await expect(card.locator('.source-capabilities')).toBeVisible()
+  }
+  await page.getByTitle('Language').click()
+  await expect(card).toContainText('缓存未启用')
+  await expect(card).toContainText('认证由管理员控制')
+  await page.getByTitle('Theme').click()
+  await page.screenshot({ path: test.info().outputPath('source-capabilities.png'), fullPage: true })
+})
+
+test('explains live upstream ranking in the administrator health tab and refreshes without probing', async ({ page }) => {
+  let reads = 0
+  await page.route('**/admin/api/auth/session', route => route.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', route => route.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', route => route.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', route => route.fulfill({ json: { items: [], total: 0 } }))
+  await page.route('**/admin/api/admins', route => route.fulfill({ json: [] }))
+  await page.route('**/admin/api/source-health', route => {
+    expect(route.request().method()).toBe('GET')
+    reads += 1
+    return route.fulfill({ json: {
+      running: false, total: 1, healthy: 0, degraded: 0, unhealthy: 0, disabled: 0, unknown: 1, last_checked_at: null, items: [],
+      selection: { strategy: 'adaptive', samples: [{ observed_at: 1792540800, endpoints: [
+        { origin: 'https://fast.example', configured_position: 2, rank: 1, reason: 'latency', consecutive_failures: 0, cooldown_remaining_secs: 0, latency_ewma_ms: 20 },
+        { origin: 'https://failed.example', configured_position: 1, rank: 2, reason: reads === 1 ? 'cooldown' : 'failures', consecutive_failures: 3, cooldown_remaining_secs: reads === 1 ? 45 : 0, latency_ewma_ms: null },
+      ] }] },
+    } })
+  })
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Mirror health', exact: true }).click()
+  const panel = page.locator('.selection-details')
+  await expect(panel.getByRole('heading', { name: 'Upstream ranking and circuit state' })).toBeVisible()
+  await expect(panel.getByText('Deprioritized during cooldown')).toBeVisible()
+  await expect(panel.locator('li').first()).toContainText('https://fast.example')
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await expect(panel.getByText('Deprioritized after failures')).toBeVisible()
+  await page.setViewportSize({ width: 320, height: 900 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  await page.getByTitle('Language').click()
+  await expect(panel.getByText('连续失败降低优先级')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('upstream-ranking.png'), fullPage: true })
+})
+
 test.beforeEach(async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.route('**/api/public-config', route => route.fulfill({ json: publicConfig }))
@@ -58,15 +111,20 @@ test.beforeEach(async ({ page, context }) => {
 test('offers public Hugging Face HTTP downloads with POSIX and PowerShell commands', async ({ page }) => {
   const hf = {
     providers: sources.providers,
-    targets: [{ code: 'huggingface', name: 'Hugging Face', category: 'repo', aliases: ['hf'], supported_modes: ['proxy', 'template'], default_scope: 'user' }],
+    targets: [{ code: 'huggingface', name: 'Hugging Face', category: 'repo', aliases: ['hf'], supported_modes: ['proxy', 'template'], default_scope: 'user', capabilities: { cache: 'bypass', cache_enabled: false, authentication: 'public_only', client_authorization_forwarding: false, clients: ['huggingface_hub SDK', 'hf CLI'], limitations: ['http_only', 'no_native_xet'] } }],
     sources: [{ target_code: 'huggingface', provider_code: 'mirrorproxy', repo_url: '/huggingface', speed_url: null, capability: 'proxy' }],
     templates: [],
   }
   await page.route('**/api/sources', route => route.fulfill({ json: hf }))
   await page.goto('/')
-  await page.getByRole('button', { name: /Hugging Face/ }).click()
+  const card = page.getByRole('button', { name: /Hugging Face/ })
+  await expect(card).toContainText('No server cache')
+  await expect(card).toContainText('Public resources only')
+  await expect(card).toContainText('huggingface_hub SDK · hf CLI')
+  await card.click()
   const modal = page.getByRole('dialog')
   await expect(modal).toBeVisible()
+  await expect(modal.getByText('Client Authorization and cookies are blocked; server upstream credentials are not used.')).toBeVisible()
   await expect(modal.getByText(/Public model and dataset files over HTTP/).first()).toBeVisible()
   await expect(modal.locator('code').filter({ hasText: /^HF_ENDPOINT=/ })).toHaveText("HF_ENDPOINT='https://mirror.example/huggingface' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json")
   await expect(modal.locator('code').filter({ hasText: /^\$env:HF_ENDPOINT=/ })).toHaveText("$env:HF_ENDPOINT='https://mirror.example/huggingface'; $env:HF_HUB_DISABLE_XET='1'; hf download gpt2 config.json")
@@ -76,6 +134,7 @@ test('offers public Hugging Face HTTP downloads with POSIX and PowerShell comman
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("$env:HF_HUB_DISABLE_XET='1'")
   await modal.getByRole('button', { name: 'Close' }).click()
   await page.getByTitle('Language').click()
+  await expect(page.getByRole('button', { name: /Hugging Face/ })).toContainText('仅公开资源')
   await page.getByRole('button', { name: /Hugging Face/ }).click()
   await expect(page.getByRole('dialog').getByText(/服务端不缓存/).first()).toBeVisible()
 })

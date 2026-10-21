@@ -6,6 +6,18 @@ Open your instance's home page, choose a source, and copy its generated command.
 
 `/api/sources` lists the active instance's capabilities. Advanced settings controls adapters and upstream groups; comma-separated endpoints follow the configured selection policy.
 
+Source cards and setup dialogs describe cache support/current enablement,
+upstream authentication, and supported clients. Conditional caching applies only
+to eligible requests; enabling the cache does not guarantee a hit. Hugging Face,
+Docker/OCI, and Homebrew OCI bypass the server disk cache. Setup-only entries
+describe direct client configuration rather than server proxying.
+
+Client Authorization forwarding is off by default; administrators can explicitly
+enable it for supported requests, with configured server upstream credentials
+taking precedence. Cookies are not forwarded. Hugging Face always blocks client
+credentials and server upstream credentials, regardless of the global setting;
+it supports public HTTP downloads only, with native Xet disabled.
+
 ## Covered categories
 
 | Category | Representative targets |

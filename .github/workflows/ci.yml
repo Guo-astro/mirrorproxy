@@ -43,6 +43,7 @@ jobs:
         run: |
           cargo build --locked -p mirrorproxy-server
           ./scripts/smoke-admin-api.sh target/debug/mirrorproxy-server
+          python3 scripts/smoke-source-details.py target/debug/mirrorproxy-server
           node web/scripts/smoke-admin-browser.mjs target/debug/mirrorproxy-server
 
   supply-chain:

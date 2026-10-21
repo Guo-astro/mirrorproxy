@@ -37,6 +37,49 @@ pub struct SourceTarget {
     pub default_scope: SourceScope,
 }
 
+impl SourceTarget {
+    /// Human-facing clients, shared by the public catalog and native tooling.
+    pub fn clients(&self) -> Vec<&'static str> {
+        match self.code {
+            "npm" => vec!["npm", "Yarn", "pnpm"],
+            "pip" => vec!["pip"],
+            "cargo" => vec!["Cargo"],
+            "go" => vec!["Go"],
+            "composer" => vec!["Composer"],
+            "github" => vec!["Git", "HTTP clients"],
+            "docker" => vec!["Docker", "OCI clients"],
+            "huggingface" => vec!["huggingface_hub SDK", "hf CLI"],
+            "homebrew" => vec!["Homebrew"],
+            "dnf" | "rocky" | "alma" | "anolis" | "openeuler" => vec!["YUM", "DNF"],
+            "apt" | "linuxmint" | "kali" | "trisquel" | "linuxlite" | "ros" | "raspios"
+            | "armbian" | "deepin" => vec!["APT"],
+            "pacman" | "manjaro" | "msys2" => vec!["pacman"],
+            "alpine" => vec!["apk"],
+            "zypper" => vec!["zypper"],
+            "xbps" => vec!["xbps"],
+            "gentoo" => vec!["Portage"],
+            "freebsd" => vec!["pkg"],
+            "openwrt" => vec!["opkg"],
+            "termux" => vec!["pkg", "APT"],
+            "solus" => vec!["eopkg"],
+            "anaconda" => vec!["conda"],
+            "pub" => vec!["dart pub", "flutter pub"],
+            "cpan" => vec!["cpan", "cpanm"],
+            "cran" => vec!["R"],
+            "hackage" => vec!["Cabal"],
+            "clojars" => vec!["Leiningen", "Clojure CLI"],
+            "poetry" => vec!["Poetry"],
+            "pdm" => vec!["PDM"],
+            "uv" => vec!["uv"],
+            "ocaml" => vec!["opam"],
+            "lua" => vec!["LuaRocks"],
+            "elpa" => vec!["Emacs package.el"],
+            "texlive" => vec!["tlmgr"],
+            _ => vec![self.name],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceCategory {
     Language,

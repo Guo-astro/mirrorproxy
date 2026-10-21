@@ -6245,6 +6245,50 @@ struct SourceTargetSummary {
     aliases: Vec<String>,
     supported_modes: Vec<String>,
     default_scope: String,
+    capabilities: SourceCapabilities,
+}
+
+#[derive(Serialize)]
+struct SourceCapabilities {
+    cache: &'static str,
+    cache_enabled: bool,
+    authentication: &'static str,
+    client_authorization_forwarding: bool,
+    clients: Vec<String>,
+    limitations: Vec<&'static str>,
+}
+
+impl SourceCapabilities {
+    fn for_target(code: &str, proxy: bool, clients: Vec<String>, config: &Config) -> Self {
+        let public_only = code == "huggingface";
+        let cache = if !proxy {
+            "not_applicable"
+        } else if matches!(code, "huggingface" | "docker" | "homebrew") {
+            "bypass"
+        } else {
+            "conditional"
+        };
+        Self {
+            cache,
+            cache_enabled: cache == "conditional" && config.cache.enabled,
+            authentication: if !proxy {
+                "not_applicable"
+            } else if public_only {
+                "public_only"
+            } else {
+                "operator_controlled"
+            },
+            client_authorization_forwarding: proxy
+                && !public_only
+                && config.forward_client_authorization,
+            clients,
+            limitations: if public_only {
+                vec!["http_only", "no_native_xet"]
+            } else {
+                vec![]
+            },
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -6284,6 +6328,14 @@ async fn source_catalog(State(state): State<AppState>) -> impl IntoResponse {
                 .map(|mode| mode.as_str().to_string())
                 .collect(),
             default_scope: target.default_scope.as_str().to_string(),
+            capabilities: SourceCapabilities::for_target(
+                target.code,
+                target
+                    .supported_modes
+                    .contains(&catalog::SourceMode::ProxyAdapter),
+                target.clients().into_iter().map(str::to_string).collect(),
+                &config,
+            ),
         })
         .collect::<Vec<_>>();
     let mut sources = catalog::TARGET_SOURCES
@@ -6308,6 +6360,12 @@ async fn source_catalog(State(state): State<AppState>) -> impl IntoResponse {
             aliases: vec!["additional_os".to_string()],
             supported_modes: vec!["proxy".to_string()],
             default_scope: "system".to_string(),
+            capabilities: SourceCapabilities::for_target(
+                target_code,
+                true,
+                vec!["HTTP clients".to_string()],
+                &config,
+            ),
         });
         sources.push(TargetSourceSummary {
             target_code: target_code.clone(),
@@ -9672,6 +9730,29 @@ on_exceeded = "stop_proxy"
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
+        let capabilities = |code: &str| {
+            value["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|target| target["code"] == code)
+                .unwrap()["capabilities"]
+                .clone()
+        };
+        assert_eq!(capabilities("huggingface")["cache"], "bypass");
+        assert_eq!(capabilities("huggingface")["authentication"], "public_only");
+        assert_eq!(
+            capabilities("huggingface")["clients"],
+            serde_json::json!(["huggingface_hub SDK", "hf CLI"])
+        );
+        assert_eq!(capabilities("docker")["cache"], "bypass");
+        assert_eq!(capabilities("homebrew")["cache"], "bypass");
+        assert_eq!(capabilities("npm")["cache"], "conditional");
+        assert_eq!(
+            capabilities("clickhouse")["clients"],
+            serde_json::json!(["HTTP clients"])
+        );
+
         assert!(value["providers"]
             .as_array()
             .unwrap()
@@ -9804,6 +9885,61 @@ on_exceeded = "stop_proxy"
         assert_eq!(value["unknown"], 61);
         assert_eq!(value["unhealthy"], 0);
         assert_eq!(value["items"].as_array().unwrap().len(), 0);
+        assert!(value.get("selection").is_none());
+    }
+
+    #[tokio::test]
+    async fn selection_details_require_admin_and_stay_out_of_public_health() {
+        let (state, credentials) = admin_test_state().await;
+        let url = Url::parse("https://upstream.example/private?token=hidden").unwrap();
+        state
+            .upstream_selector
+            .rank(vec![url], &state.config().upstream_selection);
+        assert_eq!(
+            admin_source_health(HeaderMap::new(), State(state.clone()))
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let session = state
+            .database
+            .login(&credentials.username, &credentials.password)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            format!("Bearer {}", session.token).parse().unwrap(),
+        );
+        let response = admin_source_health(headers, State(state.clone())).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            value["selection"]["samples"][0]["endpoints"][0]["origin"],
+            "https://upstream.example"
+        );
+        assert!(!String::from_utf8(body.to_vec()).unwrap().contains("hidden"));
+        let public = public_source_health(State(state)).await;
+        let body = to_bytes(public.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(value.get("selection").is_none());
+    }
+
+    #[test]
+    fn source_capabilities_reflect_configuration_without_relaxing_hf_policy() {
+        let mut config = Config::default();
+        config.cache.enabled = true;
+        config.forward_client_authorization = true;
+        let npm = SourceCapabilities::for_target("npm", true, vec![], &config);
+        assert!(npm.cache_enabled && npm.client_authorization_forwarding);
+        let hf = SourceCapabilities::for_target("huggingface", true, vec![], &config);
+        assert!(!hf.cache_enabled && !hf.client_authorization_forwarding);
+        assert_eq!(hf.authentication, "public_only");
+        let guidance = SourceCapabilities::for_target("example", false, vec![], &config);
+        assert_eq!(guidance.cache, "not_applicable");
+        assert_eq!(guidance.authentication, "not_applicable");
     }
 
     #[tokio::test]

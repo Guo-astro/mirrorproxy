@@ -5,6 +5,13 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Describe source cache support/current enablement, upstream authentication,
+  supported clients, and HF transport limits in the public catalog and setup UI.
+- Explain live candidate rankings, failure counts, smoothed latency, and cooldown
+  in the administrator health view, with status refresh independent of probes.
+  Keep diagnostics administrator-only, origin-only, bounded, and in memory;
+  preserve the existing selection algorithm and forwarding behavior.
+
 ## [1.5.0] - 2026-10-21
 
 ### Accounts and administration

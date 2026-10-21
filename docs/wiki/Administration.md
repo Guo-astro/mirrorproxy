@@ -32,6 +32,26 @@ the selected policy controls overages. Delivered bytes and billable bytes can di
 Alerts support webhooks, mail, or both, with separate cooldowns. Mail alerts and email invitations require SMTP first; password accounts and registration links do not.
 Access & quotas configures site title, description, keywords, icon, and left footer text; the project link and version remain fixed.
 
+## Explain upstream selection
+
+**Mirror health** shows the current candidate ranking for recent requests,
+including configured positions, consecutive failures, smoothed response latency,
+and cooldown remaining at refresh. **Refresh status** reads current state without
+running probes. The existing 30-second administration refresh also updates it.
+
+Ordered mode preserves configuration order. Adaptive mode applies the existing
+failure, cooldown, and latency scores; cooldown lowers priority rather than
+removing an endpoint. Candidate order does not identify the final successful
+upstream: forwarding can try later candidates or serve cached content.
+
+Samples cover requests using the selector, retain the latest request per origin
+group (up to 32 groups), and stay in memory. Different request URLs have separate
+state; samples are not a complete inventory. New requests update samples after
+configuration changes, and restart clears them. Reports expose origins only,
+omitting userinfo, paths, query strings, and fragments. Selection diagnostics are
+available only through authenticated administrator health responses, never the
+public health API. No configuration or database migration is required.
+
 ## Advanced: protect settings and data
 
 A stable `MIRRORPROXY_MASTER_KEY` (32 bytes, hex or base64url) encrypts persisted runtime settings, SMTP/provider credentials,

@@ -174,6 +174,8 @@ pub struct SourceHealthReport {
     pub unknown: usize,
     pub last_checked_at: Option<i64>,
     pub items: Vec<SourceHealthRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection: Option<crate::upstream_selection::SelectionReport>,
 }
 
 struct RunningGuard;
@@ -241,6 +243,8 @@ pub async fn report(state: &AppState, include_errors: bool) -> anyhow::Result<So
         unknown: total.saturating_sub(known),
         last_checked_at: items.iter().map(|item| item.checked_at).max(),
         items,
+        selection: include_errors
+            .then(|| state.upstream_selector.report(&config.upstream_selection)),
     })
 }
 
