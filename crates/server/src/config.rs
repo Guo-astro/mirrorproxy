@@ -1253,8 +1253,51 @@ impl Config {
     /// Expands the configured upstream group that produced `requested`, keeping
     /// its path and query while replacing the configured base URL in order.
     pub fn upstream_candidates_for(&self, requested: &reqwest::Url) -> Vec<reqwest::Url> {
+        let mut best_match: Option<(usize, Vec<reqwest::Url>)> = None;
+        let mut consider = |configured: &str| {
+            let endpoints = parse_url_list(configured);
+            let Some(primary) = endpoints
+                .first()
+                .and_then(|endpoint| reqwest::Url::parse(endpoint).ok())
+            else {
+                return;
+            };
+            let Some(suffix) = upstream_path_suffix(&primary, requested) else {
+                return;
+            };
+            let candidates = endpoints
+                .iter()
+                .filter_map(|endpoint| reqwest::Url::parse(endpoint).ok())
+                .map(|mut candidate| {
+                    let base_path = candidate.path().trim_end_matches('/');
+                    candidate.set_path(&format!("{base_path}{suffix}"));
+                    candidate.set_query(requested.query());
+                    candidate
+                })
+                .collect::<Vec<_>>();
+            let specificity = primary.path().len();
+            if best_match
+                .as_ref()
+                .is_none_or(|(current, _)| specificity > *current)
+            {
+                best_match = Some((specificity, candidates));
+            }
+        };
+
+        for configured in self.upstream_groups() {
+            consider(configured);
+        }
+
+        best_match
+            .map(|(_, candidates)| candidates)
+            .filter(|candidates| !candidates.is_empty())
+            .unwrap_or_else(|| vec![requested.clone()])
+    }
+
+    pub fn upstream_groups(&self) -> impl Iterator<Item = &str> {
         let upstreams = &self.upstreams;
         let groups = [
+            &upstreams.maven,
             &upstreams.github,
             &upstreams.github_raw,
             &upstreams.packagist,
@@ -1309,49 +1352,10 @@ impl Config {
             &upstreams.pypi_files,
         ];
 
-        let mut best_match: Option<(usize, Vec<reqwest::Url>)> = None;
-        let mut consider = |configured: &str| {
-            let endpoints = parse_url_list(configured);
-            let Some(primary) = endpoints
-                .first()
-                .and_then(|endpoint| reqwest::Url::parse(endpoint).ok())
-            else {
-                return;
-            };
-            let Some(suffix) = upstream_path_suffix(&primary, requested) else {
-                return;
-            };
-            let candidates = endpoints
-                .iter()
-                .filter_map(|endpoint| reqwest::Url::parse(endpoint).ok())
-                .map(|mut candidate| {
-                    let base_path = candidate.path().trim_end_matches('/');
-                    candidate.set_path(&format!("{base_path}{suffix}"));
-                    candidate.set_query(requested.query());
-                    candidate
-                })
-                .collect::<Vec<_>>();
-            let specificity = primary.path().len();
-            if best_match
-                .as_ref()
-                .is_none_or(|(current, _)| specificity > *current)
-            {
-                best_match = Some((specificity, candidates));
-            }
-        };
-
-        consider(&upstreams.maven);
-        for configured in groups {
-            consider(configured);
-        }
-        for configured in upstreams.additional_os.values() {
-            consider(configured);
-        }
-
-        best_match
-            .map(|(_, candidates)| candidates)
-            .filter(|candidates| !candidates.is_empty())
-            .unwrap_or_else(|| vec![requested.clone()])
+        groups
+            .into_iter()
+            .chain(upstreams.additional_os.values())
+            .map(String::as_str)
     }
 
     fn upstream_url(&self, name: &str) -> Option<&str> {

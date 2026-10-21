@@ -160,7 +160,7 @@ impl Database {
             routing_length,
         } = input;
         billing.validate()?;
-        let password_hash = tokio::task::spawn_blocking(move || hash_password(&password)).await??;
+        let password_hash = password_work(move || hash_password(&password)).await??;
         let mut tx = self.pool.begin().await?;
         // First operation is a write, serializing competing claims without a deferred read/write upgrade.
         let (invitation_id, billing) = if let Some(token) = invitation_token {
@@ -241,7 +241,7 @@ impl Database {
         };
         let previous_hash = stored.clone();
         // Unknown accounts also perform Argon2 work to reduce username timing disclosure.
-        let valid = tokio::task::spawn_blocking(move || match stored {
+        let valid = password_work(move || match stored {
             Some(hash) => verify_password(&password, &hash),
             None => {
                 let _ = hash_password(&password);
@@ -308,7 +308,7 @@ impl Database {
             return Ok(false);
         };
         let previous = hash.clone();
-        let next = tokio::task::spawn_blocking(move || {
+        let next = password_work(move || {
             if verify_password(&current, &hash) {
                 hash_password(&replacement).map(Some)
             } else {

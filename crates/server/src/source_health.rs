@@ -805,7 +805,9 @@ mod tests {
             .additional_os
             .insert("clickhouse".to_string(), format!("http://{available}"));
         let state = AppState {
-            config: std::sync::Arc::new(std::sync::RwLock::new(config.clone())),
+            config: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(
+                config.clone(),
+            ))),
             database: std::sync::Arc::new(database),
             client: std::sync::Arc::new(std::sync::RwLock::new(reqwest::Client::new())),
             rate_limiter: std::sync::Arc::new(crate::RateLimiter::new()),
@@ -882,7 +884,9 @@ mod tests {
         let mut config = crate::config::Config::default();
         config.upstreams.docker_hub = format!("http://{address}");
         let state = AppState {
-            config: std::sync::Arc::new(std::sync::RwLock::new(config.clone())),
+            config: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(
+                config.clone(),
+            ))),
             database: std::sync::Arc::new(database),
             client: std::sync::Arc::new(std::sync::RwLock::new(reqwest::Client::new())),
             rate_limiter: std::sync::Arc::new(crate::RateLimiter::new()),

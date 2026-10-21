@@ -7,13 +7,16 @@ use std::{
 use reqwest::Url;
 use serde::Serialize;
 
-use crate::config::UpstreamSelectionConfig;
+use crate::config::{Config, UpstreamSelectionConfig};
+
+const MAX_ENDPOINTS: usize = 512;
 
 #[derive(Default)]
 struct EndpointState {
     consecutive_failures: u32,
     open_until: Option<Instant>,
     latency_ewma_ms: Option<f64>,
+    last_seen: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -25,6 +28,7 @@ pub struct UpstreamSelector {
 struct SelectorState {
     endpoints: HashMap<String, EndpointState>,
     samples: VecDeque<RequestSample>,
+    bases: Vec<Url>,
 }
 
 struct RequestSample {
@@ -56,6 +60,25 @@ struct EndpointExplanation {
 }
 
 impl UpstreamSelector {
+    pub fn configured(config: &Config) -> Self {
+        let selector = Self::default();
+        selector.configure(config);
+        selector
+    }
+
+    pub fn configure(&self, config: &Config) {
+        let mut bases: Vec<_> = config
+            .upstream_groups()
+            .flat_map(|group| group.split(','))
+            .filter_map(|base| Url::parse(base.trim()).ok())
+            .collect();
+        bases.sort_by_key(|base| std::cmp::Reverse(base.path().len()));
+        let mut state = self.state.lock().expect("upstream selector lock poisoned");
+        state.bases = bases;
+        state.endpoints.clear();
+        state.samples.clear();
+    }
+
     pub fn rank(&self, candidates: Vec<Url>, config: &UpstreamSelectionConfig) -> Vec<Url> {
         let now = Instant::now();
         let mut state = self.state.lock().expect("upstream selector lock poisoned");
@@ -75,7 +98,7 @@ impl UpstreamSelector {
             });
             state.samples.truncate(32);
         }
-        ranked_candidates(candidates, &state.endpoints, config, now)
+        ranked_candidates(candidates, &state, config, now)
             .into_iter()
             .map(|(_, url)| url)
             .collect()
@@ -94,47 +117,42 @@ impl UpstreamSelector {
                 .iter()
                 .map(|sample| SelectionSample {
                     observed_at: sample.observed_at,
-                    endpoints: ranked_candidates(
-                        sample.candidates.clone(),
-                        &state.endpoints,
-                        config,
-                        now,
-                    )
-                    .into_iter()
-                    .enumerate()
-                    .map(|(rank, (position, url))| {
-                        let endpoint = state.endpoints.get(url.as_str());
-                        let remaining = endpoint
-                            .and_then(|item| item.open_until)
-                            .and_then(|deadline| deadline.checked_duration_since(now))
-                            .filter(|remaining| !remaining.is_zero());
-                        let failures = endpoint.map_or(0, |item| item.consecutive_failures);
-                        let latency = endpoint.and_then(|item| item.latency_ewma_ms);
-                        EndpointExplanation {
-                            origin: url.origin().ascii_serialization(),
-                            configured_position: position + 1,
-                            rank: rank + 1,
-                            reason: if config.strategy != "adaptive" {
-                                "configured_order"
-                            } else if remaining.is_some() {
-                                "cooldown"
-                            } else if failures > 0 {
-                                "failures"
-                            } else if latency.is_some() {
-                                "latency"
-                            } else {
-                                "unobserved"
-                            },
-                            consecutive_failures: failures,
-                            cooldown_remaining_secs: remaining.map_or(0, |value| {
-                                value
-                                    .as_secs()
-                                    .saturating_add(u64::from(value.subsec_nanos() > 0))
-                            }),
-                            latency_ewma_ms: latency,
-                        }
-                    })
-                    .collect(),
+                    endpoints: ranked_candidates(sample.candidates.clone(), &state, config, now)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(rank, (position, url))| {
+                            let endpoint = state.endpoints.get(&endpoint_key(&url, &state.bases));
+                            let remaining = endpoint
+                                .and_then(|item| item.open_until)
+                                .and_then(|deadline| deadline.checked_duration_since(now))
+                                .filter(|remaining| !remaining.is_zero());
+                            let failures = endpoint.map_or(0, |item| item.consecutive_failures);
+                            let latency = endpoint.and_then(|item| item.latency_ewma_ms);
+                            EndpointExplanation {
+                                origin: url.origin().ascii_serialization(),
+                                configured_position: position + 1,
+                                rank: rank + 1,
+                                reason: if config.strategy != "adaptive" {
+                                    "configured_order"
+                                } else if remaining.is_some() {
+                                    "cooldown"
+                                } else if failures > 0 {
+                                    "failures"
+                                } else if latency.is_some() {
+                                    "latency"
+                                } else {
+                                    "unobserved"
+                                },
+                                consecutive_failures: failures,
+                                cooldown_remaining_secs: remaining.map_or(0, |value| {
+                                    value
+                                        .as_secs()
+                                        .saturating_add(u64::from(value.subsec_nanos() > 0))
+                                }),
+                                latency_ewma_ms: latency,
+                            }
+                        })
+                        .collect(),
                 })
                 .collect(),
         }
@@ -142,7 +160,8 @@ impl UpstreamSelector {
 
     pub fn record_success(&self, url: &Url, elapsed: Duration) {
         let mut state = self.state.lock().expect("upstream selector lock poisoned");
-        let state = state.endpoints.entry(url.as_str().to_string()).or_default();
+        let key = endpoint_key(url, &state.bases);
+        let state = endpoint_state(&mut state, key);
         state.consecutive_failures = 0;
         state.open_until = None;
         let elapsed = elapsed.as_secs_f64() * 1_000.0;
@@ -154,7 +173,8 @@ impl UpstreamSelector {
 
     pub fn record_failure(&self, url: &Url, config: &UpstreamSelectionConfig) {
         let mut state = self.state.lock().expect("upstream selector lock poisoned");
-        let state = state.endpoints.entry(url.as_str().to_string()).or_default();
+        let key = endpoint_key(url, &state.bases);
+        let state = endpoint_state(&mut state, key);
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         if state.consecutive_failures >= config.failure_threshold {
             state.open_until = Some(Instant::now() + Duration::from_secs(config.cooldown_secs));
@@ -162,17 +182,59 @@ impl UpstreamSelector {
     }
 }
 
+fn endpoint_key(url: &Url, bases: &[Url]) -> String {
+    // Longest configured base wins; do not merge separate repositories on one host.
+    let base = bases.iter().find(|base| {
+        let path = base.path().trim_end_matches('/');
+        base.origin() == url.origin()
+            && (url.path() == path
+                || url
+                    .path()
+                    .strip_prefix(path)
+                    .is_some_and(|suffix| suffix.starts_with('/')))
+    });
+    match base {
+        Some(base) => format!(
+            "{}{}",
+            base.origin().ascii_serialization(),
+            base.path().trim_end_matches('/')
+        ),
+        None => url.origin().ascii_serialization(),
+    }
+}
+
+fn endpoint_state(state: &mut SelectorState, key: String) -> &mut EndpointState {
+    if state.endpoints.len() >= MAX_ENDPOINTS && !state.endpoints.contains_key(&key) {
+        if let Some(oldest) = state
+            .endpoints
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_seen)
+            .map(|(key, _)| key.clone())
+        {
+            state.endpoints.remove(&oldest);
+        }
+    }
+    let entry = state.endpoints.entry(key).or_default();
+    entry.last_seen = Some(Instant::now());
+    entry
+}
+
 fn ranked_candidates(
     candidates: Vec<Url>,
-    states: &HashMap<String, EndpointState>,
+    state: &SelectorState,
     config: &UpstreamSelectionConfig,
     now: Instant,
 ) -> Vec<(usize, Url)> {
     let mut ranked = candidates.into_iter().enumerate().collect::<Vec<_>>();
     if config.strategy == "adaptive" {
         ranked.sort_by(|(left_index, left), (right_index, right)| {
-            endpoint_rank(states.get(left.as_str()), now, *left_index).total_cmp(&endpoint_rank(
-                states.get(right.as_str()),
+            endpoint_rank(
+                state.endpoints.get(&endpoint_key(left, &state.bases)),
+                now,
+                *left_index,
+            )
+            .total_cmp(&endpoint_rank(
+                state.endpoints.get(&endpoint_key(right, &state.bases)),
                 now,
                 *right_index,
             ))
@@ -205,6 +267,39 @@ mod tests {
             failure_threshold: 2,
             cooldown_secs: 60,
         }
+    }
+
+    #[test]
+    fn shares_health_across_packages_but_isolates_repository_bases() {
+        let mut config = Config::default();
+        config.upstreams.cpan = "https://mirror.example/cpan".into();
+        config.upstreams.cran = "https://mirror.example/cran".into();
+        let selector = UpstreamSelector::configured(&config);
+        let first = Url::parse("https://mirror.example/cpan/a?token=one").unwrap();
+        let next = Url::parse("https://mirror.example/cpan/b?token=two").unwrap();
+        let other = Url::parse("https://mirror.example/cran/a").unwrap();
+        selector.record_failure(&first, &adaptive());
+        selector.record_failure(&first, &adaptive());
+        assert_eq!(
+            selector.rank(vec![next.clone(), other.clone()], &adaptive()),
+            vec![other, next]
+        );
+        assert_eq!(selector.state.lock().unwrap().endpoints.len(), 1);
+        selector.configure(&config);
+        assert!(selector.state.lock().unwrap().endpoints.is_empty());
+    }
+
+    #[test]
+    fn bounds_health_state_for_dynamic_hosts_and_ignores_request_secrets() {
+        let selector = UpstreamSelector::default();
+        for index in 0..MAX_ENDPOINTS + 20 {
+            let url = Url::parse(&format!("https://host{index}.example/a?token=private")).unwrap();
+            selector.record_success(&url, Duration::from_millis(1));
+        }
+        let state = selector.state.lock().unwrap();
+        assert_eq!(state.endpoints.len(), MAX_ENDPOINTS);
+        assert!(!state.endpoints.contains_key("https://host0.example"));
+        assert!(state.endpoints.keys().all(|key| !key.contains("private")));
     }
 
     #[test]

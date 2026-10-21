@@ -49,6 +49,10 @@ bundle = request(client(), asset)
 assert "Manual troubleshooting and recovery steps" in bundle
 expected_asset = Path(__file__).resolve().parent.parent / "web" / "dist" / asset.lstrip("/")
 assert hashlib.sha256(bundle.encode()).digest() == hashlib.sha256(expected_asset.read_bytes()).digest()
+lazy_asset = "/assets/" + re.search(r"admin-billing-[\w-]+\.js", bundle).group(0)
+lazy_bundle = request(client(), lazy_asset)
+expected_lazy = expected_asset.parent / Path(lazy_asset).name
+assert hashlib.sha256(lazy_bundle.encode()).digest() == hashlib.sha256(expected_lazy.read_bytes()).digest()
 
 admin = client()
 request(admin, "/admin/api/auth/login", {"username": "admin", "password": "MirrorProxy-Smoke-Password-1!"})
@@ -62,6 +66,13 @@ csrf_error = request(admin, "/admin/api/local-users", new_account, expected=403,
 assert csrf_error["code"] == "csrf_invalid"
 user = request(admin, "/admin/api/local-users", new_account, expected=201)
 assert user["username"] == "smoke-friend" and "password" not in json.dumps(user)
+request(client(), "/admin/api/users/summary", expected=401)
+summary = request(admin, "/admin/api/users/summary?page=1&per_page=10&search=smoke-friend")
+assert summary["total"] == 1 and len(summary["items"]) == 1
+assert summary["items"][0]["id"] == user["id"]
+assert summary["items"][0]["billing"]["user_monthly_limit_bytes"] == 3 * 1024**3
+assert summary["items"][0]["response_bytes"] == 0
+assert "password" not in json.dumps(summary)
 request(admin, "/admin/api/local-users", new_account, expected=409)
 login = {"username": "smoke-friend", "password": password}
 friend = client()

@@ -714,13 +714,15 @@ test('assigns a user to a billing group with a custom quota', async ({ page }) =
     }
     await route.fulfill({ json: { group_id: 3, target_codes: [] } })
   })
-  await page.route('**/admin/api/users', route => route.fulfill({ json: [{ id: 7, email: 'person@example.com', display_name: 'Person', disabled: false, routing_id: 'route-id' }] }))
+  let individualReads = 0
+  await page.route('**/admin/api/users/summary?*', route => route.fulfill({ json: { items: [{ id: 7, email: 'person@example.com', display_name: 'Person', disabled: false, routing_id: 'route-id', billing: { group_id: null, quota_mode: 'default', user_monthly_limit_bytes: null }, response_bytes: 0 }], total: 1, page: 1, per_page: 10 } }))
   await page.route('**/admin/api/users/7/billing', async route => {
     if (route.request().method() === 'PUT') {
       billingUpdate = route.request().postDataJSON() as Record<string, unknown>
       await route.fulfill({ status: 204 })
       return
     }
+    individualReads += 1
     await route.fulfill({ json: { group_id: null, quota_mode: 'default', user_monthly_limit_bytes: null } })
   })
   await page.route('**/admin/api/users/7/usage', route => route.fulfill({ json: {
@@ -741,6 +743,7 @@ test('assigns a user to a billing group with a custom quota', async ({ page }) =
   await page.getByLabel('person@example.com custom quota').fill('25')
   await page.getByRole('button', { name: 'Save billing' }).click()
   await expect.poll(() => billingUpdate).toEqual({ group_id: 3, quota_mode: 'custom', monthly_gb: 25 })
+  expect(individualReads).toBe(0)
 })
 
 test('offers OAuth login and preserves the invitation in the authorization URL', async ({ page }) => {
@@ -806,7 +809,11 @@ test('revokes administrator sessions and searches and soft-deletes users', async
   await page.route('**/admin/api/users/7/billing', route => route.fulfill({ json: { group_id: null, quota_mode: 'default', user_monthly_limit_bytes: null } }))
   await page.route('**/admin/api/users/7/usage', route => route.fulfill({ json: { month: '2026-07', today_response_bytes: 0, request_count: 0, response_bytes: 0, error_count: 0, quota: { limit_bytes: null, used_bytes: 0, remaining_bytes: null }, group: null, daily: [], targets: [] } }))
   await page.route('**/admin/api/users/7', async route => { deletedUser = true; await route.fulfill({ status: 204 }) })
-  await page.route('**/admin/api/users', route => route.fulfill({ json: deletedUser ? [] : [{ id: 7, email: 'search-me@example.com', display_name: 'Search Me', disabled: false, routing_id: 'route-id' }, { id: 8, email: 'other@example.com', display_name: 'Other', disabled: false, routing_id: 'other-route' }] }))
+  await page.route('**/admin/api/users/summary?*', route => {
+    const search = new URL(route.request().url()).searchParams.get('search')?.toLowerCase() ?? ''
+    const items = (deletedUser ? [] : [{ id: 7, email: 'search-me@example.com', display_name: 'Search Me', disabled: false, routing_id: 'route-id' }, { id: 8, email: 'other@example.com', display_name: 'Other', disabled: false, routing_id: 'other-route' }]).filter(user => `${user.display_name} ${user.email} ${user.routing_id}`.toLowerCase().includes(search)).map(user => ({ ...user, billing: { group_id: null, quota_mode: 'default', user_monthly_limit_bytes: null }, response_bytes: 0 }))
+    return route.fulfill({ json: { items, total: items.length, page: 1, per_page: 10 } })
+  })
 
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
@@ -834,7 +841,7 @@ test('creates password users and copies revocable registration links without SMT
   await page.route('**/admin/api/stats', route => route.fulfill({ json: adminStats }))
   await page.route('**/admin/api/audit-log*', route => route.fulfill({ json: { items: [], page: 1, per_page: 20, total: 0 } }))
   await page.route('**/admin/api/groups', route => route.fulfill({ json: [{ id: 7, name: 'Friends', member_count: 0, monthly_limit_bytes: null }] }))
-  await page.route('**/admin/api/users', route => route.fulfill({ json: [] }))
+  await page.route('**/admin/api/users/summary?*', route => route.fulfill({ json: { items: [], total: 0, page: 1, per_page: 10 } }))
   await page.route('**/admin/api/local-users', async route => { created = route.request().postDataJSON(); await route.fulfill({ status: 201, json: { id: 1 } }) })
   await page.route('**/admin/api/registration-invitations', async route => {
     if (route.request().method() === 'POST') { invitation = route.request().postDataJSON(); pending = true; await route.fulfill({ status: 201, json: { id: 9, url: 'http://localhost:4173/login#register=one-time-secret' } }); return }

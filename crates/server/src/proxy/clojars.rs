@@ -1,4 +1,5 @@
 use super::ProxyError;
+use super::{repository_url, sanitize_repository_path as sanitize};
 use crate::{proxy, AppState};
 use axum::{
     body::Body,
@@ -30,29 +31,10 @@ pub async fn proxy(
         return Err(ProxyError::Disabled("clojars"));
     }
     let path = sanitize(&path)?;
-    let url = repository_url(&config.upstreams.clojars, &path, request.uri().query())?;
+    let url = repository_url(&config.upstreams.clojars, path, request.uri().query())?;
     proxy::forward(&state, request.method().clone(), url, request.headers()).await
 }
-fn sanitize(path: &str) -> Result<String, ProxyError> {
-    let path = path.trim_start_matches('/');
-    if path.is_empty()
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|p| p.is_empty() || p == "." || p == ".." || p.contains('\0'))
-    {
-        return Err(ProxyError::InvalidUrl);
-    }
-    Ok(path.to_string())
-}
-fn repository_url(base: &str, path: &str, query: Option<&str>) -> Result<reqwest::Url, ProxyError> {
-    let mut url =
-        reqwest::Url::parse(proxy::select_upstream(base)?).map_err(|_| ProxyError::InvalidUrl)?;
-    let base_path = url.path().trim_end_matches('/');
-    url.set_path(&format!("{base_path}/{path}"));
-    url.set_query(query);
-    Ok(url)
-}
+
 #[cfg(test)]
 mod tests {
     use super::*;

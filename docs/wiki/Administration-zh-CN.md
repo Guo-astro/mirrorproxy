@@ -62,3 +62,9 @@ SMTP/身份提供商凭据、邮件队列内容和 ACME DNS 密钥。**主密钥
 已有邮箱账号、第三方登录和邮件邀请保持兼容。账号密码用户采用独立账号名，内部使用不可投递的邮箱标识兼容原有数据结构；该标识不代表已验证邮箱。数据库自动升级至版本 4，保留已有账号、会话和配额。升级前请备份数据库；如需回滚，使用升级前的数据库备份和旧版程序，新账号密码功能需要新版服务端。无需新增 TOML 配置项。
 
 API：管理员可使用 `POST /admin/api/local-users`，请求体为 `{username,password,display_name,billing}`；注册链接使用 `GET/POST /admin/api/registration-invitations` 和 `DELETE /admin/api/registration-invitations/{id}`。`billing` 包含可空的 `group_id`、`quota_mode`（`default`、`unlimited` 或 `custom`）和 `monthly_gb`（仅 `custom` 必填，其余为 null）；生成链接还需 `expires_in_hours`。`POST /api/auth/register` 只接受 `{token,username,password,display_name}`，不能覆盖配额。密码登录为 `POST /api/auth/password/login`，接受 `{username,password}`；修改密码为 `POST /api/account/password`，接受 `{current_password,new_password}`。匿名密码登录及注册要求同源请求；使用 Cookie 认证的写操作继续要求现有 CSRF 校验。原有 `POST /admin/api/users` 创建邮箱用户接口保持兼容。
+
+## 用户列表加载与运行效率
+
+用户与计费组页面通过服务端分页摘要加载配额设置和月流量，每页 10 位用户，搜索也在服务端执行。`GET /admin/api/users/summary?page=1&per_page=10&search=` 要求超级管理员权限，返回 `{items,page,per_page,total}`；每项保留用户字段，增加 `billing` 和 `response_bytes`。每页最多 100 条。原有用户、配额和用量接口保持兼容。
+
+同一配置端点的不同请求共享上游健康状态，同一主机上不同仓库基础路径保持独立。状态最多保留 512 项，运行时配置更新会重置已学习状态。缓存 I/O 和密码计算使用有并发上限的阻塞任务。缓存容量采用增量统计，写入时至少每 30 秒重新核对目录，统计值超过上限时执行淘汰。现有缓存文件、配置和数据库结构保持兼容，无需迁移或修改配置；回滚使用旧版程序及其匹配的内嵌控制台。

@@ -1,7 +1,10 @@
+import { Pagination } from './pagination'
+import { ConfirmDialogProvider, useConfirmDialog } from './confirm-dialog'
+import { byteLabel } from './formatting'
 import { SourceCapabilityBadges, SourceCapabilityDetails, UpstreamSelectionDetails, type SourceCapabilities, type SelectionReport } from './source-details'
 import { OperationToast, ToastProvider } from './operation-toast'
 import { AdminConnectionNotice, csrfErrorMessage } from './connection-notice'
-import { AdminLocalAccounts, PasswordAccess, UserPasswordChange } from './local-accounts'
+import { PasswordAccess, UserPasswordChange } from './local-accounts'
 import { StrictMode } from 'react'
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
@@ -43,87 +46,15 @@ import {
 import './styles.css'
 import { installCsrfFetch } from './csrf-fetch'
 import { readStoredPreference } from './preferences'
-import { CacheOperations, TeamTargetAccess } from './v13-operations'
+import { CacheOperations } from './v13-operations'
+
+const AdminBillingManagement = React.lazy(() => import('./admin-billing'))
 
 installCsrfFetch()
 
 type Locale = 'en' | 'zh'
 type Theme = 'light' | 'dark'
 type AdminNotice = { tone: 'error' | 'success'; title: string; message: string }
-type ConfirmDialogRequest = {
-  locale: Locale
-  message: string
-  title?: string
-  confirmLabel?: string
-  tone?: 'primary' | 'danger'
-}
-type ConfirmDialogContextValue = (request: ConfirmDialogRequest) => Promise<boolean>
-
-const ConfirmDialogContext = React.createContext<ConfirmDialogContextValue | null>(null)
-
-function useConfirmDialog() {
-  const confirmAction = React.useContext(ConfirmDialogContext)
-  if (!confirmAction) throw new Error('useConfirmDialog must be used inside ConfirmDialogProvider')
-  return confirmAction
-}
-
-function ConfirmDialogProvider({ children }: { children: React.ReactNode }) {
-  const [request, setRequest] = React.useState<ConfirmDialogRequest | null>(null)
-  const dialogRef = React.useRef<HTMLDialogElement>(null)
-  const resolverRef = React.useRef<((confirmed: boolean) => void) | null>(null)
-
-  const settle = React.useCallback((confirmed: boolean) => {
-    const dialog = dialogRef.current
-    if (dialog?.open && typeof dialog.close === 'function') dialog.close()
-    dialog?.removeAttribute('open')
-    setRequest(null)
-    resolverRef.current?.(confirmed)
-    resolverRef.current = null
-  }, [])
-
-  const confirmAction = React.useCallback<ConfirmDialogContextValue>((nextRequest) => new Promise((resolve) => {
-    resolverRef.current?.(false)
-    resolverRef.current = resolve
-    setRequest(nextRequest)
-  }), [])
-
-  React.useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog || !request || dialog.open) return
-    if (typeof dialog.showModal === 'function') {
-      try { dialog.showModal() } catch { dialog.setAttribute('open', '') }
-    }
-    if (!dialog.open) dialog.setAttribute('open', '')
-  }, [request])
-
-  React.useEffect(() => () => resolverRef.current?.(false), [])
-
-  const locale = request?.locale ?? 'en'
-  const danger = request?.tone === 'danger'
-  return <ConfirmDialogContext.Provider value={confirmAction}>
-    {children}
-    <dialog
-      aria-labelledby="app-confirm-title"
-      aria-describedby="app-confirm-message"
-      className={`app-confirm-dialog${danger ? ' app-confirm-dialog-danger' : ''}`}
-      ref={dialogRef}
-      onCancel={(event) => { event.preventDefault(); settle(false) }}
-      onMouseDown={(event) => { if (event.target === event.currentTarget) settle(false) }}
-    >
-      <div className="app-confirm-panel">
-        <span className="app-confirm-icon" aria-hidden="true"><CircleAlert size={20} /></span>
-        <div className="app-confirm-copy">
-          <h2 id="app-confirm-title">{request?.title ?? (danger ? (locale === 'zh' ? '确认敏感操作' : 'Confirm sensitive action') : (locale === 'zh' ? '确认操作' : 'Confirm action'))}</h2>
-          <p id="app-confirm-message">{request?.message}</p>
-        </div>
-        <div className="app-confirm-actions">
-          <button autoFocus className="secondary-button" type="button" onClick={() => settle(false)}>{locale === 'zh' ? '取消' : 'Cancel'}</button>
-          <button className={danger ? 'danger-button' : 'primary-button'} type="button" onClick={() => settle(true)}>{request?.confirmLabel ?? (locale === 'zh' ? '继续' : 'Continue')}</button>
-        </div>
-      </div>
-    </dialog>
-  </ConfirmDialogContext.Provider>
-}
 type SiteSettings = { title: string; description: string; keywords: string[]; icon_url: string; footer_text: string }
 
 const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -1290,17 +1221,7 @@ export function sourceManualCommand(targetCode: string, repoUrl: string, templat
   return commands[targetCode] ?? template?.replaceAll('{repo_url}', repoUrl) ?? `mirrorproxy get ${targetCode}`
 }
 
-const byteLabel = (bytes: number | null) => {
-  if (bytes === null) return '—'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
-}
+
 
 const decodeBase64Url = (value: string) => {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
@@ -1987,7 +1908,7 @@ function AdminConsole({ locale }: { locale: Locale }) {
           </div>
           <div className="settings-card"><h4>{text.adapters}</h4><div className="adapter-toggles">{PROXY_ADAPTERS.map((adapter) => <label key={adapter}><input type="checkbox" checked={draft.enabled_proxies.includes(adapter)} onChange={() => toggleAdapter(adapter)} />{adapter}</label>)}</div><details className="advanced-details"><summary>{text.showUpstreams}</summary><p className="field-hint">{text.upstreamHint}</p><div className="upstream-fields">{Object.entries(draft.upstreams).flatMap(([key, value]) => typeof value === 'string' ? [<label key={key}><span>{key}</span><input value={value} onChange={(event) => updateUpstream(key, event.target.value)} /></label>] : [])}</div><AdditionalOsEditor locale={locale} publicBaseUrl={draft.public_base_url} sources={typeof draft.upstreams.additional_os === 'object' ? draft.upstreams.additional_os : {}} onChange={updateAdditionalOsUpstreams} /></details></div>
         </section> : null}
-        {activeTab === 'users' ? <AdminBillingManagement locale={locale} /> : null}
+        {activeTab === 'users' ? <React.Suspense fallback={<p role="status">{locale === 'zh' ? '加载中…' : 'Loading…'}</p>}><AdminBillingManagement locale={locale} targets={PROXY_ADAPTERS} /></React.Suspense> : null}
         {activeTab === 'providers' ? <AdminAuthProviders locale={locale} /> : null}
         {activeTab === 'email' ? <AdminEmailSettings locale={locale} /> : null}
         {activeTab === 'security' ? <section className="admin-tab-panel settings-card security-credentials-card">
@@ -2396,129 +2317,6 @@ function AdminEmailSettings({ locale }: { locale: Locale }) {
       ))}{invitations.length === 0 ? <p className="empty-stat">{locale === 'zh' ? '最近 3 天没有邀请记录。' : 'No invitations in the last 3 days.'}</p> : null}</div>
     </section>
   )
-}
-
-type BillingGroupView = { id: number; name: string; monthly_limit_bytes: number | null; member_count: number }
-type AdminUserView = { username?: string | null; id: number; email: string; display_name: string; disabled: boolean; routing_id: string }
-type UserBillingView = { group_id: number | null; quota_mode: 'default' | 'unlimited' | 'custom'; user_monthly_limit_bytes: number | null }
-
-function BillingGroupRow({ group, locale, reload }: { group: BillingGroupView; locale: Locale; reload: () => Promise<void> }) {
-  const [name, setName] = React.useState(group.name)
-  const [quota, setQuota] = React.useState(group.monthly_limit_bytes === null ? '' : String(group.monthly_limit_bytes / (1024 ** 3)))
-  const save = async () => {
-    const response = await fetch(`/admin/api/groups/${group.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, monthly_gb: quota === '' ? null : Number(quota) }) })
-    if (response.ok) await reload()
-  }
-  return <div className="admin-account-row team-account-row"><span><strong>{group.name}</strong><small>{group.member_count} {locale === 'zh' ? '位成员' : 'members'} · {group.monthly_limit_bytes === null ? (locale === 'zh' ? '不限量' : 'unlimited') : byteLabel(group.monthly_limit_bytes)}</small></span><span><input aria-label={`${group.name} name`} value={name} onChange={(event) => setName(event.target.value)} /><input aria-label={`${group.name} quota`} min="0" type="number" placeholder={locale === 'zh' ? '不限量 GB' : 'Unlimited GB'} value={quota} onChange={(event) => setQuota(event.target.value)} /><button onClick={save}>{locale === 'zh' ? '保存' : 'Save'}</button></span><TeamTargetAccess groupId={group.id} targets={PROXY_ADAPTERS} locale={locale} /></div>
-}
-
-function BillingUserRow({ initialUser, groups, locale, reloadUsers }: { initialUser: AdminUserView; groups: BillingGroupView[]; locale: Locale; reloadUsers: () => Promise<void> }) {
-  const confirmAction = useConfirmDialog()
-  const [user, setUser] = React.useState(initialUser)
-  const [billing, setBilling] = React.useState<UserBillingView | null>(null)
-  const [usage, setUsage] = React.useState<UserUsage | null>(null)
-  const [customGb, setCustomGb] = React.useState('')
-  const [identities, setIdentities] = React.useState<LinkedIdentity[] | null>(null)
-  const load = React.useCallback(async () => {
-    const [billingResponse, usageResponse] = await Promise.all([fetch(`/admin/api/users/${user.id}/billing`), fetch(`/admin/api/users/${user.id}/usage`)])
-    if (billingResponse.ok) {
-      const value = await billingResponse.json() as UserBillingView
-      setBilling(value)
-      setCustomGb(value.user_monthly_limit_bytes === null ? '' : String(value.user_monthly_limit_bytes / (1024 ** 3)))
-    }
-    if (usageResponse.ok) setUsage(await usageResponse.json() as UserUsage)
-  }, [user.id])
-  React.useEffect(() => { load().catch(() => undefined) }, [load])
-  const save = async () => {
-    if (!billing) return
-    await fetch(`/admin/api/users/${user.id}/billing`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ group_id: billing.group_id, quota_mode: billing.quota_mode, monthly_gb: billing.quota_mode === 'custom' ? Number(customGb) : null }) })
-    await load()
-  }
-  const toggle = async () => {
-    if (!await confirmAction({
-      locale,
-      title: user.disabled ? (locale === 'zh' ? '启用用户' : 'Enable user') : (locale === 'zh' ? '禁用用户' : 'Disable user'),
-      message: user.disabled ? (locale === 'zh' ? `确定启用用户 ${user.username ?? user.email} 吗？` : `Enable ${user.username ?? user.email}?`) : (locale === 'zh' ? `确定禁用用户 ${user.username ?? user.email} 吗？该用户的登录会话会立即失效。` : `Disable ${user.username ?? user.email}? Their active sessions will be revoked immediately.`),
-      confirmLabel: user.disabled ? (locale === 'zh' ? '启用用户' : 'Enable user') : (locale === 'zh' ? '禁用用户' : 'Disable user'),
-      tone: user.disabled ? 'primary' : 'danger',
-    })) return
-    const response = await fetch(`/admin/api/users/${user.id}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ disabled: !user.disabled }) })
-    if (response.ok) setUser({ ...user, disabled: !user.disabled })
-  }
-  const rotate = async () => {
-    if (!await confirmAction({ locale, title: locale === 'zh' ? '更换用户代理地址' : 'Rotate user routing address', message: locale === 'zh' ? `确定更换 ${user.username ?? user.email} 的专属代理地址吗？当前地址会立即失效。` : `Rotate the dedicated proxy address for ${user.username ?? user.email}? The current address will stop working immediately.`, confirmLabel: locale === 'zh' ? '确认更换' : 'Rotate address', tone: 'danger' })) return
-    await fetch(`/admin/api/users/${user.id}/routing-id/rotate`, { method: 'POST' })
-  }
-  const loadIdentities = async () => { const response = await fetch(`/admin/api/users/${user.id}/identities`); if (response.ok) setIdentities(await response.json() as LinkedIdentity[]) }
-  const unlink = async (identity: LinkedIdentity) => {
-    if (!await confirmAction({ locale, title: locale === 'zh' ? '解除登录身份绑定' : 'Unlink identity', message: locale === 'zh' ? `确定解除 ${user.username ?? user.email} 与 ${identity.provider_name} 的绑定吗？` : `Unlink ${identity.provider_name} from ${user.username ?? user.email}?`, confirmLabel: locale === 'zh' ? '解除绑定' : 'Unlink identity', tone: 'danger' })) return
-    const response = await fetch(`/admin/api/users/${user.id}/identities/${identity.id}`, { method: 'DELETE' }); if (response.ok) await loadIdentities()
-  }
-  const remove = async () => { if (!await confirmAction({ locale, title: locale === 'zh' ? '删除用户' : 'Delete user', message: locale === 'zh' ? `确定删除 ${user.username ?? user.email}？历史流量和审计记录会保留。` : `Soft-delete ${user.username ?? user.email}? Existing traffic and audit history will be retained.`, confirmLabel: locale === 'zh' ? '删除用户' : 'Delete user', tone: 'danger' })) return; const response = await fetch(`/admin/api/users/${user.id}`, { method: 'DELETE' }); if (response.ok) await reloadUsers() }
-  return (
-    <div className="admin-user-record">
-      <div className="admin-user-summary">
-        <div className="admin-user-identity">
-          <strong>{user.display_name}</strong>
-          <small>{user.username ?? user.email}</small>
-          <code>{user.disabled ? (locale === 'zh' ? '已禁用' : 'disabled') : user.routing_id}{usage ? ` · ${byteLabel(usage.response_bytes)} ${locale === 'zh' ? '本月' : 'this month'}` : ''}</code>
-        </div>
-        {billing ? <div className="admin-user-controls">
-          <div className="admin-user-fields">
-            <label>{locale === 'zh' ? '计费组' : 'Billing group'}<select aria-label={`${user.username ?? user.email} billing group`} value={billing.group_id ?? ''} onChange={(event) => setBilling({ ...billing, group_id: event.target.value ? Number(event.target.value) : null })}><option value="">{locale === 'zh' ? '无计费组' : 'No billing group'}</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-            <label>{locale === 'zh' ? '用户配额' : 'User quota'}<select aria-label={`${user.username ?? user.email} quota mode`} value={billing.quota_mode} onChange={(event) => setBilling({ ...billing, quota_mode: event.target.value as UserBillingView['quota_mode'] })}><option value="default">{locale === 'zh' ? '默认配额' : 'Default quota'}</option><option value="unlimited">{locale === 'zh' ? '不限量' : 'Unlimited'}</option><option value="custom">{locale === 'zh' ? '自定义' : 'Custom'}</option></select></label>
-            {billing.quota_mode === 'custom' ? <label>{locale === 'zh' ? '自定义 GB' : 'Custom GB'}<input required aria-label={`${user.username ?? user.email} custom quota`} min="0" type="number" value={customGb} onChange={(event) => setCustomGb(event.target.value)} /></label> : null}
-          </div>
-          <div className="admin-user-actions">
-            <button className="primary-button compact-button" disabled={billing.quota_mode === 'custom' && customGb === ''} onClick={save}>{locale === 'zh' ? '保存配额' : 'Save billing'}</button>
-            <button onClick={rotate}>{locale === 'zh' ? '更换子域名' : 'Rotate address'}</button>
-            <button onClick={toggle}>{user.disabled ? (locale === 'zh' ? '启用' : 'Enable') : (locale === 'zh' ? '禁用' : 'Disable')}</button>
-            <button onClick={loadIdentities}>{locale === 'zh' ? '登录身份' : 'Identities'}</button>
-            <button className="danger-button compact-button" onClick={remove}>{locale === 'zh' ? '删除' : 'Delete'}</button>
-          </div>
-        </div> : null}
-      </div>
-      {identities ? <div className="admin-identity-detail">{identities.length ? identities.map((identity) => <span key={identity.id}><strong>{identity.provider_name}</strong><small>{identity.email ?? identity.provider_subject}</small><button className="revoke-button" onClick={() => unlink(identity)}>{locale === 'zh' ? '解除绑定' : 'Unlink'}</button></span>) : <small>{locale === 'zh' ? '未绑定第三方登录身份。' : 'No linked external identities.'}</small>}</div> : null}
-    </div>
-  )
-}
-
-function AdminBillingManagement({ locale }: { locale: Locale }) {
-  const [groups, setGroups] = React.useState<BillingGroupView[]>([])
-  const [users, setUsers] = React.useState<AdminUserView[]>([])
-  const [name, setName] = React.useState('')
-  const [quota, setQuota] = React.useState('')
-  const [search, setSearch] = React.useState('')
-  const [page, setPage] = React.useState(1)
-  const load = React.useCallback(async () => {
-    const [groupResponse, userResponse] = await Promise.all([fetch('/admin/api/groups'), fetch('/admin/api/users')])
-    if (groupResponse.ok) {
-      const value = await groupResponse.json() as unknown
-      if (Array.isArray(value)) setGroups(value as BillingGroupView[])
-    }
-    if (userResponse.ok) {
-      const value = await userResponse.json() as unknown
-      if (Array.isArray(value)) setUsers(value as AdminUserView[])
-    }
-  }, [])
-  React.useEffect(() => { load().catch(() => undefined) }, [load])
-  const create = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const response = await fetch('/admin/api/groups', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, monthly_gb: quota === '' ? null : Number(quota) }) })
-    if (response.ok) { setName(''); setQuota(''); await load() }
-  }
-  const visibleUsers = users.filter((user) => `${user.display_name} ${user.username ?? ''} ${user.email} ${user.routing_id}`.toLowerCase().includes(search.trim().toLowerCase()))
-  const pageSize = 10
-  const pageUsers = visibleUsers.slice((page - 1) * pageSize, page * pageSize)
-  React.useEffect(() => setPage(1), [search])
-  React.useEffect(() => setPage((current) => Math.min(current, Math.max(1, Math.ceil(visibleUsers.length / pageSize)))), [visibleUsers.length])
-  return <section className="admin-tab-panel settings-stack"><AdminLocalAccounts locale={locale} groups={groups} reload={load} /><div className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '计费组' : 'Billing groups'}</h4><p>{locale === 'zh' ? '组内用户共享每月流量配额，每个用户只能属于一个计费组。' : 'Members share a monthly traffic quota; each user can belong to one billing group.'}</p></div><form className="compact-form inline-form" onSubmit={create}><label>{locale === 'zh' ? '组名称' : 'Group name'}<input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} /></label><label>{locale === 'zh' ? '共享月配额（GB）' : 'Shared monthly quota (GB)'}<input min="0" type="number" placeholder={locale === 'zh' ? '不限量' : 'Unlimited'} value={quota} onChange={(event) => setQuota(event.target.value)} /></label><button className="primary-button" type="submit">{locale === 'zh' ? '创建计费组' : 'Create billing group'}</button></form><div className="admin-account-list">{groups.map((group) => <BillingGroupRow key={group.id} group={group} locale={locale} reload={load} />)}</div></div><div className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '用户' : 'Users'}</h4><label className="user-search">{locale === 'zh' ? '搜索用户' : 'Search users'}<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'zh' ? '账号、邮箱、姓名或子域名' : 'Account, email, name, or routing ID'} /></label></div><div className="admin-account-list">{pageUsers.map((user) => <BillingUserRow key={user.id} initialUser={user} groups={groups} locale={locale} reloadUsers={load} />)}</div><Pagination page={page} total={visibleUsers.length} pageSize={pageSize} locale={locale} onChange={setPage} /></div></section>
-}
-
-function Pagination({ page, total, pageSize, locale, onChange }: { page: number; total: number; pageSize: number; locale: Locale; onChange: (page: number) => void }) {
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  if (total <= pageSize) return null
-  return <nav className="pagination" aria-label={locale === 'zh' ? '分页' : 'Pagination'}><span>{locale === 'zh' ? `第 ${page} / ${pageCount} 页，共 ${total} 条` : `Page ${page} of ${pageCount} · ${total} items`}</span><div><button disabled={page <= 1} onClick={() => onChange(page - 1)}>{locale === 'zh' ? '上一页' : 'Previous'}</button><button disabled={page >= pageCount} onClick={() => onChange(page + 1)}>{locale === 'zh' ? '下一页' : 'Next'}</button></div></nav>
 }
 
 function AdminSourceHealthPanel({ report, locale }: { report: SourceHealthReport | null; locale: Locale }) {
