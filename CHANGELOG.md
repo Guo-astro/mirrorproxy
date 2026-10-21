@@ -5,6 +5,20 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-21
+
+### Accounts and administration
+
+- Add SMTP-free local password accounts, administrator-issued single-use
+  registration links, account password changes, and administrator-assigned quotas.
+  Automatically migrate existing databases to schema 4 while preserving data.
+- Add reverse-proxy connection diagnostics and improve invitation navigation,
+  account forms, and asynchronous undo notifications.
+- Fix CodeQL findings while retaining session, CSRF, authorization, and quota
+  protections; verify certificates in native HTTPS regression coverage.
+
+### Hugging Face and dependency security
+
 - Add public Hugging Face HTTP downloads with SDK/CLI metadata, snapshot and
   dataset downloads, pagination, Range/resume, and streamed CDN transfers.
   HF requests bypass the server cache; private/gated resources and native Xet
@@ -16,6 +30,9 @@ follow semantic versioning.
   service uses local SQLite and retains TLS validation for network clients.
 - Update Vite to 8.1.6 for development-server security fixes, and replace yanked
   spin/chacha20 releases with compatible patches. Release builds use the lockfile.
+- Document the scoped RUSTSEC-2023-0071 exception: OIDC uses RSA public-key
+  verification only; the affected private-key path is not used. The underlying
+  dependency advisory remains unresolved upstream.
 
 ## [1.4.4] - 2026-10-20
 

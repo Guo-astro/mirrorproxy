@@ -26,7 +26,7 @@ mirrorproxy --version
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- \
-  --version v1.4.4 --install-dir "$HOME/.local/bin"
+  --version v1.5.0 --install-dir "$HOME/.local/bin"
 ```
 
 也可使用等效环境变量：`MIRRORPROXY_VERSION`、`MIRRORPROXY_INSTALL_DIR`、

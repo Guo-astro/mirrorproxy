@@ -28,7 +28,7 @@ default directory. Version, destination, and download prefix can be explicit:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- \
-  --version v1.4.4 --install-dir "$HOME/.local/bin"
+  --version v1.5.0 --install-dir "$HOME/.local/bin"
 ```
 
 Equivalent environment variables are `MIRRORPROXY_VERSION`,

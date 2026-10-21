@@ -12,7 +12,7 @@
 ```yaml
 services:
   mirrorproxy:
-    image: kudang/mirrorproxy:1.4.4
+    image: kudang/mirrorproxy:1.5.0
     restart: unless-stopped
     environment:
       MIRRORPROXY_ADMIN_PASSWORD: 'replace-with-a-long-unique-password'

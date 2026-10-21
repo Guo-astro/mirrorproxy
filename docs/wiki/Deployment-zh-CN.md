@@ -19,7 +19,7 @@
 ```yaml
 services:
   mirrorproxy:
-    image: kudang/mirrorproxy:1.4.4
+    image: kudang/mirrorproxy:1.5.0
     restart: unless-stopped
     ports:
       - '127.0.0.1:3000:3000'
@@ -59,7 +59,7 @@ ARM64 请把下面的归档名换成 `mirrorproxy-server-aarch64-unknown-linux-g
 ```bash
 mkdir -p "$HOME/mirrorproxy"
 cd "$HOME/mirrorproxy"
-version=v1.4.4
+version=v1.5.0
 archive=mirrorproxy-server-x86_64-unknown-linux-musl.tar.gz
 curl -fLO "https://github.com/inbjo/MirrorProxy/releases/download/$version/$archive"
 curl -fLO "https://github.com/inbjo/MirrorProxy/releases/download/$version/$archive.sha256"
