@@ -5,6 +5,14 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Add a shared 28-distribution Linux system-source catalog, automatic system and
+  version detection, native configuration migration, real file previews, and
+  protected multi-file rollback. Preserve repository signatures and architectures;
+  document RHEL customer-mirror and NixOS module activation requirements.
+- Publish the bilingual OS/version matrix in the Wiki source and expose profiles
+  in the public catalog. Extend server repository defaults and native-client
+  container smoke coverage without replacing existing configuration fields.
+
 - Describe source cache support/current enablement, upstream authentication,
   supported clients, and HF transport limits in the public catalog and setup UI.
 - Explain live candidate rankings, failure counts, smoothed latency, and cooldown

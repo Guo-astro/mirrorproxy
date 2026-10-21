@@ -9,6 +9,7 @@
 **日常使用 · Everyday use**
 
 - [客户端改源](Client-zh-CN) · [Client](Client)
+- [Linux 系统与版本支持](System-Sources-zh-CN) · [Linux system sources](System-Sources)
 - [其他客户端安装方式](Distribution-zh-CN) · [Client installation](Distribution)
 - [支持的软件源](Proxy-Adapters-zh-CN) · [Sources](Proxy-Adapters)
 - [容器镜像总览](Container-Registries-and-Runtimes-zh-CN) · [Container images](Container-Registries-and-Runtimes)

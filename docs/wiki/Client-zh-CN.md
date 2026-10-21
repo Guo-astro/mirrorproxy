@@ -52,11 +52,53 @@ Hugging Face 仅提供使用示例：`mirrorproxy get hf --base-url https://mirr
 
 ## 进阶：用户与系统范围
 
+统一的 28 类发行版迁移、版本矩阵与 Linux 验证方法见
+[Linux 系统软件源](System-Sources-zh-CN)。运行 `mirrorproxy systems` 可查看发行版目录，
+已有按目标操作的命令继续可用。
+
 用户范围适用于 npm、pip、Cargo、Go、Composer 等，回滚记录保存在用户状态目录下。
 系统范围仅在 Linux 上直接支持，并会修改 APT、DNF、pacman、apk、zypper、xbps、Portage
 等系统配置；它需要正常的管理员权限，APT 类目标还可能需要 `--distribution`。先用
 `mirrorproxy get <target>` 和 `--dry-run` 检查，再执行系统范围写入。
 
 客户端不会替你安装 MirrorProxy 服务，也不会上传账号、令牌或原始配置。
+
+## Debian 和 Ubuntu 系统源
+
+APT 未指定 `--distribution` 时，从 `/etc/os-release` 自动读取 `ID` 和
+`VERSION_CODENAME`。原有生成独立配置文件的模式仍支持显式传入
+`--distribution debian/bookworm` 或 `ubuntu/noble`。衍生发行版必须显式指定，
+不会根据父发行版猜测。
+
+迁移现有官方源，而不是额外添加一个仓库：
+
+```bash
+sudo mirrorproxy set apt --scope system --base-url https://mirror.example.com --replace-existing --dry-run
+sudo mirrorproxy set apt --scope system --base-url https://mirror.example.com --replace-existing
+sudo apt-get update
+apt-cache policy hello
+sudo mirrorproxy reset apt --scope system --dry-run
+sudo mirrorproxy reset apt --scope system
+```
+
+现有源替换必须显式启用，目前支持 Debian / Ubuntu 配合 MirrorProxy 提供方。
+它仅修改 `sources.list`、`sources.list.d/*.list` 和 `*.sources` 中识别出的官方基础仓库
+地址，支持 DEB822 格式及其多行 URIs。原有更新和 backports 通道、组件、架构、
+`Signed-By`、注释、禁用条目和第三方仓库均保留。不改变发行版通道，不安装或升级软件，
+`--replace-existing` 不能与 `--distribution` 同用。自定义镜像站、Debian 安全源、
+Ubuntu 安全源和 ports、旧版本归档地址保持原样，因为默认服务端适配器未覆盖这些
+独立仓库。原有签名检查和更新通道继续生效，因此不保证所有 APT 请求均经过代理。
+
+`--dry-run` 会校验并显示实际文件改动，不写入文件或回滚记录；原有生成文件模式遇到
+非空配置时，预览和写入仍需 `--force`。预览中的敏感配置行会隐藏。替换前校验所有
+文件，并将多文件回滚记录保存到 `/var/lib/mirrorproxy/sources/apt.json`；Unix 上保留
+文件权限。每个文件单独原子写入，整个文件集合不具备原子性；中断后运行
+`reset apt --scope system` 恢复。恢复前会检查所有路径和文件，后续人工修改需要
+`--force` 才能覆盖。完成恢复前请保留本版本客户端，旧客户端无法读取新增的多文件
+回滚格式；现有单文件回滚记录继续兼容。符号链接文件和目录会被拒绝。
+
+除 `apt-get update` 外，还应检查 `apt-cache policy <包名>` 和实际下载地址；保留的
+安全源或第三方仓库仍可能提供优先候选版本。恢复后再次刷新 APT 元数据。
+隔离测试可使用 `--config-root <目录>`，系统识别、APT 文件及回滚记录均位于该目录下。
 
 [English](Client)

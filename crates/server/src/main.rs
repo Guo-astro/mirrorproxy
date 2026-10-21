@@ -6216,6 +6216,16 @@ struct SourceCatalogResponse {
     sources: Vec<TargetSourceSummary>,
     templates: Vec<SourceTemplateSummary>,
     container_registries: Vec<ContainerRegistrySummary>,
+    system_profiles: Vec<SystemProfileSummary>,
+}
+
+#[derive(Serialize)]
+struct SystemProfileSummary {
+    code: &'static str,
+    name: &'static str,
+    versions: &'static str,
+    format: &'static str,
+    requires_customer_mirror: bool,
 }
 
 #[derive(Serialize)]
@@ -6377,6 +6387,16 @@ async fn source_catalog(State(state): State<AppState>) -> impl IntoResponse {
     }
 
     Json(SourceCatalogResponse {
+        system_profiles: catalog::systems::SYSTEM_DISTRIBUTIONS
+            .iter()
+            .map(|profile| SystemProfileSummary {
+                code: profile.code,
+                name: profile.name,
+                versions: profile.versions,
+                format: profile.format.as_str(),
+                requires_customer_mirror: profile.code == "rhel",
+            })
+            .collect(),
         providers: catalog::MIRROR_PROVIDERS
             .iter()
             .filter(|provider| provider.enabled)
@@ -9739,6 +9759,14 @@ on_exceeded = "stop_proxy"
                 .unwrap()["capabilities"]
                 .clone()
         };
+        let profiles = value["system_profiles"].as_array().unwrap();
+        assert_eq!(profiles.len(), catalog::systems::SYSTEM_DISTRIBUTIONS.len());
+        for profile in catalog::systems::SYSTEM_DISTRIBUTIONS {
+            assert!(profiles.iter().any(|entry| entry["code"] == profile.code
+                && entry["versions"] == profile.versions
+                && entry["format"] == profile.format.as_str()
+                && entry["requires_customer_mirror"] == (profile.code == "rhel")));
+        }
         assert_eq!(capabilities("huggingface")["cache"], "bypass");
         assert_eq!(capabilities("huggingface")["authentication"], "public_only");
         assert_eq!(
@@ -9881,8 +9909,9 @@ on_exceeded = "stop_proxy"
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["total"], 61);
-        assert_eq!(value["unknown"], 61);
+        // Fixed probes plus the expanded default system repository roots.
+        assert_eq!(value["total"], 81);
+        assert_eq!(value["unknown"], 81);
         assert_eq!(value["unhealthy"], 0);
         assert_eq!(value["items"].as_array().unwrap().len(), 0);
         assert!(value.get("selection").is_none());

@@ -397,17 +397,17 @@ fn is_public_address(address: IpAddr) -> bool {
         }
         IpAddr::V6(address) => {
             let segments = address.segments();
-            !address.is_loopback()
-                && !address.is_unspecified()
-                && !address.is_multicast()
-                && !address.is_unique_local()
-                && !address.is_unicast_link_local()
-                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
-                && !(segments[0] == 0x2001 && segments[1] == 0x0002)
-                && !(segments[0] == 0x0100
+            !(address.is_loopback()
+                || address.is_unspecified()
+                || address.is_multicast()
+                || address.is_unique_local()
+                || address.is_unicast_link_local()
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                || (segments[0] == 0x2001 && segments[1] == 0x0002)
+                || (segments[0] == 0x0100
                     && segments[1] == 0
                     && segments[2] == 0
-                    && segments[3] == 0)
+                    && segments[3] == 0))
                 && address
                     .to_ipv4_mapped()
                     .is_none_or(|address| is_public_address(IpAddr::V4(address)))

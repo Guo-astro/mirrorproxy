@@ -3498,6 +3498,8 @@ fn ensure_parent_directory(database_path: &str) -> anyhow::Result<()> {
 }
 
 fn harden_private_file(path: &Path) -> anyhow::Result<()> {
+    #[cfg(not(unix))]
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -4278,6 +4280,7 @@ mod tests {
         assert_eq!(health.integrity, "ok");
         assert_eq!(health.schema_version, CURRENT_SCHEMA_VERSION);
         database.backup(&backup).await.unwrap();
+        database.pool.close().await;
         drop(database);
         let (restored, _) = Database::open(backup.to_str().unwrap()).await.unwrap();
         assert_eq!(
@@ -4288,6 +4291,7 @@ mod tests {
                 .integrity,
             "ok"
         );
+        restored.pool.close().await;
         drop(restored);
         std::fs::remove_dir_all(root).unwrap();
     }

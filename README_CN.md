@@ -144,6 +144,9 @@ sudo apt install mirrorproxy
 
 详情见[客户端分发与安装](https://github.com/inbjo/MirrorProxy/wiki/Distribution-zh-CN)。
 
+Linux 客户端还提供 `mirrorproxy systems`，统一迁移 28 类发行版的原生软件源。
+版本范围、特殊仓库条件及回滚方法见[系统与版本支持矩阵](https://github.com/inbjo/MirrorProxy/wiki/System-Sources-zh-CN)。
+
 ## 文档导航
 
 - [Wiki 首页](https://github.com/inbjo/MirrorProxy/wiki/Home-zh-CN)

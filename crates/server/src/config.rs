@@ -2520,7 +2520,7 @@ fn default_freebsd_repository() -> String {
 }
 
 fn default_os_repositories() -> BTreeMap<String, String> {
-    BTreeMap::from([
+    let mut repositories = BTreeMap::from([
         ("kali".to_string(), "https://kali.download/kali".to_string()),
         (
             "rocky".to_string(),
@@ -2574,7 +2574,27 @@ fn default_os_repositories() -> BTreeMap<String, String> {
         ),
         ("netbsd".to_string(), "https://cdn.netbsd.org".to_string()),
         ("openbsd".to_string(), "https://cdn.openbsd.org".to_string()),
-    ])
+    ]);
+    for repository in mirrorproxy_catalog::systems::SYSTEM_REPOSITORIES {
+        if !repository.upstream.is_empty()
+            && !matches!(
+                repository.code,
+                "debian"
+                    | "ubuntu"
+                    | "fedora"
+                    | "archlinux"
+                    | "opensuse"
+                    | "void"
+                    | "gentoo"
+                    | "alpine"
+            )
+        {
+            repositories
+                .entry(repository.code.to_string())
+                .or_insert_with(|| repository.upstream.to_string());
+        }
+    }
+    repositories
 }
 
 fn default_crates_index() -> String {

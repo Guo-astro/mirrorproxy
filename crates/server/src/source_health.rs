@@ -70,7 +70,7 @@ const PROBES: &[ProbeSpec] = &[
     get!(
         "dnf",
         "os",
-        "/os/fedora/releases/42/Everything/x86_64/os/repodata/repomd.xml"
+        "/os/fedora/releases/44/Everything/x86_64/os/repodata/repomd.xml"
     ),
     head!("pacman", "os", "/os/archlinux/core/os/x86_64/core.db"),
     get!("kali", "os", "/os/kali/dists/kali-rolling/Release"),
@@ -853,9 +853,9 @@ mod tests {
             .await
             .unwrap();
         let report = report(&state, true).await.unwrap();
-        assert_eq!(report.total, 62);
+        assert_eq!(report.total, 82);
         assert_eq!(report.degraded, 1);
-        assert_eq!(report.unknown, 60);
+        assert_eq!(report.unknown, 80);
         assert!(report
             .items
             .iter()

@@ -392,6 +392,8 @@ fn certificate_not_after(path: &Path) -> Result<Option<i64>> {
 }
 
 fn atomic_write(path: &Path, contents: &[u8], mode: u32) -> Result<()> {
+    #[cfg(not(unix))]
+    let _ = mode;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
     let temporary = temporary_path(path);

@@ -12,6 +12,9 @@ use mirrorproxy_catalog::{SourceCategory, SourceMode};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+mod apt;
+mod system;
+
 static TEMPORARY_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Parser, Debug)]
@@ -50,6 +53,8 @@ enum SourcesCommand {
     },
     /// List mirror providers known to MirrorProxy.
     Mirrors,
+    /// List system distributions, version ranges and native configuration formats.
+    Systems,
     /// Show mirror mappings for one source target.
     Get {
         target: String,
@@ -71,6 +76,9 @@ enum SourcesCommand {
         /// Distribution version required for selected system source generation.
         #[arg(long)]
         distribution: Option<String>,
+        /// Migrate recognized native system repositories while preserving trust settings.
+        #[arg(long)]
+        replace_existing: bool,
         /// Replace a non-empty target configuration after recording a rollback.
         #[arg(long)]
         force: bool,
@@ -99,6 +107,18 @@ fn main() -> anyhow::Result<()> {
 
 fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
     match command {
+        SourcesCommand::Systems => {
+            println!("{:<17} {:<32} {:<10} versions", "code", "name", "format");
+            for profile in catalog::systems::SYSTEM_DISTRIBUTIONS {
+                println!(
+                    "{:<17} {:<32} {:<10} {}",
+                    profile.code,
+                    profile.name,
+                    profile.format.as_str(),
+                    profile.versions
+                );
+            }
+        }
         SourcesCommand::List { category } => {
             let category = category
                 .as_deref()
@@ -142,6 +162,10 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
             }
         }
         SourcesCommand::Get { target, base_url } => {
+            let base_url = base_url
+                .as_deref()
+                .map(system::validated_base_url)
+                .transpose()?;
             let Some(target) = catalog::find_target(&target) else {
                 anyhow::bail!("unknown source target '{target}'");
             };
@@ -200,12 +224,75 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
             scope,
             config_root,
             distribution,
+            replace_existing,
             force,
             dry_run,
         } => {
+            if target == "system"
+                || (replace_existing && catalog::systems::system_distribution(&target).is_some())
+            {
+                let scope = parse_source_scope(&scope)?;
+                anyhow::ensure!(
+                    scope == CliSourceScope::System && replace_existing,
+                    "system migration requires --scope system --replace-existing"
+                );
+                validate_scope_root(scope, config_root.as_deref())?;
+                anyhow::ensure!(
+                    mirror == "mirrorproxy",
+                    "system migration requires the MirrorProxy provider"
+                );
+                anyhow::ensure!(distribution.is_none(), "--replace-existing preserves existing suites; do not combine it with --distribution");
+                let root = config_root.as_deref().unwrap_or_else(|| Path::new("/"));
+                let rollback = source_rollback_path("system", scope, root);
+                let plan = system::prepare(root, &target, base_url.as_deref())?;
+                plan.preview();
+                if !dry_run {
+                    plan.apply(&rollback)?;
+                }
+                return Ok(());
+            }
             let command = plan_source_set_command(&target, &mirror, base_url.as_deref())?;
             let scope = parse_source_scope(&scope)?;
             validate_scope_root(scope, config_root.as_deref())?;
+            // Guidance-only targets retain their existing command-preview contract.
+            if dry_run
+                && !replace_existing
+                && !catalog::find_target(command.target_code)
+                    .is_some_and(|target| target.supported_modes.contains(&SourceMode::LocalConfig))
+            {
+                println!("target: {}", command.target_code);
+                println!("mirror: {}", command.provider_code);
+                println!("scope: {}", scope.as_str());
+                println!("repository: {}", command.repo_url);
+                println!("dry_run: true\ncommand:");
+                print_source_command(command.provider_code, &command.command);
+                return Ok(());
+            }
+            let locations = source_locations(scope, config_root.clone(), command.target_code)?;
+            let root = config_root.as_deref().unwrap_or_else(|| Path::new("/"));
+            if replace_existing {
+                anyhow::ensure!(
+                    command.target_code == "apt" && scope == CliSourceScope::System,
+                    "--replace-existing requires APT with --scope system"
+                );
+                anyhow::ensure!(distribution.is_none(),
+                    "--replace-existing preserves existing suites; do not combine it with --distribution");
+                let plan = apt::prepare(&command, root, &locations.rollback_path)?;
+                plan.preview();
+                if !dry_run {
+                    plan.apply(&locations.rollback_path)?;
+                }
+                return Ok(());
+            }
+            let detected_distribution = if command.target_code == "apt"
+                && scope == CliSourceScope::System
+                && distribution.is_none()
+            {
+                Some(apt::detect_distribution(root)?)
+            } else {
+                None
+            };
+            let distribution = distribution.as_deref().or(detected_distribution.as_deref());
             println!("target: {}", command.target_code);
             println!("mirror: {}", command.provider_code);
             println!("scope: {}", scope.as_str());
@@ -214,14 +301,26 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
                 println!("dry_run: true");
                 println!("command:");
                 print_source_command(command.provider_code, &command.command);
+                let plan = prepare_source_set_at(
+                    &command,
+                    scope,
+                    &locations.config_path,
+                    &locations.rollback_path,
+                    distribution,
+                    force,
+                )?;
+                apt::preview_file(
+                    &plan.config_path,
+                    plan.original_content.as_deref(),
+                    &plan.expected_content,
+                );
             } else {
-                let locations = source_locations(scope, config_root, command.target_code)?;
                 let applied = apply_source_set_at(
                     &command,
                     scope,
                     &locations.config_path,
                     &locations.rollback_path,
-                    distribution.as_deref(),
+                    distribution,
                     force,
                 )?;
                 println!("config: {}", applied.config_path.display());
@@ -235,17 +334,67 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
             force,
             dry_run,
         } => {
+            if target == "system" || catalog::systems::system_distribution(&target).is_some() {
+                let root = config_root.as_deref().unwrap_or_else(|| Path::new("/"));
+                let record = source_rollback_path("system", CliSourceScope::System, root);
+                if target == "system" || record.exists() {
+                    let scope = parse_source_scope(&scope)?;
+                    anyhow::ensure!(
+                        scope == CliSourceScope::System,
+                        "system reset requires --scope system"
+                    );
+                    validate_scope_root(scope, config_root.as_deref())?;
+                    let locations = source_locations(scope, config_root.clone(), "system")?;
+                    if target != "system" {
+                        reject_symlink(&locations.rollback_path)?;
+                        let raw = read_optional_file(&locations.rollback_path)?;
+                        if let Some(raw) = raw {
+                            let manifest: serde_json::Value = serde_json::from_str(&raw)?;
+                            anyhow::ensure!(manifest["system_profile"].as_str() == catalog::systems::system_distribution(&target).map(|p| p.code),
+                            "system rollback belongs to a different distribution; use reset system after review");
+                        }
+                    }
+                    anyhow::ensure!(
+                        apt::reset_if_managed(
+                            "system",
+                            &locations.config_path,
+                            &locations.rollback_path,
+                            force,
+                            dry_run
+                        )?,
+                        "no system rollback found"
+                    );
+                    return Ok(());
+                }
+            }
             let command = plan_source_reset_command(&target)?;
             let scope = parse_source_scope(&scope)?;
             validate_scope_root(scope, config_root.as_deref())?;
             println!("target: {}", command.target_code);
             println!("scope: {}", scope.as_str());
+            if dry_run
+                && !catalog::find_target(command.target_code)
+                    .is_some_and(|target| target.supported_modes.contains(&SourceMode::LocalConfig))
+            {
+                println!("dry_run: true\ncommand:");
+                print_source_command("default", &command.command);
+                return Ok(());
+            }
+            let locations = source_locations(scope, config_root, command.target_code)?;
+            if apt::reset_if_managed(
+                command.target_code,
+                &locations.config_path,
+                &locations.rollback_path,
+                force,
+                dry_run,
+            )? {
+                return Ok(());
+            }
             if dry_run {
                 println!("dry_run: true");
                 println!("command:");
                 print_source_command("default", &command.command);
             } else {
-                let locations = source_locations(scope, config_root, command.target_code)?;
                 let restored = apply_source_reset_at(
                     command.target_code,
                     &locations.config_path,
@@ -428,6 +577,7 @@ fn default_user_source_config_path(target_code: &str) -> anyhow::Result<PathBuf>
     source_config_path(target_code, CliSourceScope::User, &home)
 }
 
+#[cfg(any(unix, test))]
 fn xdg_user_config_path(target_code: &str, config_home: &Path) -> Option<PathBuf> {
     let relative = match target_code {
         "pip" => "pip/pip.conf",
@@ -520,6 +670,48 @@ fn apply_source_set_at(
     distribution: Option<&str>,
     force: bool,
 ) -> anyhow::Result<AppliedSource> {
+    let rollback = prepare_source_set_at(
+        command,
+        scope,
+        config_path,
+        rollback_path,
+        distribution,
+        force,
+    )?;
+    let rollback_content = serde_json::to_string_pretty(&rollback)?;
+    write_atomic(rollback_path, &rollback_content)
+        .context("failed to save source rollback record; configuration was not changed")?;
+    if let Err(error) = write_atomic(config_path, &rollback.expected_content) {
+        return Err(error).with_context(|| {
+            format!(
+                "failed to change {}; rollback record retained at {}",
+                config_path.display(),
+                rollback_path.display()
+            )
+        });
+    }
+    Ok(AppliedSource {
+        config_path: config_path.to_path_buf(),
+        rollback_path: rollback_path.to_path_buf(),
+    })
+}
+
+fn prepare_source_set_at(
+    command: &PlannedSourceCommand,
+    scope: CliSourceScope,
+    config_path: &Path,
+    rollback_path: &Path,
+    distribution: Option<&str>,
+    force: bool,
+) -> anyhow::Result<SourceRollback> {
+    if scope == CliSourceScope::System {
+        let migration_record = rollback_path.with_file_name("system.json");
+        reject_symlink(&migration_record)?;
+        anyhow::ensure!(
+            !migration_record.exists(),
+            "a system migration is active; run reset system --scope system first"
+        );
+    }
     if command.repo_url.contains("${MIRRORPROXY_BASE_URL}") {
         anyhow::bail!("setting the MirrorProxy provider requires --base-url <http://host[:port]>");
     }
@@ -559,28 +751,11 @@ fn apply_source_set_at(
     } else {
         source_config_content(command.target_code, scope, &command.repo_url, distribution)?
     };
-    let rollback = SourceRollback {
+    Ok(SourceRollback {
         target_code: command.target_code.to_string(),
         config_path: config_path.to_path_buf(),
         original_content,
         expected_content,
-    };
-    let rollback_content = serde_json::to_string_pretty(&rollback)?;
-    write_atomic(rollback_path, &rollback_content)
-        .context("failed to save source rollback record; configuration was not changed")?;
-    if let Err(error) = write_atomic(config_path, &rollback.expected_content) {
-        return Err(error).with_context(|| {
-            format!(
-                "failed to change {}; rollback record retained at {}",
-                config_path.display(),
-                rollback_path.display()
-            )
-        });
-    }
-
-    Ok(AppliedSource {
-        config_path: config_path.to_path_buf(),
-        rollback_path: rollback_path.to_path_buf(),
     })
 }
 
@@ -666,6 +841,13 @@ fn apply_source_reset_at(
 }
 
 fn reject_symlink(path: &Path) -> anyhow::Result<()> {
+    for ancestor in path.ancestors() {
+        reject_single_symlink(ancestor)?;
+    }
+    Ok(())
+}
+
+fn reject_single_symlink(path: &Path) -> anyhow::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             anyhow::bail!(
@@ -687,6 +869,7 @@ fn source_config_path(
     let relative_path = match scope {
         CliSourceScope::User => user_source_config_path(target_code)?,
         CliSourceScope::System => match target_code {
+            "system" => "etc/mirrorproxy/system-sources",
             "docker" => "etc/docker/daemon.json",
             "apt" => "etc/apt/sources.list.d/mirrorproxy.list",
             "alpine" => "etc/apk/repositories",
@@ -1058,7 +1241,8 @@ fn plan_source_set_command(
 
     let repo_url =
         if source.provider_code == "mirrorproxy" && source.capability == SourceMode::ProxyAdapter {
-            mirrorproxy_source_url(base_url, source.repo_url)
+            let base = base_url.map(system::validated_base_url).transpose()?;
+            mirrorproxy_source_url(base.as_deref(), source.repo_url)
         } else {
             source.repo_url.to_string()
         };
@@ -1547,8 +1731,10 @@ mod tests {
 
     #[test]
     fn github_set_merges_gitconfig_and_reset_restores_it_exactly() {
-        let directory =
-            std::env::temp_dir().join(format!("mirrorproxy-client-github-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("mirrorproxy-client-github-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         let gitconfig = directory.join(".gitconfig");
@@ -1584,8 +1770,10 @@ mod tests {
 
     #[test]
     fn source_set_and_reset_manage_user_config_with_rollback() {
-        let directory =
-            std::env::temp_dir().join(format!("mirrorproxy-client-user-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("mirrorproxy-client-user-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
 
@@ -1644,7 +1832,7 @@ mod tests {
 
     #[test]
     fn source_set_rejects_unresolved_mirrorproxy_url() {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "mirrorproxy-client-url-test-{}",
             std::process::id()
         ));
@@ -1662,8 +1850,10 @@ mod tests {
 
     #[test]
     fn system_source_set_and_reset_use_dedicated_managed_files() {
-        let directory =
-            std::env::temp_dir().join(format!("mirrorproxy-client-system-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("mirrorproxy-client-system-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
 
         let apt = PlannedSourceCommand {
@@ -1830,8 +2020,10 @@ mod tests {
 
     #[test]
     fn docker_system_source_set_writes_registry_mirror_and_rolls_back() {
-        let directory =
-            std::env::temp_dir().join(format!("mirrorproxy-client-docker-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("mirrorproxy-client-docker-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         let docker = PlannedSourceCommand {
             target_code: "docker",
@@ -1859,7 +2051,7 @@ mod tests {
 
     #[test]
     fn docker_system_source_set_merges_existing_configuration_and_restores_it() {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "mirrorproxy-client-docker-merge-{}",
             std::process::id()
         ));
@@ -1898,7 +2090,7 @@ mod tests {
 
     #[test]
     fn source_reset_refuses_post_set_changes_without_force() {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "mirrorproxy-client-conflict-{}",
             std::process::id()
         ));
@@ -1922,8 +2114,10 @@ mod tests {
 
     #[test]
     fn atomic_write_replaces_an_existing_file_without_rename_overwrite() {
-        let directory =
-            std::env::temp_dir().join(format!("mirrorproxy-client-atomic-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("mirrorproxy-client-atomic-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         let path = directory.join("config.txt");
@@ -1938,7 +2132,7 @@ mod tests {
 
     #[test]
     fn reset_rejects_a_tampered_rollback_config_path() {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "mirrorproxy-client-rollback-path-{}",
             std::process::id()
         ));
@@ -1970,7 +2164,7 @@ mod tests {
 
     #[test]
     fn reset_clears_a_prepared_rollback_when_config_was_not_changed() {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "mirrorproxy-client-prepared-rollback-{}",
             std::process::id()
         ));
@@ -2004,8 +2198,10 @@ mod tests {
     fn set_refuses_to_replace_a_symbolic_link() {
         use std::os::unix::fs::symlink;
 
-        let directory =
-            std::env::temp_dir().join(format!("mirrorproxy-client-symlink-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("mirrorproxy-client-symlink-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         let target = directory.join("managed-npmrc");
