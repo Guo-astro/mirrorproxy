@@ -13,6 +13,31 @@ MirrorProxy 仅为最新正式版本提供安全修复。报告问题或应用�
 | Latest release | Yes |
 | Older releases | No |
 
+## Scoped dependency advisory exception / 限定的依赖告警例外
+
+Reviewed on 2026-10-21: [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
+remains in the dependency graph as `openidconnect 4.0.1 -> rsa 0.9.10`.
+Upstream has no patched version. The advisory concerns RSA private-key timing
+leaks; MirrorProxy uses this dependency only to verify OIDC provider signatures
+with public keys. It does not use it to decrypt data or sign with RSA private
+keys. This affected private-key path is therefore not applicable to the current
+application.
+
+The existing CI exception is limited to `cargo audit --ignore RUSTSEC-2023-0071`.
+An unfiltered audit still reports this advisory; it must not be described as
+fixed or as an exception-free audit. No other vulnerability or yanked-version
+warning is covered. Reassess this exception when upstream publishes a patch or
+when OIDC/cryptographic code changes, especially before introducing any RSA
+private-key operation.
+
+2026-10-21 复核：依赖链 `openidconnect 4.0.1 -> rsa 0.9.10` 仍包含上述告警，
+上游尚无修复版。告警涉及 RSA 私钥运算的计时泄露；MirrorProxy 仅使用该依赖对 OIDC
+提供方的签名做公钥验证，不使用它解密或执行 RSA 私钥签名，因此当前应用不涉及受影响路径。
+
+现有 CI 例外仅限 `cargo audit --ignore RUSTSEC-2023-0071`。不带忽略参数的审计仍会报告
+该条，不能将其描述为“已修复”或“无例外零告警”。其他漏洞和撤回版本告警均不在例外范围内。
+上游发布修复版、OIDC/密码学代码变化，尤其是引入任何 RSA 私钥运算前，必须重新评估。
+
 ## Reporting a vulnerability / 报告安全漏洞
 
 Do not disclose suspected vulnerabilities in a public issue, discussion, or

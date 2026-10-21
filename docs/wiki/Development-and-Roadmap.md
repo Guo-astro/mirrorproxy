@@ -39,7 +39,7 @@ bash scripts/smoke-clients.sh
 
 The smoke uses isolated temporary client directories, needs ecosystem tools and public network access, and does not edit your real configuration.
 Passing one ecosystem does not verify every OS repository or container runtime.
-Audit with `cargo audit --ignore RUSTSEC-2023-0071` (the project's documented RSA private-key-path exception only) and `npm audit` from `web`.
+Audit with `cargo audit --ignore RUSTSEC-2023-0071` (only the [scoped RSA exception](https://github.com/inbjo/MirrorProxy/blob/main/SECURITY.md#scoped-dependency-advisory-exception--限定的依赖告警例外)) and `npm audit` from `web`. An unfiltered Rust audit still reports that unpatched advisory; do not describe it as fixed.
 
 ## Advanced: repository layout and delivery
 
