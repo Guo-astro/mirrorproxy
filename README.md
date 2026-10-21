@@ -68,6 +68,7 @@ administrator-defined static operating-system repositories:
 | Containers and OCI | Docker Hub, GitHub Container Registry, GitLab Container Registry, Quay, Kubernetes Registry, GCR, Microsoft MCR, Elastic Registry, NVIDIA NVCR, Oracle Container Registry, Homebrew OCI |
 | JavaScript / Node.js | npm, NVM, Bun through the npm protocol |
 | Python | PyPI / pip, Poetry, uv, PDM, Anaconda |
+| AI models / datasets | Hugging Face public HTTP downloads (no server cache; set `HF_HUB_DISABLE_XET=1`). |
 | Rust / Go | crates.io / Cargo, Rustup, Go Modules |
 | JVM / .NET | Maven Central, Clojars, NuGet |
 | Other language ecosystems | Composer, RubyGems, CPAN, CRAN, Hackage, Julia, LuaRocks, CocoaPods, Pub, OPAM |

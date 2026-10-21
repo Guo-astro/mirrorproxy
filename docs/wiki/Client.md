@@ -44,6 +44,11 @@ use `--force` only after review. `--dry-run` previews changes. The `mirrorproxy`
 provider requires `--base-url` in `http(s)://host[:port]` form, without a package
 repository path.
 
+Hugging Face is guidance-only: `mirrorproxy get hf --base-url
+https://mirror.example.com` shows a platform-specific HTTP download command.
+It does not write shell profiles or tokens. See [Hugging Face downloads](Proxy-Adapters#hugging-face-public-http-downloads)
+for the required `HF_HUB_DISABLE_XET=1` setting and supported scope.
+
 ## Advanced: scope and safety
 
 User scope covers npm, pip, Cargo, Go, Composer, and other supported targets.

@@ -11,6 +11,15 @@ const containerRegistries = [
   { code: 'oracle', name: 'Oracle', host: 'container-registry.oracle.com', aliases: [], example_image: 'container-registry.oracle.com/os/oraclelinux:9-slim', legacy: false },
 ]
 
+describe('Hugging Face HTTP download commands', () => {
+  it('requires HTTP mode and safely quotes the current instance URL', () => {
+    expect(sourceManualCommand('huggingface', 'https://mirror.example/huggingface/'))
+      .toBe("HF_ENDPOINT='https://mirror.example/huggingface' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json")
+    expect(sourceManualCommand('huggingface', "https://mirror.example/it's/huggingface"))
+      .toContain("it'\"'\"'s")
+  })
+})
+
 describe('App preferences', () => {
   afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); window.history.replaceState({}, '', '/') })
   it('switches language and theme and persists both', async () => {

@@ -225,7 +225,7 @@ type GeoTrafficOverview = { request_count: number; response_bytes: number; bille
 const PROXY_ADAPTERS = [
   'github', 'composer', 'oci', 'npm', 'nvm', 'opam', 'go', 'maven', 'rubygems', 'rustup',
   'nuget', 'cpan', 'cran', 'hackage', 'julia', 'luarocks', 'clojars', 'cocoapods', 'pub',
-  'anaconda', 'texlive', 'elpa', 'nix', 'guix', 'flatpak', 'homebrew', 'os', 'crates', 'pypi',
+  'anaconda', 'huggingface', 'texlive', 'elpa', 'nix', 'guix', 'flatpak', 'homebrew', 'os', 'crates', 'pypi',
 ] as const
 type AuditLogEntry = {
   created_at: number
@@ -463,6 +463,7 @@ const messages = {
     futureText: 'Operating system mirrors will use the same adapter boundary.',
     apiHint: 'Runtime config is loaded from /api/public-config and reflected here.',
     faq: 'Notes',
+    huggingfaceHint: 'Public model and dataset files over HTTP. No server cache; native Xet, private/gated repositories, uploads, and inference are unsupported. Set HF_HUB_DISABLE_XET=1 before starting Python.',
     faqText: 'Only configured upstreams are proxied. Arbitrary open proxy targets are rejected by default.',
     console: 'Admin console',
     installClient: 'Install the CLI',
@@ -570,6 +571,7 @@ const messages = {
     futureText: '操作系统镜像源会沿用同一套 adapter 边界。',
     apiHint: '页面会读取 /api/public-config 并按运行时配置展示命令。',
     faq: '说明',
+    huggingfaceHint: '通过 HTTP 下载公开模型和数据集文件。服务端不缓存；暂不支持原生 Xet、私有或受限仓库、上传及推理。启动 Python 前请设置 HF_HUB_DISABLE_XET=1。',
     faqText: '默认只代理配置好的上游，任意开放代理目标会被拒绝。',
     console: '管理控制台',
     installClient: '一键安装 CLI',
@@ -1241,10 +1243,12 @@ function SourceConfigModal({ target, health, baseUrl, catalog, labels, copied, o
       <button className="config-modal-close" onClick={onClose} aria-label={labels.closeConfig}><X size={18} /></button>
       <h2>{target.name}</h2>
       <p>{source ? (customRepository ? labels.customRepositoryAvailable : labels.sourceAvailable) : labels.sourceUnavailable}</p>
+      {target.code === 'huggingface' ? <p>{labels.huggingfaceHint}</p> : null}
       {health?.endpoints.length ? <section className="public-upstream-health"><div><strong>{labels.upstreamStatus ?? 'Upstream status'}</strong><span className={`source-health-badge source-health-${health.status}`}><i />{labels[`source${health.status[0].toUpperCase()}${health.status.slice(1)}`]}</span></div><div className="public-upstream-list">{health.endpoints.map((endpoint) => <div className={`public-upstream-row ${endpoint.status}`} key={`${endpoint.position}-${endpoint.endpoint}`}><i /><code>{endpoint.endpoint}</code><span>HTTP {endpoint.http_status ?? '—'} · {endpoint.latency_ms === null ? '—' : `${endpoint.latency_ms} ms`}</span></div>)}</div></section> : null}
       {source ? <ConfigOption title={customRepository ? labels.customRepositoryAddress : labels.mirrorproxyAddress} description={customRepository ? labels.customRepositoryAddressHint : labels.mirrorproxyAddressHint} value={proxyUrl} copyLabel={customRepository ? labels.copyAddress : labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-url'} onCopy={() => onCopy('source-url', proxyUrl)} /> : null}
-      {source && !customRepository ? <ConfigOption title={labels.mirrorproxyCli} description={labels.mirrorproxyCliHint} value={mirrorproxyCommand} copyLabel={labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-cli'} onCopy={() => onCopy('source-cli', mirrorproxyCommand)} /> : null}
-      {!customRepository ? <ConfigOption title={labels.manualSetup} description={target.category === 'os' ? labels.manualSystemSetupHint : labels.manualSetupHint} value={manualCommand} copyLabel={labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-manual'} onCopy={() => onCopy('source-manual', manualCommand)} /> : null}
+      {source && !customRepository && target.code !== 'huggingface' ? <ConfigOption title={labels.mirrorproxyCli} description={labels.mirrorproxyCliHint} value={mirrorproxyCommand} copyLabel={labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-cli'} onCopy={() => onCopy('source-cli', mirrorproxyCommand)} /> : null}
+      {!customRepository ? <ConfigOption title={labels.manualSetup} description={target.code === 'huggingface' ? `${labels.huggingfaceHint} (POSIX shell)` : target.category === 'os' ? labels.manualSystemSetupHint : labels.manualSetupHint} value={manualCommand} copyLabel={labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-manual'} onCopy={() => onCopy('source-manual', manualCommand)} /> : null}
+      {source && target.code === 'huggingface' ? <ConfigOption title="PowerShell" description={labels.huggingfaceHint} value={`$env:HF_ENDPOINT='${proxyUrl.replaceAll("'", "''")}'; $env:HF_HUB_DISABLE_XET='1'; hf download gpt2 config.json`} copyLabel={labels.copyCommand} copiedLabel={labels.copied} copied={copied === 'source-powershell'} onCopy={() => onCopy('source-powershell', `$env:HF_ENDPOINT='${proxyUrl.replaceAll("'", "''")}'; $env:HF_HUB_DISABLE_XET='1'; hf download gpt2 config.json`)} /> : null}
     </section>
   </div>
 }
@@ -1263,7 +1267,9 @@ function sourceCategoryLabel(category: SourceTarget['category'], labels: Record<
 
 export function sourceManualCommand(targetCode: string, repoUrl: string, template?: string) {
   const base = repoUrl.replace(/\/+$/, '')
+  const shellBase = base.replaceAll("'", "'\"'\"'")
   const commands: Record<string, string> = {
+    huggingface: `HF_ENDPOINT='${shellBase}' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json`,
     apt: `set -eu\n. /etc/os-release\ncase "$ID" in\n  ubuntu) components='main restricted universe multiverse' ;;\n  debian) components='main' ;;\n  *) echo "仅支持 Debian/Ubuntu，当前为: $ID" >&2; exit 1 ;;\nesac\nsudo tee /etc/apt/sources.list.d/mirrorproxy.list >/dev/null <<EOF\ndeb ${base}/$ID/ $VERSION_CODENAME $components\nEOF\nsudo apt update`,
     trisquel: `set -eu\n. /etc/os-release\nsudo tee /etc/apt/sources.list.d/mirrorproxy-trisquel.list >/dev/null <<EOF\ndeb ${base} $VERSION_CODENAME main\nEOF\nsudo apt update`,
     linuxlite: `set -eu\n. /etc/os-release\nsudo tee /etc/apt/sources.list.d/mirrorproxy-linuxlite.list >/dev/null <<EOF\ndeb ${base} $VERSION_CODENAME main\nEOF\nsudo apt update`,

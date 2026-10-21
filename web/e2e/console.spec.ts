@@ -55,6 +55,31 @@ test.beforeEach(async ({ page, context }) => {
   await page.route('**/version', route => route.fulfill({ json: { version: '1.0.2' } }))
 })
 
+test('offers public Hugging Face HTTP downloads with POSIX and PowerShell commands', async ({ page }) => {
+  const hf = {
+    providers: sources.providers,
+    targets: [{ code: 'huggingface', name: 'Hugging Face', category: 'repo', aliases: ['hf'], supported_modes: ['proxy', 'template'], default_scope: 'user' }],
+    sources: [{ target_code: 'huggingface', provider_code: 'mirrorproxy', repo_url: '/huggingface', speed_url: null, capability: 'proxy' }],
+    templates: [],
+  }
+  await page.route('**/api/sources', route => route.fulfill({ json: hf }))
+  await page.goto('/')
+  await page.getByRole('button', { name: /Hugging Face/ }).click()
+  const modal = page.getByRole('dialog')
+  await expect(modal).toBeVisible()
+  await expect(modal.getByText(/Public model and dataset files over HTTP/).first()).toBeVisible()
+  await expect(modal.locator('code').filter({ hasText: /^HF_ENDPOINT=/ })).toHaveText("HF_ENDPOINT='https://mirror.example/huggingface' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json")
+  await expect(modal.locator('code').filter({ hasText: /^\$env:HF_ENDPOINT=/ })).toHaveText("$env:HF_ENDPOINT='https://mirror.example/huggingface'; $env:HF_HUB_DISABLE_XET='1'; hf download gpt2 config.json")
+  await expect(modal.locator('code').filter({ hasText: 'mirrorproxy set' })).toHaveCount(0)
+  const option = modal.locator('.config-option').filter({ hasText: /^PowerShell/ })
+  await option.getByRole('button').click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("$env:HF_HUB_DISABLE_XET='1'")
+  await modal.getByRole('button', { name: 'Close' }).click()
+  await page.getByTitle('Language').click()
+  await page.getByRole('button', { name: /Hugging Face/ }).click()
+  await expect(page.getByRole('dialog').getByText(/服务端不缓存/).first()).toBeVisible()
+})
+
 test('keeps public, account, and administrator routes inside narrow viewports', async ({ page }) => {
   for (const width of [320, 375, 414, 768]) {
     await page.setViewportSize({ width, height: 900 })

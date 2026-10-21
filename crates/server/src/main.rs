@@ -52,8 +52,8 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use proxy::{
     anaconda, clojars, cocoapods, composer, cpan, cran, cratesio, elpa, flatpak, github, go, guix,
-    hackage, homebrew, julia, luarocks, maven, nix, npm, nuget, nvm, oci, opam, os, pub_repository,
-    pypi, rubygems, rustup, texlive, winget, ProxyError,
+    hackage, homebrew, huggingface, julia, luarocks, maven, nix, npm, nuget, nvm, oci, opam, os,
+    pub_repository, pypi, rubygems, rustup, texlive, winget, ProxyError,
 };
 use reqwest::{Certificate, Client, ClientBuilder, NoProxy, Proxy, Url};
 use serde::{Deserialize, Serialize};
@@ -1575,6 +1575,7 @@ fn config_value(config: &Config, key: &str) -> Option<String> {
         "upstreams.anaconda" => Some(config.upstreams.anaconda.clone()),
         "upstreams.texlive" => Some(config.upstreams.texlive.clone()),
         "upstreams.winget" => Some(config.upstreams.winget.clone()),
+        "upstreams.huggingface" => Some(config.upstreams.huggingface.clone()),
         "upstreams.elpa" => Some(config.upstreams.elpa.clone()),
         "upstreams.nix" => Some(config.upstreams.nix.clone()),
         "upstreams.guix" => Some(config.upstreams.guix.clone()),
@@ -1676,6 +1677,7 @@ fn config_entries(config: &Config) -> Vec<(String, String)> {
         "upstreams.anaconda",
         "upstreams.texlive",
         "upstreams.winget",
+        "upstreams.huggingface",
         "upstreams.elpa",
         "upstreams.nix",
         "upstreams.guix",
@@ -2160,6 +2162,18 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
         .route("/winget", get(winget::root).head(winget::root))
         .route("/winget/", get(winget::root).head(winget::root))
         .route("/winget/{*path}", get(winget::proxy).head(winget::proxy))
+        .route(
+            "/huggingface",
+            get(huggingface::root).head(huggingface::root),
+        )
+        .route(
+            "/huggingface/",
+            get(huggingface::root).head(huggingface::root),
+        )
+        .route(
+            "/huggingface/{*path}",
+            get(huggingface::proxy).head(huggingface::proxy),
+        )
         .route("/elpa", get(elpa::root).head(elpa::root))
         .route("/elpa/", get(elpa::root).head(elpa::root))
         .route("/elpa/{*path}", get(elpa::proxy).head(elpa::proxy))
@@ -2260,12 +2274,20 @@ fn build_upstream_client(config: &Config) -> anyhow::Result<Client> {
 }
 
 fn build_upstream_client_builder(config: &Config) -> anyhow::Result<ClientBuilder> {
+    Ok(build_streaming_upstream_client_builder(config)?
+        .timeout(Duration::from_secs(config.timeout.request_secs)))
+}
+
+/// Large downloads have a connection/read idle timeout, rather than a total
+/// deadline that would interrupt a healthy multi-gigabyte transfer.
+fn build_streaming_upstream_client_builder(config: &Config) -> anyhow::Result<ClientBuilder> {
     let request_timeout = Duration::from_secs(config.timeout.request_secs);
     let mut builder = Client::builder()
         .no_proxy()
         .user_agent(format!("MirrorProxy/{}", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(request_timeout);
+        .connect_timeout(request_timeout)
+        .read_timeout(request_timeout);
     for path in &config.upstream_tls.ca_certificates {
         let pem = fs::read(path)
             .with_context(|| format!("failed to read upstream TLS CA bundle {path}"))?;
@@ -3167,6 +3189,8 @@ fn proxy_target_for_path(path: &str) -> Option<&'static str> {
         Some("texlive")
     } else if path == "/winget" || path.starts_with("/winget/") {
         Some("winget")
+    } else if path == "/huggingface" || path.starts_with("/huggingface/") {
+        Some("huggingface")
     } else if path == "/elpa" || path.starts_with("/elpa/") {
         Some("elpa")
     } else if path == "/nix" || path.starts_with("/nix/") {
@@ -3404,6 +3428,8 @@ fn is_proxy_path(path: &str) -> bool {
         || path.starts_with("/texlive/")
         || path == "/winget"
         || path.starts_with("/winget/")
+        || path == "/huggingface"
+        || path.starts_with("/huggingface/")
         || path == "/elpa"
         || path.starts_with("/elpa/")
         || path == "/nix"
@@ -9774,8 +9800,8 @@ on_exceeded = "stop_proxy"
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["total"], 60);
-        assert_eq!(value["unknown"], 60);
+        assert_eq!(value["total"], 61);
+        assert_eq!(value["unknown"], 61);
         assert_eq!(value["unhealthy"], 0);
         assert_eq!(value["items"].as_array().unwrap().len(), 0);
     }
@@ -10145,6 +10171,296 @@ on_exceeded = "stop_proxy"
         assert_eq!(internal_hits.load(Ordering::SeqCst), 0);
         upstream_server.abort();
         internal_server.abort();
+    }
+
+    #[tokio::test]
+    async fn huggingface_downloads_preserve_metadata_ranges_and_public_only_access() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let hits = Arc::new(AtomicUsize::new(0));
+        let seen = hits.clone();
+        let upstream = Router::new().fallback(move |request: Request<Body>| {
+            let seen = seen.clone();
+            async move {
+                assert!(!request.headers().contains_key(header::AUTHORIZATION));
+                assert!(!request.headers().contains_key(header::COOKIE));
+                assert!(!request.headers().contains_key("x-api-key"));
+                assert_eq!(request.headers()[header::ACCEPT_ENCODING], "identity");
+                seen.fetch_add(1, Ordering::SeqCst);
+                if request.uri().path().ends_with("/resolve/main/model.bin") {
+                    return Response::builder()
+                        .status(302)
+                        .header(header::LOCATION, "/blob")
+                        .header("x-repo-commit", "0123456789012345678901234567890123456789")
+                        .header("x-linked-etag", "\"file-hash\"")
+                        .header("x-linked-size", "10")
+                        .header("x-xet-hash", "must-not-escape")
+                        .body(Body::empty())
+                        .unwrap();
+                }
+                if request.headers().contains_key(header::IF_NONE_MATCH) {
+                    return StatusCode::NOT_MODIFIED.into_response();
+                }
+                let (status, range, payload) = match request
+                    .headers()
+                    .get(header::RANGE)
+                    .and_then(|v| v.to_str().ok())
+                {
+                    Some("bytes=4-7") => {
+                        (StatusCode::PARTIAL_CONTENT, Some("bytes 4-7/10"), "4567")
+                    }
+                    Some(_) => (StatusCode::RANGE_NOT_SATISFIABLE, Some("bytes */10"), ""),
+                    None => (StatusCode::OK, None, "0123456789"),
+                };
+                let mut response = Response::builder()
+                    .status(status)
+                    .header(header::CONTENT_LENGTH, payload.len())
+                    .header(header::ETAG, "\"file-hash\"")
+                    .header(header::ACCEPT_RANGES, "bytes")
+                    .header(header::SET_COOKIE, "must-not-escape=value");
+                if let Some(range) = range {
+                    response = response.header(header::CONTENT_RANGE, range);
+                }
+                response
+                    .body(if request.method() == Method::HEAD {
+                        Body::empty()
+                    } else {
+                        Body::from(payload)
+                    })
+                    .unwrap()
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let cache_dir =
+            std::env::temp_dir().join(format!("mirrorproxy-hf-{}", uuid::Uuid::new_v4()));
+        let mut config = Config {
+            forward_client_authorization: true,
+            ..Config::default()
+        };
+        config.geoip.enabled = false;
+        config.upstreams.huggingface = format!("http://{address}");
+        config.upstream_auth.insert(
+            "huggingface".to_string(),
+            config::UpstreamAuth {
+                username: None,
+                password: None,
+                bearer_token: Some(uuid::Uuid::new_v4().to_string()),
+            },
+        );
+        config.cache.enabled = true;
+        config.cache.directory = cache_dir.to_string_lossy().into_owned();
+        config.validate().unwrap();
+        assert!(config
+            .upstream_auth_for(&Url::parse(&format!("http://{address}/blob")).unwrap())
+            .is_some());
+        let app = build_router(config).await.unwrap();
+        let path = "/huggingface/org/model/resolve/main/model.bin";
+        for (method, range, expected_status, expected_body) in [
+            ("HEAD", None, StatusCode::OK, ""),
+            ("GET", None, StatusCode::OK, "0123456789"),
+            ("GET", None, StatusCode::OK, "0123456789"),
+            (
+                "GET",
+                Some("bytes=4-7"),
+                StatusCode::PARTIAL_CONTENT,
+                "4567",
+            ),
+            (
+                "GET",
+                Some("bytes=99-"),
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                "",
+            ),
+        ] {
+            let mut request = Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::AUTHORIZATION, "Bearer client-secret")
+                .header(header::COOKIE, "session=client-secret")
+                .header("x-api-key", "client-secret");
+            if let Some(range) = range {
+                request = request
+                    .header(header::RANGE, range)
+                    .header(header::IF_RANGE, "\"file-hash\"");
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected_status);
+            assert_eq!(response.headers()["x-mirrorproxy-cache"], "BYPASS");
+            assert!(!response.headers().contains_key(header::LOCATION));
+            assert!(!response.headers().contains_key(header::SET_COOKIE));
+            assert!(!response.headers().contains_key("x-xet-hash"));
+            if expected_status.is_success() {
+                assert_eq!(
+                    response.headers()["x-repo-commit"],
+                    "0123456789012345678901234567890123456789"
+                );
+                assert_eq!(response.headers()["x-linked-size"], "10");
+            }
+            if range == Some("bytes=4-7") {
+                assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 4-7/10");
+            }
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            assert_eq!(body, expected_body);
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            10,
+            "each HEAD/GET must reach the origin and blob"
+        );
+        assert!(
+            !cache_dir.exists(),
+            "HF must not write the enabled shared cache"
+        );
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header(header::IF_NONE_MATCH, "\"file-hash\"")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        for (method, path, status) in [
+            ("POST", path, StatusCode::METHOD_NOT_ALLOWED),
+            ("GET", "/huggingface/api/whoami-v2", StatusCode::BAD_REQUEST),
+            (
+                "GET",
+                "/huggingface/gpt2/resolve/main/%252e%252e/file",
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "GET",
+                "/huggingface/gpt2/resolve/main/file?token=secret",
+                StatusCode::BAD_REQUEST,
+            ),
+        ] {
+            assert_eq!(
+                app.clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap()
+                    )
+                    .await
+                    .unwrap()
+                    .status(),
+                status
+            );
+        }
+        server.abort();
+        let mut config = Config::default();
+        config.enabled_proxies.retain(|p| p != "huggingface");
+        let app = build_router(config).await.unwrap();
+        assert_eq!(
+            app.oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert!(is_proxy_path(path));
+        assert_eq!(proxy_target_for_path(path), Some("huggingface"));
+    }
+
+    #[tokio::test]
+    async fn huggingface_uses_configured_upstream_group_failover() {
+        let upstream = Router::new().fallback(|request: Request<Body>| async move {
+            if request.uri().path().starts_with("/unavailable/") {
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            } else {
+                assert!(request.uri().path().starts_with("/hub/gpt2/resolve/"));
+                "public file".into_response()
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let mut config = Config::default();
+        config.upstreams.huggingface =
+            format!("http://{address}/unavailable, http://{address}/hub");
+        let app = build_router(config).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/huggingface/gpt2/resolve/main/file")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            "public file"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn huggingface_streams_past_total_timeout_and_rejects_unsafe_redirects() {
+        let upstream = Router::new().fallback(|request: Request<Body>| async move {
+            if request.uri().path().ends_with("/unsafe") {
+                return Response::builder()
+                    .status(302)
+                    .header(header::LOCATION, "http://169.254.169.254/latest/meta-data")
+                    .body(Body::empty())
+                    .unwrap();
+            }
+            let stream = futures_util::stream::unfold(0, |i| async move {
+                if i == 3 {
+                    return None;
+                }
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                Some((
+                    Ok::<_, std::io::Error>(bytes::Bytes::from_static(b"chunk")),
+                    i + 1,
+                ))
+            });
+            Response::builder().body(Body::from_stream(stream)).unwrap()
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let mut config = Config::default();
+        config.upstreams.huggingface = format!("http://{address}");
+        config.timeout.request_secs = 1;
+        let app = build_router(config).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/huggingface/gpt2/resolve/main/file")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            "chunkchunkchunk"
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/huggingface/gpt2/resolve/main/unsafe")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        server.abort();
     }
 
     #[tokio::test]

@@ -56,6 +56,8 @@ for _ in $(seq 1 80); do
   sleep 0.25
 done
 curl --fail --silent "http://$listen_addr/healthz" >/dev/null
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "http://$listen_addr/huggingface/gpt2/resolve/main/config.json")" = "404"
 curl --fail --silent "http://$listen_addr/admin" >/dev/null
 curl --fail --silent "http://$listen_addr/metrics" >/dev/null
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' \

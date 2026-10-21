@@ -1095,6 +1095,21 @@ fn mirrorproxy_source_url(base_url: Option<&str>, source_path: &str) -> String {
 }
 
 fn source_config_command(target_code: &str, repo_url: &str) -> Option<String> {
+    if target_code == "huggingface" {
+        // Guidance only: never persist shell environment variables or tokens.
+        let url = repo_url.trim_end_matches('/');
+        return Some(if cfg!(windows) {
+            format!(
+                "$env:HF_ENDPOINT='{}'; $env:HF_HUB_DISABLE_XET='1'; hf download gpt2 config.json",
+                url.replace('\'', "''")
+            )
+        } else {
+            format!(
+                "HF_ENDPOINT='{}' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json",
+                url.replace('\'', "'\"'\"'")
+            )
+        });
+    }
     let template = catalog::templates_for_target(target_code)
         .into_iter()
         .next()?;
@@ -1425,6 +1440,28 @@ mod tests {
             source_config_command("guix", "https://mirror.example/guix/").unwrap(),
             "guix build --substitute-urls=https://mirror.example/guix/ <package>"
         );
+    }
+
+    #[test]
+    fn huggingface_is_guidance_only_with_platform_appropriate_environment() {
+        let planned =
+            plan_source_set_command("hf", "mirrorproxy", Some("https://mirror.example")).unwrap();
+        assert_eq!(planned.target_code, "huggingface");
+        assert_eq!(planned.repo_url, "https://mirror.example/huggingface");
+        assert!(planned.command.contains("HF_HUB_DISABLE_XET"));
+        assert!(planned.command.contains("hf download gpt2 config.json"));
+        assert!(planned.command.starts_with(if cfg!(windows) {
+            "$env:HF_ENDPOINT="
+        } else {
+            "HF_ENDPOINT="
+        }));
+        let target = catalog::find_target("hf").unwrap();
+        assert!(!target.supported_modes.contains(&SourceMode::LocalConfig));
+        assert!(source_reset_command(target.code).is_none());
+        let quoted =
+            source_config_command("huggingface", "https://mirror.example/it's/huggingface")
+                .unwrap();
+        assert!(quoted.contains(if cfg!(windows) { "it''s" } else { "it'\"'\"'s" }));
     }
 
     #[test]

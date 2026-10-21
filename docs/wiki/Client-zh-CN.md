@@ -46,6 +46,10 @@ mirrorproxy reset npm
 `--dry-run` 先显示将执行的改动。选择 MirrorProxy 提供方时 `--base-url` 必填，格式为
 `http(s)://host[:port]`，不应带包仓库路径。
 
+Hugging Face 仅提供使用示例：`mirrorproxy get hf --base-url https://mirror.example.com`
+会显示适合当前平台的 HTTP 下载命令，不写入 shell 配置或 Token。
+必须设置 `HF_HUB_DISABLE_XET=1`，支持范围见[Hugging Face 下载](Proxy-Adapters-zh-CN#hugging-face-公开-http-下载)。
+
 ## 进阶：用户与系统范围
 
 用户范围适用于 npm、pip、Cargo、Go、Composer 等，回滚记录保存在用户状态目录下。

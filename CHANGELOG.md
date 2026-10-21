@@ -3,6 +3,20 @@
 All notable changes to MirrorProxy are documented in this file. Release tags
 follow semantic versioning.
 
+## [Unreleased]
+
+- Add public Hugging Face HTTP downloads with SDK/CLI metadata, snapshot and
+  dataset downloads, pagination, Range/resume, and streamed CDN transfers.
+  HF requests bypass the server cache; private/gated resources and native Xet
+  are unsupported. Clients must set `HF_HUB_DISABLE_XET=1`.
+- Add the shared source catalog, Web commands, health probe, bilingual guides,
+  and a real SDK/CLI smoke with model/dataset digest validation.
+- Update rustls-webpki to 0.103.16 and webpki roots/certificates to 1.0.10 for
+  the emSign distrust fixes. Remove SQLx's unused database TLS feature; the
+  service uses local SQLite and retains TLS validation for network clients.
+- Update Vite to 8.1.6 for development-server security fixes, and replace yanked
+  spin/chacha20 releases with compatible patches. Release builds use the lockfile.
+
 ## [1.4.4] - 2026-10-20
 
 ### Login and security

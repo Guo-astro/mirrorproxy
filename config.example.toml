@@ -5,7 +5,7 @@ database_path = "mirrorproxy.sqlite3"
 # recovery of encrypted runtime, SMTP, OAuth, email, and ACME secret fields.
 public_base_url = "http://127.0.0.1:3000"
 forward_client_authorization = false
-enabled_proxies = ["github", "composer", "oci", "npm", "nvm", "opam", "go", "maven", "rubygems", "rustup", "nuget", "cpan", "cran", "hackage", "julia", "luarocks", "clojars", "cocoapods", "pub", "anaconda", "texlive", "winget", "elpa", "nix", "guix", "flatpak", "homebrew", "os", "crates", "pypi"]
+enabled_proxies = ["github", "composer", "oci", "npm", "nvm", "opam", "go", "maven", "rubygems", "rustup", "nuget", "cpan", "cran", "hackage", "julia", "luarocks", "clojars", "cocoapods", "pub", "anaconda", "texlive", "winget", "huggingface", "elpa", "nix", "guix", "flatpak", "homebrew", "os", "crates", "pypi"]
 
 [site]
 title = "MirrorProxy"
@@ -68,6 +68,10 @@ pub_repository = "https://pub.dev"
 anaconda = "https://repo.anaconda.com/pkgs"
 texlive = "https://mirrors.ctan.org/systems/texlive/tlnet"
 winget = "https://cdn.winget.microsoft.com"
+# Public HTTP downloads only; no server cache. Clients must set HF_HUB_DISABLE_XET=1.
+# Uses timeout.request_secs as connect/read idle timeout, without a total deadline.
+# HF CDN redirects need direct egress (outbound-proxy redirects remain fail-closed).
+huggingface = "https://huggingface.co"
 elpa = "https://elpa.gnu.org/packages"
 nix = "https://cache.nixos.org"
 guix = "https://ci.guix.gnu.org"

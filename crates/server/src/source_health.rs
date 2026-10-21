@@ -120,6 +120,11 @@ const PROBES: &[ProbeSpec] = &[
     head!("flatpak", "flatpak", "/flatpak/summary"),
     get!("nix", "nix", "/nix/nix-cache-info"),
     get!("guix", "guix", "/guix/nix-cache-info"),
+    get!(
+        "huggingface",
+        "huggingface",
+        "/huggingface/gpt2/resolve/main/config.json"
+    ),
     get!("elpa", "elpa", "/elpa/archive-contents"),
     head!("texlive", "texlive", "/texlive/tlpkg/texlive.tlpdb"),
     head!("winget", "winget", "/winget/cache/source.msix"),
@@ -499,6 +504,9 @@ async fn check_endpoint(
         .map(redacted_endpoint)
         .unwrap_or_else(|_| configured.to_string());
     let result = match parsed {
+        Ok(url) if probe.adapter == "huggingface" => {
+            proxy::huggingface::probe_endpoint(&state.config(), url).await
+        }
         Ok(url) => {
             proxy::probe_endpoint(
                 state,
@@ -628,6 +636,7 @@ fn configured_upstream(upstreams: &Upstreams, probe: ProbeSpec) -> Option<&str> 
         "flatpak" => &upstreams.flatpak,
         "nix" => &upstreams.nix,
         "guix" => &upstreams.guix,
+        "huggingface" => &upstreams.huggingface,
         "elpa" => &upstreams.elpa,
         "texlive" => &upstreams.texlive,
         "winget" => &upstreams.winget,
@@ -840,9 +849,9 @@ mod tests {
             .await
             .unwrap();
         let report = report(&state, true).await.unwrap();
-        assert_eq!(report.total, 61);
+        assert_eq!(report.total, 62);
         assert_eq!(report.degraded, 1);
-        assert_eq!(report.unknown, 59);
+        assert_eq!(report.unknown, 60);
         assert!(report
             .items
             .iter()

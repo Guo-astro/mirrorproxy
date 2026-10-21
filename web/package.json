@@ -21,7 +21,7 @@
     "tailwind-scrollbar": "^4.0.2",
     "tailwindcss": "latest",
     "typescript": "^5.9.0",
-    "vite": "^8.1.2"
+    "vite": "8.1.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

@@ -53,6 +53,7 @@ checks=(
   'flatpak|flatpak|head|/flatpak/summary'
   'nix|nix|get|/nix/nix-cache-info'
   'guix|guix|get|/guix/nix-cache-info'
+  'huggingface|huggingface|get|/huggingface/gpt2/resolve/main/config.json'
   'elpa|elpa|get|/elpa/archive-contents'
   'texlive|texlive|head|/texlive/tlpkg/texlive.tlpdb'
   'winget|winget|head|/winget/cache/source.msix'

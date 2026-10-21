@@ -21,8 +21,8 @@ if [[ "$TARGET" == "x86_64-unknown-linux-musl" ]] && ! command -v musl-gcc >/dev
   exit 1
 fi
 rustup target add "$TARGET"
-cargo build --release --target "$TARGET" --package "$SERVER_PACKAGE" --bin "$SERVER_BIN"
-cargo build --release --target "$TARGET" --package "$CLIENT_PACKAGE" --bin "$CLIENT_BIN"
+cargo build --locked --release --target "$TARGET" --package "$SERVER_PACKAGE" --bin "$SERVER_BIN"
+cargo build --locked --release --target "$TARGET" --package "$CLIENT_PACKAGE" --bin "$CLIENT_BIN"
 
 SERVER_BIN_PATH="$ROOT_DIR/target/$TARGET/release/$SERVER_BIN"
 CLIENT_BIN_PATH="$ROOT_DIR/target/$TARGET/release/$CLIENT_BIN"

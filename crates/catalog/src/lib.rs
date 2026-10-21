@@ -493,6 +493,14 @@ pub const SOURCE_TARGETS: &[SourceTarget] = &[
         default_scope: SourceScope::User,
     },
     SourceTarget {
+        code: "huggingface",
+        name: "Hugging Face",
+        category: SourceCategory::Repository,
+        aliases: &["hf", "hugging-face"],
+        supported_modes: &[SourceMode::ProxyAdapter, SourceMode::TemplateOnly],
+        default_scope: SourceScope::User,
+    },
+    SourceTarget {
         code: "anaconda",
         name: "Anaconda",
         category: SourceCategory::Repository,
@@ -1111,6 +1119,13 @@ pub const TARGET_SOURCES: &[TargetSource] = &[
         capability: SourceMode::ProxyAdapter,
     },
     TargetSource {
+        target_code: "huggingface",
+        provider_code: "mirrorproxy",
+        repo_url: "/huggingface",
+        speed_url: None,
+        capability: SourceMode::ProxyAdapter,
+    },
+    TargetSource {
         target_code: "anaconda",
         provider_code: "mirrorproxy",
         repo_url: "/anaconda/",
@@ -1396,6 +1411,13 @@ pub const SOURCE_TEMPLATES: &[SourceTemplate] = &[
     SourceTemplate { target_code: "ocaml", os_family: "linux", scope: SourceScope::User, template: "opam repository set-url default {repo_url}", requires_sudo: false },
     SourceTemplate { target_code: "clojars", os_family: "any", scope: SourceScope::User, template: "{:mvn/repos {\"clojars\" {:url \"{repo_url}\"}}}", requires_sudo: false },
     SourceTemplate { target_code: "pub", os_family: "any", scope: SourceScope::User, template: "PUB_HOSTED_URL={repo_url} flutter pub get", requires_sudo: false },
+    SourceTemplate {
+        target_code: "huggingface",
+        os_family: "any",
+        scope: SourceScope::User,
+        template: "HF_ENDPOINT='{repo_url}' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json",
+        requires_sudo: false,
+    },
     SourceTemplate { target_code: "anaconda", os_family: "any", scope: SourceScope::User, template: "channels:\n  - {repo_url}main\n  - defaults", requires_sudo: false },
     SourceTemplate {
         target_code: "docker",
