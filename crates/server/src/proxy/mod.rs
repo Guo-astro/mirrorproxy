@@ -1,3 +1,5 @@
+mod cache;
+use cache::*;
 pub mod anaconda;
 pub mod clojars;
 pub mod cocoapods;
@@ -12,6 +14,7 @@ pub mod go;
 pub mod guix;
 pub mod hackage;
 pub mod homebrew;
+pub mod huggingface;
 pub mod julia;
 pub mod luarocks;
 pub mod maven;
@@ -31,12 +34,14 @@ pub mod winget;
 
 use std::{
     fs,
+    net::IpAddr,
     path::{Path, PathBuf},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     body::Body,
-    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
     response::Response,
 };
 use futures_util::TryStreamExt;
@@ -50,16 +55,12 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{config::CacheConfig, AppState};
 
-#[derive(Debug, Serialize, Deserialize)]
-struct DiskCacheMetadata {
-    status: u16,
-    headers: Vec<(String, String)>,
-}
-
 #[derive(Debug, Error)]
 pub enum ProxyError {
     #[error("proxy is disabled: {0}")]
     Disabled(&'static str),
+    #[error("cache worker failed")]
+    CacheWorker,
     #[error("invalid upstream url")]
     InvalidUrl,
     #[error("unsupported proxy target")]
@@ -70,10 +71,13 @@ pub enum ProxyError {
     Upstream(#[from] reqwest::Error),
     #[error("upstream returned invalid header")]
     InvalidHeader,
+    #[error("upstream redirect has an unsafe destination")]
+    UnsafeRedirect,
 }
 
 /// Returns the first endpoint from an ordered comma-separated upstream group.
-/// The forwarding layer expands the remaining endpoints and retries on 404.
+/// The forwarding layer expands the remaining endpoints and retries failures
+/// which are safe for another mirror to satisfy.
 pub fn select_upstream(configured: &str) -> Result<&str, ProxyError> {
     configured
         .split(',')
@@ -89,6 +93,8 @@ impl ProxyError {
             Self::InvalidUrl | Self::UnsupportedTarget | Self::InvalidHeader => {
                 StatusCode::BAD_REQUEST
             }
+            Self::UnsafeRedirect => StatusCode::BAD_GATEWAY,
+            Self::CacheWorker => StatusCode::INTERNAL_SERVER_ERROR,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
         }
@@ -137,13 +143,28 @@ async fn forward_request(
     let candidates = if body.is_some() {
         vec![url]
     } else {
-        config.upstream_candidates_for(&url)
+        state.upstream_selector.rank(
+            config.upstream_candidates_for(&url),
+            &config.upstream_selection,
+        )
     };
     for (index, candidate) in candidates.iter().enumerate() {
-        if cacheable_request(method.clone(), incoming_headers) {
-            if let Some(response) = read_disk_cache(&config.cache, candidate) {
-                return Ok(response);
-            }
+        let cached = if cacheable_request(method.clone(), incoming_headers) && config.cache.enabled
+        {
+            let cache = config.cache.clone();
+            let candidate = candidate.clone();
+            let headers = incoming_headers.clone();
+            cache_work(false, move || load_disk_cache(&cache, &candidate, &headers))
+                .await
+                .unwrap_or(None)
+        } else {
+            None
+        };
+        if cached
+            .as_ref()
+            .is_some_and(|entry| entry.metadata.expires_at > unix_timestamp())
+        {
+            return cached_response(cached.expect("fresh cache entry exists"), "HIT");
         }
         let mut request = upstream_request(
             &client,
@@ -152,19 +173,72 @@ async fn forward_request(
             incoming_headers,
             &config,
         );
+        if let Some(entry) = &cached {
+            if let Some(value) = cached_header(&entry.metadata, "etag") {
+                request = request.header("if-none-match", value);
+            }
+            if let Some(value) = cached_header(&entry.metadata, "last-modified") {
+                request = request.header("if-modified-since", value);
+            }
+        }
         if let Some(body) = body.take() {
             request = request.body(body);
         }
-        let upstream = request.send().await?;
+        let started_at = Instant::now();
+        let upstream = match send_upstream_request(&client, &config, request).await {
+            Ok(response) => response,
+            Err(error) if index + 1 < candidates.len() => {
+                state
+                    .upstream_selector
+                    .record_failure(candidate, &config.upstream_selection);
+                tracing::warn!(upstream = %candidate, %error, next_upstream = %candidates[index + 1], "upstream request failed; trying the next configured endpoint");
+                continue;
+            }
+            Err(error) => {
+                state
+                    .upstream_selector
+                    .record_failure(candidate, &config.upstream_selection);
+                return Err(error);
+            }
+        };
         let status = upstream.status();
-        if status != StatusCode::OK && index + 1 < candidates.len() {
+        if status == StatusCode::NOT_MODIFIED {
+            if let Some(mut entry) = cached {
+                let cache = config.cache.clone();
+                let cache_candidate = candidate.clone();
+                let headers = upstream.headers().clone();
+                entry = cache_work(true, move || {
+                    refresh_cache_metadata(&cache, &cache_candidate, &mut entry.metadata, &headers);
+                    entry
+                })
+                .await
+                .map_err(|_| ProxyError::CacheWorker)?;
+                state
+                    .upstream_selector
+                    .record_success(candidate, started_at.elapsed());
+                return cached_response(entry, "REVALIDATED");
+            }
+        }
+        if should_failover_status(status) && index + 1 < candidates.len() {
+            state
+                .upstream_selector
+                .record_failure(candidate, &config.upstream_selection);
             tracing::info!(upstream = %candidate, status = %status, next_upstream = %candidates[index + 1], "upstream did not return 200; trying the next configured endpoint");
             continue;
+        }
+        if should_failover_status(status) {
+            state
+                .upstream_selector
+                .record_failure(candidate, &config.upstream_selection);
+        } else {
+            state
+                .upstream_selector
+                .record_success(candidate, started_at.elapsed());
         }
         let headers = upstream.headers().clone();
         if cacheable_request(method.clone(), incoming_headers)
             && config.cache.enabled
-            && status.is_success()
+            && status == StatusCode::OK
             && headers
                 .get("content-length")
                 .and_then(|value| value.to_str().ok())
@@ -172,7 +246,22 @@ async fn forward_request(
                 .is_some_and(|length| length <= max_cache_entry_bytes(&config.cache))
         {
             let response_body = upstream.bytes().await?;
-            write_disk_cache(&config.cache, candidate, status, &headers, &response_body);
+            let cache = config.cache.clone();
+            let candidate = candidate.clone();
+            let incoming = incoming_headers.clone();
+            let stored_headers = headers.clone();
+            let stored_body = response_body.clone();
+            let _ = cache_work(true, move || {
+                write_disk_cache(
+                    &cache,
+                    &candidate,
+                    &incoming,
+                    status,
+                    &stored_headers,
+                    &stored_body,
+                )
+            })
+            .await;
             return response_with_headers(status, &headers, Body::from(response_body));
         }
         let stream = upstream.bytes_stream().map_err(std::io::Error::other);
@@ -187,20 +276,55 @@ pub async fn get_with_fallback(
 ) -> Result<reqwest::Response, ProxyError> {
     let config = state.config();
     let client = state.client();
-    let candidates = config.upstream_candidates_for(&url);
+    let candidates = state.upstream_selector.rank(
+        config.upstream_candidates_for(&url),
+        &config.upstream_selection,
+    );
     for (index, candidate) in candidates.iter().enumerate() {
-        let response = upstream_request(
+        let started_at = Instant::now();
+        let response = match send_upstream_request(
             &client,
-            reqwest::Method::GET,
-            candidate.clone(),
-            &HeaderMap::new(),
             &config,
+            upstream_request(
+                &client,
+                reqwest::Method::GET,
+                candidate.clone(),
+                &HeaderMap::new(),
+                &config,
+            ),
         )
-        .send()
-        .await?;
-        if response.status() != StatusCode::OK && index + 1 < candidates.len() {
+        .await
+        {
+            Ok(response) => response,
+            Err(error) if index + 1 < candidates.len() => {
+                state
+                    .upstream_selector
+                    .record_failure(candidate, &config.upstream_selection);
+                tracing::warn!(upstream = %candidate, %error, next_upstream = %candidates[index + 1], "upstream request failed; trying the next configured endpoint");
+                continue;
+            }
+            Err(error) => {
+                state
+                    .upstream_selector
+                    .record_failure(candidate, &config.upstream_selection);
+                return Err(error);
+            }
+        };
+        if should_failover_status(response.status()) && index + 1 < candidates.len() {
+            state
+                .upstream_selector
+                .record_failure(candidate, &config.upstream_selection);
             tracing::info!(upstream = %candidate, status = %response.status(), next_upstream = %candidates[index + 1], "upstream did not return 200; trying the next configured endpoint");
             continue;
+        }
+        if should_failover_status(response.status()) {
+            state
+                .upstream_selector
+                .record_failure(candidate, &config.upstream_selection);
+        } else {
+            state
+                .upstream_selector
+                .record_success(candidate, started_at.elapsed());
         }
         return Ok(response);
     }
@@ -241,6 +365,141 @@ fn upstream_request(
     }
 
     request
+}
+
+/// Follow data-plane redirects only after validating and pinning each new target.
+/// The initially configured upstream remains operator-controlled, including
+/// explicitly configured private addresses.
+pub(crate) async fn send_upstream_request(
+    initial_client: &reqwest::Client,
+    config: &crate::config::Config,
+    request: reqwest::RequestBuilder,
+) -> Result<reqwest::Response, ProxyError> {
+    let mut client = initial_client.clone();
+    let mut request = request.build()?;
+    let original = request.url().clone();
+    let mut redirects = 0;
+    loop {
+        let replay = request.try_clone();
+        let previous_url = request.url().clone();
+        let method = request.method().clone();
+        let mut headers = request.headers().clone();
+        let response = client.execute(request).await?;
+        let status = response.status();
+        if !matches!(
+            status,
+            reqwest::StatusCode::MOVED_PERMANENTLY
+                | reqwest::StatusCode::FOUND
+                | reqwest::StatusCode::SEE_OTHER
+                | reqwest::StatusCode::TEMPORARY_REDIRECT
+                | reqwest::StatusCode::PERMANENT_REDIRECT
+        ) {
+            return Ok(response);
+        }
+        let Some(location) = response.headers().get(reqwest::header::LOCATION) else {
+            return Ok(response);
+        };
+        let location = location.to_str().map_err(|_| ProxyError::UnsafeRedirect)?;
+        let target = response
+            .url()
+            .join(location)
+            .map_err(|_| ProxyError::UnsafeRedirect)?;
+        if redirects == 10
+            || !matches!(target.scheme(), "http" | "https")
+            || (previous_url.scheme() == "https" && target.scheme() != "https")
+            || target.host_str().is_none()
+            || !target.username().is_empty()
+            || target.password().is_some()
+            || target.fragment().is_some()
+        {
+            return Err(ProxyError::UnsafeRedirect);
+        }
+        let same_origin = previous_url.scheme() == target.scheme()
+            && previous_url.host_str() == target.host_str()
+            && previous_url.port_or_known_default() == target.port_or_known_default();
+        let original_origin = original.scheme() == target.scheme()
+            && original.host_str() == target.host_str()
+            && original.port_or_known_default() == target.port_or_known_default();
+        let explicit_ip_origin = same_origin
+            && original_origin
+            && target
+                .host_str()
+                .and_then(|host| host.parse::<IpAddr>().ok())
+                .is_some();
+        let addresses = if explicit_ip_origin {
+            vec![std::net::SocketAddr::new(
+                target
+                    .host_str()
+                    .and_then(|host| host.parse().ok())
+                    .ok_or(ProxyError::UnsafeRedirect)?,
+                target
+                    .port_or_known_default()
+                    .ok_or(ProxyError::UnsafeRedirect)?,
+            )]
+        } else {
+            oci::public_destination_addresses(&target)
+                .await
+                .map_err(|_| ProxyError::UnsafeRedirect)?
+        };
+        // A remote HTTP/SOCKS proxy may resolve the target itself, bypassing
+        // resolve_to_addrs and the address check above.
+        if config.outbound_proxy.enabled && !explicit_ip_origin {
+            return Err(ProxyError::UnsafeRedirect);
+        }
+        let host = target.host_str().ok_or(ProxyError::UnsafeRedirect)?;
+        client = crate::build_upstream_client_builder(config)
+            .map_err(|_| ProxyError::UnsafeRedirect)?
+            .resolve_to_addrs(host, &addresses)
+            .build()?;
+        if !same_origin {
+            for name in [
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::COOKIE,
+                reqwest::header::PROXY_AUTHORIZATION,
+            ] {
+                headers.remove(name);
+            }
+        }
+        let change_to_get = method != reqwest::Method::GET
+            && method != reqwest::Method::HEAD
+            && matches!(
+                status,
+                reqwest::StatusCode::MOVED_PERMANENTLY
+                    | reqwest::StatusCode::FOUND
+                    | reqwest::StatusCode::SEE_OTHER
+            );
+        request = if change_to_get {
+            headers.remove(reqwest::header::CONTENT_LENGTH);
+            headers.remove(reqwest::header::CONTENT_TYPE);
+            headers.remove(reqwest::header::TRANSFER_ENCODING);
+            client
+                .request(reqwest::Method::GET, target)
+                .headers(headers)
+                .build()?
+        } else {
+            let Some(mut replay) = replay else {
+                return Ok(response);
+            };
+            *replay.url_mut() = target;
+            *replay.headers_mut() = headers;
+            replay
+        };
+        redirects += 1;
+    }
+}
+
+pub(crate) async fn probe_endpoint(
+    state: &AppState,
+    method: reqwest::Method,
+    url: Url,
+) -> Result<reqwest::Response, ProxyError> {
+    let config = state.config();
+    send_upstream_request(
+        &state.client(),
+        &config,
+        upstream_request(&state.client(), method, url, &HeaderMap::new(), &config),
+    )
+    .await
 }
 
 fn cacheable_request(method: Method, headers: &HeaderMap) -> bool {
@@ -293,114 +552,25 @@ mod upstream_selection_tests {
     }
 }
 
-fn cache_paths(cache: &CacheConfig, url: &Url) -> Option<(PathBuf, PathBuf)> {
-    if !cache.enabled || cache.directory.trim().is_empty() {
-        return None;
-    }
-    let key = format!("{:x}", Sha256::digest(url.as_str().as_bytes()));
-    let root = Path::new(&cache.directory);
-    Some((
-        root.join(format!("{key}.body")),
-        root.join(format!("{key}.json")),
-    ))
-}
-
-fn read_disk_cache(cache: &CacheConfig, url: &Url) -> Option<Response> {
-    let (body_path, metadata_path) = cache_paths(cache, url)?;
-    let body = fs::read(&body_path).ok()?;
-    let _ = fs::OpenOptions::new()
-        .write(true)
-        .open(&body_path)
-        .and_then(|file| file.set_modified(std::time::SystemTime::now()));
-    let metadata: DiskCacheMetadata =
-        serde_json::from_slice(&fs::read(metadata_path).ok()?).ok()?;
-    let status = StatusCode::from_u16(metadata.status).ok()?;
-    let mut builder = Response::builder()
-        .status(status)
-        .header("x-mirrorproxy-cache", "HIT");
-    for (name, value) in metadata.headers {
-        if let (Ok(name), Ok(value)) = (HeaderName::try_from(name), HeaderValue::try_from(value)) {
-            if should_forward_response_header(&name) {
-                builder = builder.header(name, value);
-            }
-        }
-    }
-    builder.body(Body::from(body)).ok()
-}
-
-fn write_disk_cache(
-    cache: &CacheConfig,
-    url: &Url,
-    status: reqwest::StatusCode,
-    headers: &HeaderMap,
-    body: &[u8],
-) {
-    let Some((body_path, metadata_path)) = cache_paths(cache, url) else {
-        return;
-    };
-    let Some(parent) = body_path.parent() else {
-        return;
-    };
-    if fs::create_dir_all(parent).is_err() {
-        return;
-    }
-    let metadata = DiskCacheMetadata {
-        status: status.as_u16(),
-        headers: headers
-            .iter()
-            .filter(|(name, _)| should_forward_response_header(name))
-            .filter_map(|(name, value)| {
-                value
-                    .to_str()
-                    .ok()
-                    .map(|value| (name.as_str().to_string(), value.to_string()))
-            })
-            .collect(),
-    };
-    let body_tmp = body_path.with_extension("body.tmp");
-    let metadata_tmp = metadata_path.with_extension("json.tmp");
-    if fs::write(&body_tmp, body).is_ok()
-        && serde_json::to_vec(&metadata)
-            .ok()
-            .is_some_and(|value| fs::write(&metadata_tmp, value).is_ok())
+pub fn sanitize_repository_path(path: &str) -> Result<&str, ProxyError> {
+    let path = path.trim_start_matches('/');
+    if path.is_empty()
+        || path.contains('\\')
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == ".." || part.contains('\0'))
     {
-        let _ = fs::rename(body_tmp, body_path);
-        let _ = fs::rename(metadata_tmp, metadata_path);
-        evict_disk_cache(cache);
+        return Err(ProxyError::InvalidUrl);
     }
+    Ok(path)
 }
 
-fn evict_disk_cache(cache: &CacheConfig) {
-    let Ok(entries) = fs::read_dir(&cache.directory) else {
-        return;
-    };
-    let mut bodies: Vec<_> = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let path = entry.path();
-            (path.extension().and_then(|v| v.to_str()) == Some("body")).then_some(path)
-        })
-        .filter_map(|path| {
-            let metadata = fs::metadata(&path).ok()?;
-            Some((
-                metadata
-                    .modified()
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
-                metadata.len(),
-                path,
-            ))
-        })
-        .collect();
-    let mut total: u64 = bodies.iter().map(|(_, len, _)| *len).sum();
-    bodies.sort_by_key(|(modified, _, _)| *modified);
-    for (_, len, path) in bodies {
-        if total <= max_cache_total_bytes(cache) {
-            break;
-        }
-        let _ = fs::remove_file(&path);
-        let _ = fs::remove_file(path.with_extension("json"));
-        total = total.saturating_sub(len);
-    }
+pub fn repository_url(base: &str, path: &str, query: Option<&str>) -> Result<Url, ProxyError> {
+    let mut url = Url::parse(select_upstream(base)?).map_err(|_| ProxyError::InvalidUrl)?;
+    let base_path = url.path().trim_end_matches('/');
+    url.set_path(&format!("{base_path}/{path}"));
+    url.set_query(query);
+    Ok(url)
 }
 
 pub fn build_url(base: &str, path: &str, query: Option<&str>) -> Result<Url, ProxyError> {
@@ -461,6 +631,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::header;
+    use axum::{routing::get, Router};
     use std::collections::BTreeMap;
 
     #[test]
@@ -495,6 +666,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn redirects_stay_on_an_explicitly_configured_private_origin() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .route(
+                "/start",
+                get(|| async { (StatusCode::FOUND, [(header::LOCATION, "/end")]) }),
+            )
+            .route("/end", get(|| async { "redirected" }));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = crate::config::Config::default();
+        let client = crate::build_upstream_client(&config).unwrap();
+        let response = send_upstream_request(
+            &client,
+            &config,
+            client.get(format!("http://{address}/start")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.text().await.unwrap(), "redirected");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn redirects_to_other_loopback_origins_and_private_dns_are_rejected() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .route(
+                "/ip",
+                get(|| async {
+                    (
+                        StatusCode::FOUND,
+                        [(header::LOCATION, "http://127.0.0.1:12345/secret")],
+                    )
+                }),
+            )
+            .route(
+                "/dns",
+                get(|| async {
+                    (
+                        StatusCode::FOUND,
+                        [(header::LOCATION, "http://localhost:12345/secret")],
+                    )
+                }),
+            );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = crate::config::Config::default();
+        let client = crate::build_upstream_client(&config).unwrap();
+        for path in ["ip", "dns"] {
+            let result = send_upstream_request(
+                &client,
+                &config,
+                client.get(format!("http://{address}/{path}")),
+            )
+            .await;
+            assert!(matches!(result, Err(ProxyError::UnsafeRedirect)), "{path}");
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn disk_cache_round_trip_preserves_response_headers() {
         let directory =
             std::env::temp_dir().join(format!("mirrorproxy-cache-test-{}", std::process::id()));
@@ -504,6 +737,7 @@ mod tests {
             directory: directory.display().to_string(),
             max_entry_mb: 1,
             max_total_mb: 2,
+            ..CacheConfig::default()
         };
         let url = Url::parse("https://upstream.example/package").unwrap();
         let mut headers = HeaderMap::new();
@@ -511,9 +745,20 @@ mod tests {
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/json"),
         );
-        write_disk_cache(&cache, &url, reqwest::StatusCode::OK, &headers, b"{} ");
+        write_disk_cache(
+            &cache,
+            &url,
+            &HeaderMap::new(),
+            reqwest::StatusCode::OK,
+            &headers,
+            b"{} ",
+        );
 
-        let response = read_disk_cache(&cache, &url).expect("cache hit");
+        let response = cached_response(
+            load_disk_cache(&cache, &url, &HeaderMap::new()).expect("cache hit"),
+            "HIT",
+        )
+        .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
         assert_eq!(
@@ -535,6 +780,59 @@ mod tests {
         headers.clear();
         headers.insert(header::RANGE, HeaderValue::from_static("bytes=0-99"));
         assert!(!cacheable_request(Method::GET, &headers));
+    }
+
+    #[test]
+    fn cache_policy_rejects_private_responses_and_caps_upstream_ttl() {
+        let cache = CacheConfig {
+            default_ttl_secs: 60,
+            max_ttl_secs: 300,
+            ..CacheConfig::default()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=3600"),
+        );
+        let (stored_at, expires_at) = cache_lifetime(&cache, &headers).unwrap();
+        assert_eq!(expires_at - stored_at, 300);
+
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, max-age=300"),
+        );
+        assert!(cache_lifetime(&cache, &headers).is_none());
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        assert!(cache_lifetime(&cache, &headers).is_none());
+    }
+
+    #[test]
+    fn cache_vary_requires_the_original_request_header_value() {
+        let mut response_headers = HeaderMap::new();
+        response_headers.insert(header::VARY, HeaderValue::from_static("Accept, X-Flavor"));
+        let mut incoming = HeaderMap::new();
+        incoming.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+        incoming.insert("x-flavor", HeaderValue::from_static("stable"));
+        assert_eq!(
+            cache_vary(&response_headers, &incoming).unwrap(),
+            vec![
+                ("accept".to_string(), "application/json".to_string()),
+                ("x-flavor".to_string(), "stable".to_string())
+            ]
+        );
+
+        response_headers.insert(header::VARY, HeaderValue::from_static("*"));
+        assert!(cache_vary(&response_headers, &incoming).is_none());
+    }
+
+    #[test]
+    fn failover_preserves_protocol_success_and_authentication_statuses() {
+        assert!(!should_failover_status(StatusCode::PARTIAL_CONTENT));
+        assert!(!should_failover_status(StatusCode::NOT_MODIFIED));
+        assert!(!should_failover_status(StatusCode::UNAUTHORIZED));
+        assert!(should_failover_status(StatusCode::NOT_FOUND));
+        assert!(should_failover_status(StatusCode::BAD_GATEWAY));
+        assert!(should_failover_status(StatusCode::TOO_MANY_REQUESTS));
     }
 
     #[test]
@@ -570,11 +868,13 @@ mod tests {
             directory: directory.display().to_string(),
             max_entry_mb: 1,
             max_total_mb: 0,
+            ..CacheConfig::default()
         };
         let url = Url::parse("https://upstream.example/evict").unwrap();
         write_disk_cache(
             &cache,
             &url,
+            &HeaderMap::new(),
             reqwest::StatusCode::OK,
             &HeaderMap::new(),
             b"entry",
@@ -595,15 +895,30 @@ mod tests {
             directory: directory.display().to_string(),
             max_entry_mb: 1,
             max_total_mb: 2,
+            ..CacheConfig::default()
         };
         let headers = HeaderMap::new();
         let first = Url::parse("https://upstream.example/first").unwrap();
         let second = Url::parse("https://upstream.example/second").unwrap();
         let third = Url::parse("https://upstream.example/third").unwrap();
         let payload = vec![0; 600 * 1024];
-        write_disk_cache(&cache, &first, reqwest::StatusCode::OK, &headers, &payload);
+        write_disk_cache(
+            &cache,
+            &first,
+            &HeaderMap::new(),
+            reqwest::StatusCode::OK,
+            &headers,
+            &payload,
+        );
         let (first_body, _) = cache_paths(&cache, &first).unwrap();
-        write_disk_cache(&cache, &second, reqwest::StatusCode::OK, &headers, &payload);
+        write_disk_cache(
+            &cache,
+            &second,
+            &HeaderMap::new(),
+            reqwest::StatusCode::OK,
+            &headers,
+            &payload,
+        );
         fs::OpenOptions::new()
             .write(true)
             .open(&first_body)
@@ -611,10 +926,39 @@ mod tests {
             .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(1))
             .unwrap();
         cache.max_total_mb = 1;
-        write_disk_cache(&cache, &third, reqwest::StatusCode::OK, &headers, &payload);
+        write_disk_cache(
+            &cache,
+            &third,
+            &HeaderMap::new(),
+            reqwest::StatusCode::OK,
+            &headers,
+            &payload,
+        );
         let (second_body, _) = cache_paths(&cache, &second).unwrap();
         assert!(first_body.exists());
         assert!(!second_body.exists());
         let _ = fs::remove_dir_all(directory);
     }
+}
+
+fn should_failover_status(status: StatusCode) -> bool {
+    status == StatusCode::NOT_FOUND
+        || status == StatusCode::REQUEST_TIMEOUT
+        || status == StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+pub async fn cache_stats(cache: CacheConfig) -> Result<cache::CacheStats, tokio::task::JoinError> {
+    cache_work(false, move || disk_cache_stats(&cache)).await
+}
+
+pub async fn purge_cache(cache: CacheConfig) -> anyhow::Result<u64> {
+    Ok(cache_work(true, move || purge_disk_cache(&cache)).await??)
 }

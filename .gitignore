@@ -1,7 +1,11 @@
 /target/
+/geoip/*.xdb
+/geoip/*.tmp
+/geoip/*.bak
 /web/node_modules/
 /web/.tmp/
 /web/dist/
+/web/test-results/
 *.log
 .env
 .env.*

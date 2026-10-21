@@ -1,3 +1,4 @@
+use super::{repository_url, sanitize_repository_path};
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -35,30 +36,8 @@ pub async fn proxy(
     }
 
     let clean_path = sanitize_repository_path(&path)?;
-    let url = repository_url(&config.upstreams.maven, &clean_path, request.uri().query())?;
+    let url = repository_url(&config.upstreams.maven, clean_path, request.uri().query())?;
     proxy::forward(&state, request.method().clone(), url, request.headers()).await
-}
-
-fn sanitize_repository_path(path: &str) -> Result<String, ProxyError> {
-    let path = path.trim_start_matches('/');
-    if path.is_empty()
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == ".." || part.contains('\0'))
-    {
-        return Err(ProxyError::InvalidUrl);
-    }
-    Ok(path.to_string())
-}
-
-fn repository_url(base: &str, path: &str, query: Option<&str>) -> Result<reqwest::Url, ProxyError> {
-    let mut url =
-        reqwest::Url::parse(proxy::select_upstream(base)?).map_err(|_| ProxyError::InvalidUrl)?;
-    let base_path = url.path().trim_end_matches('/');
-    url.set_path(&format!("{base_path}/{path}"));
-    url.set_query(query);
-    Ok(url)
 }
 
 #[cfg(test)]
@@ -95,13 +74,13 @@ mod tests {
     fn preserves_maven2_upstream_base_path() {
         assert_eq!(
             repository_url(
-                "https://repo.maven.apache.org/maven2",
+                "https://maven-central.storage-download.googleapis.com/maven2",
                 "org/slf4j/slf4j-api/maven-metadata.xml",
                 Some("a=1"),
             )
             .unwrap()
             .as_str(),
-            "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/maven-metadata.xml?a=1"
+            "https://maven-central.storage-download.googleapis.com/maven2/org/slf4j/slf4j-api/maven-metadata.xml?a=1"
         );
     }
 
@@ -135,14 +114,93 @@ mod tests {
     async fn test_state(config: Config) -> AppState {
         let (database, _) = Database::open(":memory:").await.unwrap();
         AppState {
-            config: Arc::new(RwLock::new(config)),
+            config: Arc::new(RwLock::new(Arc::new(config))),
             database: Arc::new(database),
             client: Arc::new(RwLock::new(reqwest::Client::new())),
             rate_limiter: Arc::new(RateLimiter::new()),
             admin_login_limiter: Arc::new(crate::AdminLoginRateLimiter::new()),
             webauthn: Arc::new(RwLock::new(None)),
             observability: Arc::new(Observability::new().unwrap()),
+            geoip: Arc::new(crate::geoip::GeoIpService::new(
+                false,
+                "missing-v4.xdb".into(),
+                "missing-v6.xdb".into(),
+            )),
+            ip_access_policy: Arc::new(RwLock::new(crate::geoip::IpAccessPolicy::default())),
+            acme_environment_managed: false,
+            acme: crate::test_acme_manager(),
+            upstream_selector: Arc::new(crate::upstream_selection::UpstreamSelector::default()),
         }
+    }
+
+    #[tokio::test]
+    async fn cached_artifacts_preserve_payload_and_revalidate_with_etags() {
+        use axum::http::{HeaderMap, HeaderValue, Method};
+        let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = requests.clone();
+        let app = Router::new().fallback(any(move |headers: HeaderMap| {
+            let observed = observed.clone();
+            async move {
+                observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if headers.get("if-none-match") == Some(&HeaderValue::from_static("\"artifact\"")) {
+                    (StatusCode::NOT_MODIFIED, [("etag", "\"artifact\"")], "")
+                } else {
+                    (
+                        StatusCode::OK,
+                        [("etag", "\"artifact\"")],
+                        "artifact payload with exact bytes\n",
+                    )
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let directory =
+            std::env::temp_dir().join(format!("mirrorproxy-live-cache-{}", uuid::Uuid::new_v4()));
+        let mut config = Config::default();
+        config.upstreams.maven = format!("http://{address}/repository");
+        config.cache.enabled = true;
+        config.cache.directory = directory.display().to_string();
+        let state = test_state(config).await;
+        let url =
+            reqwest::Url::parse(&format!("http://{address}/repository/artifact.jar")).unwrap();
+        for expected_cache in [None, Some("HIT"), Some("REVALIDATED")] {
+            if expected_cache == Some("REVALIDATED") {
+                let (_, metadata_path) =
+                    crate::proxy::cache::cache_paths(&state.config().cache, &url).unwrap();
+                let mut metadata: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&metadata_path).unwrap()).unwrap();
+                metadata["expires_at"] = serde_json::json!(0);
+                std::fs::write(metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+            }
+            let response =
+                crate::proxy::forward(&state, Method::GET, url.clone(), &HeaderMap::new())
+                    .await
+                    .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response
+                    .headers()
+                    .get("x-mirrorproxy-cache")
+                    .and_then(|value| value.to_str().ok()),
+                expected_cache
+            );
+            assert_eq!(response.headers()["etag"], "\"artifact\"");
+            assert_eq!(
+                to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                b"artifact payload with exact bytes\n"
+            );
+        }
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 2);
+        crate::proxy::purge_cache(state.config().cache.clone())
+            .await
+            .unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+        server.abort();
     }
 
     #[tokio::test]
@@ -218,6 +276,41 @@ mod tests {
         assert_eq!(primary_requests.lock().unwrap().len(), 1);
         assert_eq!(fallback_requests.lock().unwrap().len(), 1);
         primary_task.abort();
+        fallback_task.abort();
+    }
+
+    #[tokio::test]
+    async fn tries_the_next_upstream_after_a_connection_error() {
+        let unused_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let unavailable = format!(
+            "http://{}/repository",
+            unused_listener.local_addr().unwrap()
+        );
+        drop(unused_listener);
+        let (fallback, fallback_requests, fallback_task) =
+            spawn_upstream(StatusCode::OK, "fallback artifact").await;
+        let state = test_state(Config {
+            upstreams: crate::config::Upstreams {
+                maven: format!("{unavailable},{fallback}"),
+                ..crate::config::Upstreams::default()
+            },
+            ..Config::default()
+        })
+        .await;
+
+        let response = proxy(
+            State(state),
+            Path("org/example/demo/1.0/demo-1.0.jar".to_string()),
+            Request::builder()
+                .uri("/maven/org/example/demo/1.0/demo-1.0.jar")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(fallback_requests.lock().unwrap().len(), 1);
         fallback_task.abort();
     }
 

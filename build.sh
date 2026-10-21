@@ -13,6 +13,7 @@ npm ci
 npm run build
 
 cd "$ROOT_DIR"
+bash scripts/fetch-geoip.sh
 export GIT_COMMIT="${GIT_COMMIT:-$(git rev-parse HEAD)}"
 export BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 if [[ "$TARGET" == "x86_64-unknown-linux-musl" ]] && ! command -v musl-gcc >/dev/null 2>&1; then
@@ -20,8 +21,8 @@ if [[ "$TARGET" == "x86_64-unknown-linux-musl" ]] && ! command -v musl-gcc >/dev
   exit 1
 fi
 rustup target add "$TARGET"
-cargo build --release --target "$TARGET" --package "$SERVER_PACKAGE" --bin "$SERVER_BIN"
-cargo build --release --target "$TARGET" --package "$CLIENT_PACKAGE" --bin "$CLIENT_BIN"
+cargo build --locked --release --target "$TARGET" --package "$SERVER_PACKAGE" --bin "$SERVER_BIN"
+cargo build --locked --release --target "$TARGET" --package "$CLIENT_PACKAGE" --bin "$CLIENT_BIN"
 
 SERVER_BIN_PATH="$ROOT_DIR/target/$TARGET/release/$SERVER_BIN"
 CLIENT_BIN_PATH="$ROOT_DIR/target/$TARGET/release/$CLIENT_BIN"

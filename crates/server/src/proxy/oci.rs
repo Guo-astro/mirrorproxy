@@ -5,12 +5,11 @@ use axum::{
 };
 use futures_util::TryStreamExt;
 use reqwest::{header::WWW_AUTHENTICATE, Url};
+use std::net::IpAddr;
 
 use crate::{config::Upstreams, proxy, AppState};
 
 use super::ProxyError;
-
-const DOCKER_HUB_SERVICE: &str = "registry.docker.io";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OciTarget {
@@ -25,6 +24,29 @@ pub enum OciRegistry {
     Ghcr,
     Quay,
     Kubernetes,
+    Gcr,
+    Mcr,
+    Elastic,
+    Gitlab,
+    Nvcr,
+    Oracle,
+}
+
+impl OciRegistry {
+    fn config_name(self) -> &'static str {
+        match self {
+            Self::DockerHub => "docker_hub",
+            Self::Ghcr => "ghcr",
+            Self::Quay => "quay",
+            Self::Kubernetes => "kubernetes",
+            Self::Gcr => "gcr",
+            Self::Mcr => "mcr",
+            Self::Elastic => "elastic",
+            Self::Gitlab => "gitlab",
+            Self::Nvcr => "nvcr",
+            Self::Oracle => "oracle",
+        }
+    }
 }
 
 pub async fn root(State(state): State<AppState>) -> Result<Response, ProxyError> {
@@ -56,6 +78,7 @@ pub async fn proxy(
     let upstream = build_upstream_url(&config.upstreams, &target, request.uri().query())?;
     forward_with_public_auth(
         &state,
+        target.registry,
         request.method().clone(),
         upstream,
         request.headers(),
@@ -65,6 +88,7 @@ pub async fn proxy(
 
 pub(super) async fn forward_with_public_auth(
     state: &AppState,
+    registry: OciRegistry,
     method: Method,
     url: Url,
     incoming_headers: &HeaderMap,
@@ -80,6 +104,7 @@ pub(super) async fn forward_with_public_auth(
     for (index, candidate) in candidates.iter().enumerate() {
         let response = send_with_public_auth(
             state,
+            registry,
             reqwest_method.clone(),
             candidate.clone(),
             incoming_headers,
@@ -97,6 +122,7 @@ pub(super) async fn forward_with_public_auth(
 
 async fn send_with_public_auth(
     state: &AppState,
+    registry: OciRegistry,
     method: reqwest::Method,
     url: Url,
     incoming_headers: &HeaderMap,
@@ -111,7 +137,7 @@ async fn send_with_public_auth(
         config,
     );
 
-    let response = request.send().await?;
+    let response = super::send_upstream_request(&client, config, request).await?;
     if response.status() != reqwest::StatusCode::UNAUTHORIZED {
         return Ok(response);
     }
@@ -125,10 +151,11 @@ async fn send_with_public_auth(
         return Ok(response);
     };
 
-    let token = fetch_bearer_token(&client, &challenge).await?;
+    let challenged_url = response.url().clone();
+    let token = fetch_bearer_token(config, registry, &challenged_url, &challenge).await?;
     let retry = super::upstream_request(&client, method, url, incoming_headers, config);
 
-    Ok(retry.bearer_auth(token).send().await?)
+    super::send_upstream_request(&client, config, retry.bearer_auth(token)).await
 }
 
 async fn response_to_axum(response: reqwest::Response) -> Result<Response, ProxyError> {
@@ -160,6 +187,12 @@ fn build_upstream_url(
         OciRegistry::Ghcr => &upstreams.ghcr,
         OciRegistry::Quay => &upstreams.quay,
         OciRegistry::Kubernetes => &upstreams.kubernetes,
+        OciRegistry::Gcr => &upstreams.gcr,
+        OciRegistry::Mcr => &upstreams.mcr,
+        OciRegistry::Elastic => &upstreams.elastic,
+        OciRegistry::Gitlab => &upstreams.gitlab,
+        OciRegistry::Nvcr => &upstreams.nvcr,
+        OciRegistry::Oracle => &upstreams.oracle,
     };
     let path = format!("/v2/{}/{}", target.repository, target.suffix);
     proxy::build_url(base, &path, query)
@@ -174,7 +207,7 @@ pub fn parse_oci_path(path: &str) -> Result<OciTarget, ProxyError> {
 
     let marker_index = parts
         .iter()
-        .position(|part| matches!(*part, "manifests" | "blobs" | "tags"))
+        .position(|part| matches!(*part, "manifests" | "blobs" | "tags" | "referrers"))
         .ok_or(ProxyError::InvalidUrl)?;
 
     if marker_index == 0 || marker_index + 1 >= parts.len() {
@@ -187,6 +220,15 @@ pub fn parse_oci_path(path: &str) -> Result<OciTarget, ProxyError> {
         "ghcr.io" => (OciRegistry::Ghcr, &repo_parts[1..]),
         "quay.io" => (OciRegistry::Quay, &repo_parts[1..]),
         "registry.k8s.io" => (OciRegistry::Kubernetes, &repo_parts[1..]),
+        // k8s.gcr.io is a frozen legacy endpoint. Keep accepting old image
+        // references while serving them from the current Kubernetes registry.
+        "k8s.gcr.io" => (OciRegistry::Kubernetes, &repo_parts[1..]),
+        "gcr.io" => (OciRegistry::Gcr, &repo_parts[1..]),
+        "mcr.microsoft.com" => (OciRegistry::Mcr, &repo_parts[1..]),
+        "docker.elastic.co" => (OciRegistry::Elastic, &repo_parts[1..]),
+        "registry.gitlab.com" => (OciRegistry::Gitlab, &repo_parts[1..]),
+        "nvcr.io" => (OciRegistry::Nvcr, &repo_parts[1..]),
+        "container-registry.oracle.com" => (OciRegistry::Oracle, &repo_parts[1..]),
         _ => (OciRegistry::DockerHub, repo_parts),
     };
 
@@ -242,17 +284,26 @@ fn parse_bearer_challenge(value: &str) -> Option<BearerChallenge> {
 }
 
 async fn fetch_bearer_token(
-    client: &reqwest::Client,
+    config: &crate::config::Config,
+    registry: OciRegistry,
+    challenged_url: &Url,
     challenge: &BearerChallenge,
 ) -> Result<String, ProxyError> {
-    let mut url = Url::parse(&challenge.realm).map_err(|_| ProxyError::InvalidUrl)?;
-    if let Some(service) = challenge.service.as_deref().or(Some(DOCKER_HUB_SERVICE)) {
+    let mut url = validate_bearer_realm(config, registry, challenged_url, &challenge.realm)?;
+    let resolved = public_destination_addresses(&url).await?;
+    if let Some(service) = challenge.service.as_deref() {
         url.query_pairs_mut().append_pair("service", service);
     }
     if let Some(scope) = &challenge.scope {
         url.query_pairs_mut().append_pair("scope", scope);
     }
 
+    let host = url.host_str().ok_or(ProxyError::InvalidUrl)?;
+    let client = crate::build_upstream_client_builder(config)
+        .map_err(|_| ProxyError::InvalidUrl)?
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(host, &resolved)
+        .build()?;
     let value = client
         .get(url)
         .send()
@@ -267,6 +318,101 @@ async fn fetch_bearer_token(
         .and_then(|value| value.as_str())
         .map(ToString::to_string)
         .ok_or(ProxyError::InvalidUrl)
+}
+
+fn validate_bearer_realm(
+    config: &crate::config::Config,
+    registry: OciRegistry,
+    challenged_url: &Url,
+    realm: &str,
+) -> Result<Url, ProxyError> {
+    let url = Url::parse(realm).map_err(|_| ProxyError::InvalidUrl)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(ProxyError::InvalidUrl);
+    }
+
+    let allowed = same_origin(&url, challenged_url)
+        || config
+            .oci_token_issuers
+            .get(registry.config_name())
+            .into_iter()
+            .flatten()
+            .filter_map(|issuer| Url::parse(issuer).ok())
+            .any(|issuer| same_origin(&url, &issuer));
+    allowed.then_some(url).ok_or(ProxyError::UnsupportedTarget)
+}
+
+fn same_origin(left: &Url, right: &Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+pub(super) async fn public_destination_addresses(
+    url: &Url,
+) -> Result<Vec<std::net::SocketAddr>, ProxyError> {
+    let host = url.host_str().ok_or(ProxyError::InvalidUrl)?;
+    let port = url.port_or_known_default().ok_or(ProxyError::InvalidUrl)?;
+    if let Ok(address) = host.parse::<IpAddr>() {
+        return is_public_address(address)
+            .then_some(vec![std::net::SocketAddr::new(address, port)])
+            .ok_or(ProxyError::UnsupportedTarget);
+    }
+
+    let addresses = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|_| ProxyError::InvalidUrl)?
+        .collect::<Vec<_>>();
+    (!addresses.is_empty()
+        && addresses
+            .iter()
+            .all(|address| is_public_address(address.ip())))
+    .then_some(addresses)
+    .ok_or(ProxyError::UnsupportedTarget)
+}
+
+fn is_public_address(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            let [first, second, third, _] = address.octets();
+            !(first == 0
+                || first == 10
+                || first == 127
+                || (first == 100 && (64..=127).contains(&second))
+                || (first == 169 && second == 254)
+                || (first == 172 && (16..=31).contains(&second))
+                || (first == 192 && second == 0 && third == 0)
+                || (first == 192 && second == 0 && third == 2)
+                || (first == 192 && second == 88 && third == 99)
+                || (first == 192 && second == 168)
+                || (first == 198 && (second == 18 || second == 19))
+                || (first == 198 && second == 51 && third == 100)
+                || (first == 203 && second == 0 && third == 113)
+                || first >= 224)
+        }
+        IpAddr::V6(address) => {
+            let segments = address.segments();
+            !(address.is_loopback()
+                || address.is_unspecified()
+                || address.is_multicast()
+                || address.is_unique_local()
+                || address.is_unicast_link_local()
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                || (segments[0] == 0x2001 && segments[1] == 0x0002)
+                || (segments[0] == 0x0100
+                    && segments[1] == 0
+                    && segments[2] == 0
+                    && segments[3] == 0))
+                && address
+                    .to_ipv4_mapped()
+                    .is_none_or(|address| is_public_address(IpAddr::V4(address)))
+        }
+    }
 }
 
 fn should_forward_oci_response_header(name: &header::HeaderName) -> bool {
@@ -316,6 +462,101 @@ mod tests {
         let k8s = parse_oci_path("registry.k8s.io/pause/manifests/3.8").unwrap();
         assert_eq!(k8s.registry, OciRegistry::Kubernetes);
         assert_eq!(k8s.repository, "pause");
+
+        let legacy_k8s = parse_oci_path("k8s.gcr.io/pause/manifests/3.8").unwrap();
+        assert_eq!(legacy_k8s.registry, OciRegistry::Kubernetes);
+        assert_eq!(legacy_k8s.repository, "pause");
+
+        let gcr = parse_oci_path("gcr.io/google-containers/pause/manifests/3.9").unwrap();
+        assert_eq!(gcr.registry, OciRegistry::Gcr);
+        assert_eq!(gcr.repository, "google-containers/pause");
+
+        let mcr = parse_oci_path("mcr.microsoft.com/dotnet/runtime/manifests/8.0").unwrap();
+        assert_eq!(mcr.registry, OciRegistry::Mcr);
+        assert_eq!(mcr.repository, "dotnet/runtime");
+
+        let elastic =
+            parse_oci_path("docker.elastic.co/elasticsearch/elasticsearch/manifests/8.13.4")
+                .unwrap();
+        assert_eq!(elastic.registry, OciRegistry::Elastic);
+        assert_eq!(elastic.repository, "elasticsearch/elasticsearch");
+
+        let gitlab = parse_oci_path(
+            "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper/manifests/x86_64-latest",
+        )
+        .unwrap();
+        assert_eq!(gitlab.registry, OciRegistry::Gitlab);
+        assert_eq!(
+            gitlab.repository,
+            "gitlab-org/gitlab-runner/gitlab-runner-helper"
+        );
+
+        let nvcr = parse_oci_path("nvcr.io/nvidia/cuda/manifests/12.6.0-base-ubuntu22.04").unwrap();
+        assert_eq!(nvcr.registry, OciRegistry::Nvcr);
+        assert_eq!(nvcr.repository, "nvidia/cuda");
+
+        let oracle =
+            parse_oci_path("container-registry.oracle.com/os/oraclelinux/manifests/9-slim")
+                .unwrap();
+        assert_eq!(oracle.registry, OciRegistry::Oracle);
+        assert_eq!(oracle.repository, "os/oraclelinux");
+    }
+
+    #[test]
+    fn parses_oci_referrers_path() {
+        let target = parse_oci_path(
+            "ghcr.io/agentscope/qwenpaw/referrers/sha256:b170f205b6e46dcb5f35af839daa334132de869804686204cba357cc1b07f02f",
+        )
+        .unwrap();
+        assert_eq!(target.registry, OciRegistry::Ghcr);
+        assert_eq!(target.repository, "agentscope/qwenpaw");
+        assert_eq!(
+            target.suffix,
+            "referrers/sha256:b170f205b6e46dcb5f35af839daa334132de869804686204cba357cc1b07f02f"
+        );
+    }
+
+    #[test]
+    fn builds_new_registry_upstream_urls() {
+        let upstreams = Upstreams::default();
+        for (path, expected) in [
+            (
+                "gcr.io/google-containers/pause/manifests/3.9",
+                "https://gcr.io/v2/google-containers/pause/manifests/3.9",
+            ),
+            (
+                "mcr.microsoft.com/dotnet/runtime/manifests/8.0",
+                "https://mcr.microsoft.com/v2/dotnet/runtime/manifests/8.0",
+            ),
+            (
+                "docker.elastic.co/elasticsearch/elasticsearch/manifests/8.13.4",
+                "https://docker.elastic.co/v2/elasticsearch/elasticsearch/manifests/8.13.4",
+            ),
+            (
+                "k8s.gcr.io/pause/manifests/3.8",
+                "https://registry.k8s.io/v2/pause/manifests/3.8",
+            ),
+            (
+                "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper/manifests/x86_64-latest",
+                "https://registry.gitlab.com/v2/gitlab-org/gitlab-runner/gitlab-runner-helper/manifests/x86_64-latest",
+            ),
+            (
+                "nvcr.io/nvidia/cuda/manifests/12.6.0-base-ubuntu22.04",
+                "https://nvcr.io/v2/nvidia/cuda/manifests/12.6.0-base-ubuntu22.04",
+            ),
+            (
+                "container-registry.oracle.com/os/oraclelinux/manifests/9-slim",
+                "https://container-registry.oracle.com/v2/os/oraclelinux/manifests/9-slim",
+            ),
+        ] {
+            let target = parse_oci_path(path).unwrap();
+            assert_eq!(
+                build_upstream_url(&upstreams, &target, None)
+                    .unwrap()
+                    .as_str(),
+                expected
+            );
+        }
     }
 
     #[test]
@@ -338,5 +579,63 @@ mod tests {
             challenge.scope.as_deref(),
             Some("repository:library/nginx:pull")
         );
+    }
+
+    #[test]
+    fn bearer_realms_are_bound_to_registry_issuers() {
+        let config = crate::config::Config::default();
+        let docker =
+            Url::parse("https://registry-1.docker.io/v2/library/nginx/manifests/latest").unwrap();
+        assert!(validate_bearer_realm(
+            &config,
+            OciRegistry::DockerHub,
+            &docker,
+            "https://auth.docker.io/token"
+        )
+        .is_ok());
+        assert!(validate_bearer_realm(
+            &config,
+            OciRegistry::DockerHub,
+            &docker,
+            "https://registry-1.docker.io/token"
+        )
+        .is_ok());
+        assert!(validate_bearer_realm(
+            &config,
+            OciRegistry::DockerHub,
+            &docker,
+            "https://attacker.example/token"
+        )
+        .is_err());
+        assert!(validate_bearer_realm(
+            &config,
+            OciRegistry::DockerHub,
+            &docker,
+            "http://auth.docker.io/token"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn private_and_special_token_addresses_are_rejected() {
+        for address in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "169.254.169.254",
+            "192.168.1.1",
+            "100.64.0.1",
+            "198.18.0.1",
+            "240.0.0.1",
+            "0.0.0.0",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(!is_public_address(address.parse().unwrap()), "{address}");
+        }
+        for address in ["1.1.1.1", "2606:4700:4700::1111"] {
+            assert!(is_public_address(address.parse().unwrap()), "{address}");
+        }
     }
 }

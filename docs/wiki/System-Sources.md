@@ -1,0 +1,190 @@
+# Linux system sources
+
+The standalone client has native configuration adapters for the following 28
+distribution profiles, inspired by [LinuxMirrors](https://github.com/SuperManito/LinuxMirrors).
+The implementation is Rust; it does not download or execute that project's scripts.
+`mirrorproxy systems` lists the same catalog used by the client and server.
+
+These ranges describe **configuration compatibility**, including archived releases.
+They do not extend the OS vendor's security support or guarantee that an upstream
+still publishes usable metadata for every version and architecture. Fixture tests
+cover all profiles; real package downloads must also be verified on Linux.
+
+## Distribution and version matrix
+
+| Client profile | Distribution | Configuration versions | Adapter |
+| --- | --- | --- | --- |
+| `debian` | Debian | 8–14, testing/sid | APT |
+| `ubuntu` | Ubuntu | 14–26 | APT |
+| `kali` | Kali Linux | Rolling | APT |
+| `linuxmint` | Linux Mint / LMDE | Mint 17–22; LMDE 2–7 | APT |
+| `deepin` | Deepin | Existing release layouts, including 25/beige | APT |
+| `zorin` | Zorin OS | Existing Ubuntu-based layouts | APT |
+| `armbian` | Armbian | Existing Debian/Ubuntu layouts | APT |
+| `proxmox` | Proxmox VE | Existing Debian/PVE/Ceph layouts | APT |
+| `raspios` | Raspberry Pi OS | Existing Debian/Raspbian layouts | APT |
+| `rhel` | Red Hat Enterprise Linux | 7–10; compatible customer mirror required | RPM |
+| `fedora` | Fedora | 30–44 | RPM |
+| `centos` | CentOS Linux | 7–8 | RPM |
+| `centos-stream` | CentOS Stream | 8–10 | RPM |
+| `rocky` | Rocky Linux | 8–10 | RPM |
+| `alma` | AlmaLinux | 8–10 | RPM |
+| `oraclelinux` | Oracle Linux | 8–10 | RPM |
+| `openeuler` | openEuler | 20–26 | RPM |
+| `opencloudos` | OpenCloudOS | 8.6–9; Stream 23 | RPM |
+| `openkylin` | openKylin | Existing release layouts | APT |
+| `anolis` | Anolis OS | 8 / 23 | RPM |
+| `opensuse` | openSUSE | Leap 15–16; Tumbleweed | RPM/Zypper |
+| `archlinux` | Arch Linux / Arch Linux ARM | Rolling | pacman |
+| `manjaro` | Manjaro | Stable/testing/unstable | pacman |
+| `endeavouros` | EndeavourOS | Arch and EndeavourOS repository lists | pacman |
+| `alpine` | Alpine Linux | v3 / edge | apk |
+| `gentoo` | Gentoo | Existing Portage configurations | Distfile mirrors |
+| `nixos` | NixOS | 19–26 | Nix module and existing root channels |
+| `void` | Void Linux | Rolling, including existing musl paths | XBPS |
+
+## Preview, apply and restore
+
+An existing MirrorProxy server with the `os` adapter enabled is required.
+Use a matching server build containing the repository roots from this catalog.
+The unified migration currently uses the `mirrorproxy` provider.
+
+```bash
+mirrorproxy systems
+sudo mirrorproxy set system --scope system --replace-existing --base-url https://mirror.example.com --dry-run
+sudo mirrorproxy set system --scope system --replace-existing --base-url https://mirror.example.com
+
+# A named profile verifies that it matches the detected system.
+sudo mirrorproxy set rocky --scope system --replace-existing --base-url https://mirror.example.com --dry-run
+
+sudo mirrorproxy reset system --scope system --dry-run
+sudo mirrorproxy reset system --scope system
+```
+
+Run only one `set` at a time. A system rollback already present blocks another
+migration. `reset <profile> --scope system` also restores a matching profile's
+system migration. Existing per-target commands and their rollback records retain
+their previous behavior. `set apt --replace-existing` remains the narrower
+Debian/Ubuntu base-only migration documented on the [client page](Client).
+
+Detection reads `os-release` without evaluating shell code. Armbian, Raspberry Pi
+and Proxmox markers identify systems which otherwise report their parent OS.
+OS identification symlinks must resolve within the selected root. The client
+preserves existing release suites, branch names, `$releasever`, `$basearch`,
+`$repo`, `$arch`, component lists, keyrings and signature settings. It does not
+guess an x86 repository for an ARM machine or change OS releases.
+
+APT handles both `.list` and DEB822 `.sources`, including URI continuations,
+updates, security, ports and multiple base/vendor repositories. RPM migration
+changes recognized base URLs and disables mirror discovery only in the sections
+it can replace. Fedora's known base/updates/modular metalinks map to equivalent
+repository trees. Unknown third-party sections remain intact. Pacman retains the
+Manjaro branch and handles EndeavourOS's separate mirrorlist. Void uses `/etc`
+overrides for vendor files under `/usr/share`, leaving vendor files untouched.
+
+Only declared official repository roots and known mirror-provider layouts are
+rewritten. Unknown custom mirrors remain unchanged. Missing or unrecognized
+configurations are refused instead of inventing distribution configuration.
+Dedicated pacman mirrorlists also recognize the native `$repo`/`$arch` URL
+templates regardless of mirror hostname.
+For repairs, restore the distribution's native repository definitions first.
+Newly generated Gentoo settings, NixOS modules and Void overrides are exceptions
+described below and are removed again by reset when originally absent.
+
+## Archived and special repositories
+
+- Debian Jessie/Stretch/Buster suites select separate base/security archive
+  roots. Older Ubuntu suites select `ubuntu-old`. Existing suites and signature
+  policy remain unchanged. Archived metadata can expire; the client never adds
+  `trusted=yes`, disables signature/expiry checks, or installs replacement keys.
+- CentOS 7/8 use Vault, pinning generic `$releasever` paths to 7.9.2009 / 8.5.2111.
+  Fedora 30–42 select the archive tree; 43–44 retain the active tree. This placement
+  is a catalog snapshot and should be reviewed as repositories move. Archived
+  releases no longer receive normal vendor security updates.
+- RHEL has no default public upstream. Configure a compatible, authorized mirror
+  under `upstreams.additional_os.rhel` with the same `/content/...` hierarchy.
+  The proxy does not forward client entitlement credentials or configure an
+  upstream client certificate. A subscription-only Red Hat CDN cannot be used
+  directly through this adapter. RHEL is never converted into CentOS.
+- Proxmox enterprise/subscription sources remain unchanged. Public PVE/Ceph
+  sources can be migrated; the client does not alter subscriptions, Perl modules,
+  container templates or enterprise repository policy.
+- Gentoo changes only `GENTOO_MIRRORS` in `make.conf`, retaining other settings,
+  sync methods and trust controls. Run the normal sync/fetch commands afterward.
+  Multiline shell assignments require manual review. Rsync/Git sync is not
+  tunneled through the HTTP proxy.
+- NixOS receives `/etc/nixos/mirrorproxy.nix`. Add `./mirrorproxy.nix` to your
+  configuration's `imports`, then run `sudo nixos-rebuild switch`. Existing trusted
+  public keys remain unchanged; the official cache stays available. Existing
+  root `.nix-channels` HTTP URLs can also be migrated. The client does not edit
+  flake inputs or evaluate Nix. To roll back, remove the import, run `reset system`,
+  then rebuild; refresh channels if they were used.
+- On openSUSE, a repository service such as RIS may regenerate `.repo` files.
+  Manage that service with the native Zypper tools before migration if needed;
+  the client does not uninstall service packages or edit their service policy.
+
+## Safety, server upgrade and rollback
+
+`--dry-run` validates actual payloads and displays changed lines without writing
+files or rollback state. Sensitive lines are redacted. Changed files and their
+original contents are recorded in `/var/lib/mirrorproxy/sources/system.json`
+before any configuration is replaced. Paths are restricted to the selected
+profile; symlinked configuration files/directories are refused. Unix permissions
+are retained. Every restore path and file is checked before restoration starts;
+post-migration user changes require an explicit `--force` to overwrite.
+
+Writes are atomic per file, not as one filesystem transaction. After an
+interruption, `reset system --scope system` can restore partially written files.
+Keep this client version until reset; older clients cannot read the new
+multi-file manifest. Refresh the native package index after applying or restoring
+sources. No database migration or server deployment is performed by the client.
+
+New public roots are included in the server defaults. If your TOML explicitly
+sets `upstreams.additional_os`, merge the new keys from `config.example.toml`
+while preserving custom overrides; an explicit map replaces the defaults.
+Fixed roots such as `upstreams.debian` and `upstreams.fedora` keep their existing
+configuration fields. A successful preview does not test remote connectivity.
+
+For isolated fixtures, add `--config-root <directory>`; identification, native
+configuration and rollback state are all read/written below that root. The native
+default system scope is Linux; other platforms require this explicit test root.
+
+## Verify on Linux
+
+After migrating, verify the effective configuration and a real package download:
+
+| Adapter | Example verification |
+| --- | --- |
+| APT | `apt-get update`; `apt-cache policy hello`; `apt-get --print-uris download hello`; `apt-get download hello` |
+| RPM | `dnf repolist -v`; `dnf --refresh makecache`; download a package with DNF |
+| Zypper | `zypper lr -u`; `zypper refresh`; download a package |
+| pacman | `pacman -Syyw --noconfirm <package>` in a disposable environment |
+| apk | `apk update`; `apk fetch busybox` |
+| XBPS | `xbps-query -L`; `xbps-install -S`; fetch/install a small package in a container |
+| Gentoo | Normal sync followed by `emerge --fetchonly <package>` |
+| NixOS | Import/rebuild, inspect substituters, fetch a signed store path |
+
+Check the selected URI and the ecosystem's signature/digest validation, not only
+an HTTP status or generated text. A preserved third-party repository may still
+provide a preferred candidate. Compare original file checksums after reset.
+
+The disposable container smoke is run by the operator on Linux:
+
+```bash
+cargo build --locked --release -p mirrorproxy-cli --target x86_64-unknown-linux-musl
+MIRRORPROXY_OS_SMOKE_BASE=https://mirror.example.com \
+MIRRORPROXY_OS_SMOKE_CLIENT_BINARY="$PWD/target/x86_64-unknown-linux-musl/release/mirrorproxy" \
+MIRRORPROXY_OS_SMOKE_TARGETS="debian ubuntu fedora archlinux alpine opensuse void gentoo" \
+bash scripts/smoke-os-clients.sh
+```
+
+This exercises representative package-manager families, not every version in
+the matrix. Additional OS/version images need their own live validation before
+production use. Container execution and package downloads require network access.
+The musl build requires the Rust target and musl toolchain; select the matching
+architecture on ARM hosts. Optional smoke targets include `rocky`, `alma` and
+`oraclelinux`. Override a family image with variables such as
+`MIRRORPROXY_OS_SMOKE_DEBIAN_IMAGE=debian:trixie-slim` or
+`MIRRORPROXY_OS_SMOKE_FEDORA_IMAGE=fedora:43` to test another version.
+
+[简体中文](System-Sources-zh-CN)

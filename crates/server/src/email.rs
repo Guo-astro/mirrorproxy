@@ -22,8 +22,8 @@ use url::Url;
 use crate::{
     bad_request_response,
     database::{Database, SmtpSettings},
-    internal_error_response, require_super_admin, unauthorized_response, user_session_cookie,
-    valid_user_email, AppState,
+    internal_error_response, require_super_admin, unauthorized_response, user_csrf_cookie,
+    user_session_cookie, valid_user_email, AppState,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -495,6 +495,9 @@ pub(crate) async fn verify_email_login(
         .headers_mut()
         .insert(header::SET_COOKIE, user_session_cookie(&session.token));
     response
+        .headers_mut()
+        .append(header::SET_COOKIE, user_csrf_cookie(&session.token));
+    response
 }
 
 fn login_link(
@@ -543,6 +546,9 @@ fn default_smtp_settings() -> SmtpSettings {
     }
 }
 
+// Axum responses are intentionally propagated intact so handlers can preserve
+// status codes, headers, and response bodies without an extra allocation.
+#[allow(clippy::result_large_err)]
 async fn enqueue_plain_email(
     state: &AppState,
     recipient: &str,
@@ -552,6 +558,7 @@ async fn enqueue_plain_email(
     enqueue_email(state, recipient, subject, body, None).await
 }
 
+#[allow(clippy::result_large_err)]
 async fn enqueue_email(
     state: &AppState,
     recipient: &str,
@@ -575,6 +582,29 @@ async fn enqueue_email(
             tracing::error!(%error, "failed to enqueue email");
             internal_error_response()
         })?;
+    Ok(())
+}
+
+pub(crate) async fn enqueue_operational_alert(
+    state: &AppState,
+    recipients: &[String],
+    subject: &str,
+    body: &str,
+) -> anyhow::Result<()> {
+    let configured = state
+        .database
+        .smtp_settings()
+        .await?
+        .is_some_and(|settings| settings.enabled);
+    if !configured {
+        anyhow::bail!("SMTP is not enabled for operational alert delivery");
+    }
+    for recipient in recipients {
+        state
+            .database
+            .enqueue_email(recipient, subject, body, None)
+            .await?;
+    }
     Ok(())
 }
 

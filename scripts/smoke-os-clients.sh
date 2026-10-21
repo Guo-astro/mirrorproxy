@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 # Runs destructive package-manager checks only inside disposable OS containers.
-# Images, the installer, release assets, repository metadata, and packages all
-# flow through the selected MirrorProxy deployment.
+# Migrate original distribution configuration and verify package payloads through
+# the selected deployment. Initial bootstrap installs may use official upstreams.
 
 base="${MIRRORPROXY_OS_SMOKE_BASE:-https://sina.dev}"
 base="${base%/}"
@@ -23,11 +23,13 @@ fi
 
 # Expanded intentionally by the shell running inside each container.
 # shellcheck disable=SC2016
-install_client='curl -fsSL "${MIRROR_BASE}/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh" | sh -s -- --mirror "${MIRROR_BASE}"
-mirrorproxy --version
-if [ -x /opt/mirrorproxy-candidate ]; then
+install_client='if [ -x /opt/mirrorproxy-candidate ]; then
   install -m 0755 /opt/mirrorproxy-candidate /usr/local/bin/mirrorproxy
-fi'
+else
+  curl -fsSL "${MIRROR_BASE}/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh" | sh -s -- --mirror "${MIRROR_BASE}"
+fi
+mirrorproxy --version
+mirrorproxy systems'
 
 run_case() {
   local target=$1
@@ -45,96 +47,118 @@ run_case() {
 for target in ${targets}; do
   case "${target}" in
     debian)
-      run_case debian debian:bookworm-slim "apt-get update
+      run_case debian "${MIRRORPROXY_OS_SMOKE_DEBIAN_IMAGE:-debian:bookworm-slim}" "apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl
 ${install_client}
-rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources
-mirrorproxy set apt --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system --distribution debian/bookworm
+find /etc/apt -type f -exec sha256sum {} \\; > /tmp/apt.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing --dry-run
+sha256sum -c /tmp/apt.before
+test ! -e /var/lib/mirrorproxy/sources/system.json
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 rm -rf /var/lib/apt/lists/*
 apt-get update
 cd /tmp
+apt-get --print-uris download hello | grep -F \"\${MIRROR_BASE}/os/debian/\"
 apt-get download hello
 test -s hello_*.deb
-mirrorproxy reset apt --scope system
-test ! -e /etc/apt/sources.list.d/mirrorproxy.list"
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/apt.before
+test ! -e /var/lib/mirrorproxy/sources/system.json"
       ;;
     ubuntu)
-      run_case ubuntu ubuntu:24.04 "apt-get update
+      run_case ubuntu "${MIRRORPROXY_OS_SMOKE_UBUNTU_IMAGE:-ubuntu:24.04}" "apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl
 ${install_client}
-rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
-mirrorproxy set apt --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system --distribution ubuntu/noble
+find /etc/apt -type f -exec sha256sum {} \\; > /tmp/apt.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing --dry-run
+sha256sum -c /tmp/apt.before
+test ! -e /var/lib/mirrorproxy/sources/system.json
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 rm -rf /var/lib/apt/lists/*
 apt-get update
 cd /tmp
+apt-get --print-uris download hello | grep -F \"\${MIRROR_BASE}/os/ubuntu/\"
 apt-get download hello
 test -s hello_*.deb
-mirrorproxy reset apt --scope system
-test ! -e /etc/apt/sources.list.d/mirrorproxy.list"
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/apt.before
+test ! -e /var/lib/mirrorproxy/sources/system.json"
       ;;
-    fedora)
-      run_case fedora fedora:42 "${install_client}
-rm -f /etc/yum.repos.d/*.repo
-mirrorproxy set dnf --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system
+    fedora|rocky|alma|oraclelinux)
+      case "${target}" in
+        fedora) rpm_image="${MIRRORPROXY_OS_SMOKE_FEDORA_IMAGE:-fedora:44}" ;;
+        rocky) rpm_image="${MIRRORPROXY_OS_SMOKE_ROCKY_IMAGE:-rockylinux:9}" ;;
+        alma) rpm_image="${MIRRORPROXY_OS_SMOKE_ALMA_IMAGE:-almalinux:9}" ;;
+        oraclelinux) rpm_image="${MIRRORPROXY_OS_SMOKE_ORACLELINUX_IMAGE:-oraclelinux:9}" ;;
+      esac
+      run_case "${target}" "${rpm_image}" "dnf install -y curl ca-certificates
+if ! dnf download --help >/dev/null 2>&1; then dnf install -y dnf-plugins-core; fi
+${install_client}
+find /etc/yum.repos.d -type f -exec sha256sum {} \\; > /tmp/repos.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 dnf --refresh makecache
+dnf download --url setup | grep -F \"\${MIRROR_BASE}/os/\"
 dnf download --destdir=/tmp setup
 test -s /tmp/setup-*.rpm
-mirrorproxy reset dnf --scope system
-test ! -e /etc/yum.repos.d/mirrorproxy.repo"
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-*
+rpmkeys --checksig /tmp/setup-*.rpm
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/repos.before"
       ;;
     archlinux)
-      run_case archlinux archlinux:latest "${install_client}
+      run_case archlinux "${MIRRORPROXY_OS_SMOKE_ARCHLINUX_IMAGE:-archlinux:latest}" "${install_client}
 sha256sum /etc/pacman.d/mirrorlist >/tmp/mirrorlist.before
-mirrorproxy set pacman --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system --force
-grep -F \"Server = \${MIRROR_BASE}/os/archlinux/\" /etc/pacman.d/mirrorlist
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
+grep -F \"\${MIRROR_BASE}/os/archlinux/\" /etc/pacman.d/mirrorlist
 pacman -Syyw --noconfirm --cachedir /tmp filesystem
 test -s /tmp/filesystem-*.pkg.tar.zst
-mirrorproxy reset pacman --scope system --force
+mirrorproxy reset system --scope system
 sha256sum -c /tmp/mirrorlist.before"
       ;;
     alpine)
-      run_case alpine alpine:3.21 "apk add --no-cache ca-certificates curl
+      run_case alpine "${MIRRORPROXY_OS_SMOKE_ALPINE_IMAGE:-alpine:3.21}" "apk add --no-cache ca-certificates curl
 ${install_client}
-: >/etc/apk/repositories
-mirrorproxy set alpine --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system --distribution v3.21 --force
+sha256sum /etc/apk/repositories > /tmp/repositories.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 apk update
 apk fetch --output /tmp busybox
 test -s /tmp/busybox-*.apk
-mirrorproxy reset alpine --scope system --force"
+apk verify /tmp/busybox-*.apk
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/repositories.before"
       ;;
     opensuse)
-      run_case opensuse opensuse/leap:15.6 "zypper --non-interactive install --no-recommends tar gzip
+      run_case opensuse "${MIRRORPROXY_OS_SMOKE_OPENSUSE_IMAGE:-opensuse/leap:15.6}" "zypper --non-interactive install --no-recommends tar gzip
 ${install_client}
-rm -f /etc/zypp/repos.d/*.repo
-mirrorproxy set zypper --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system --distribution distribution/leap/15.6
+find /etc/zypp/repos.d -type f -exec sha256sum {} \\; > /tmp/repos.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 zypper --non-interactive refresh
 zypper --non-interactive install --download-only --no-recommends tree
 find /var/cache/zypp/packages -type f -name 'tree-*.rpm' -print -quit | grep .
-mirrorproxy reset zypper --scope system
-test ! -e /etc/zypp/repos.d/mirrorproxy.repo"
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/repos.before"
       ;;
     void)
-      run_case void voidlinux/voidlinux:latest "mv /usr/share/xbps.d /usr/share/xbps.d.bootstrap
-mkdir -p /usr/share/xbps.d
-xbps-install -Suy -R \"\${MIRROR_BASE}/os/void/current\" xbps
-xbps-install -y -R \"\${MIRROR_BASE}/os/void/current\" ca-certificates curl
+      run_case void "${MIRRORPROXY_OS_SMOKE_VOID_IMAGE:-voidlinux/voidlinux:latest}" "xbps-install -Suy xbps
+xbps-install -y ca-certificates curl
 ${install_client}
-rm -rf /usr/share/xbps.d
-mkdir -p /usr/share/xbps.d
-mirrorproxy set xbps --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system
+find /usr/share/xbps.d -type f -exec sha256sum {} \\; > /tmp/vendor-repos.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 xbps-install -S
 xbps-install -y tree
 command -v tree
-mirrorproxy reset xbps --scope system
-test ! -e /etc/xbps.d/00-mirrorproxy.conf"
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/vendor-repos.before"
       ;;
     gentoo)
-      run_case gentoo gentoo/stage3:latest "${install_client}
+      run_case gentoo "${MIRRORPROXY_OS_SMOKE_GENTOO_IMAGE:-gentoo/stage3:latest}" "${install_client}
 emerge-webrsync
-mirrorproxy set gentoo --mirror mirrorproxy --base-url \"\${MIRROR_BASE}\" --scope system --force
+sha256sum /etc/portage/make.conf > /tmp/make-conf.before
+mirrorproxy set system --base-url \"\${MIRROR_BASE}\" --scope system --replace-existing
 emerge --fetchonly --quiet-build app-misc/hello
 test -s /var/cache/distfiles/hello-*.tar.gz
-mirrorproxy reset gentoo --scope system --force"
+mirrorproxy reset system --scope system
+sha256sum -c /tmp/make-conf.before"
       ;;
     *)
       echo "unknown OS smoke target: ${target}" >&2

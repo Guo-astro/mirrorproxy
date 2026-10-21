@@ -1,3 +1,4 @@
+use super::sanitize_repository_path;
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -41,19 +42,6 @@ pub async fn proxy(
         request.uri().query(),
     )?;
     proxy::forward(&state, request.method().clone(), url, request.headers()).await
-}
-
-fn sanitize_repository_path(path: &str) -> Result<String, ProxyError> {
-    let path = path.trim_start_matches('/');
-    if path.is_empty()
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == ".." || part.contains('\0'))
-    {
-        return Err(ProxyError::InvalidUrl);
-    }
-    Ok(path.to_string())
 }
 
 #[cfg(test)]

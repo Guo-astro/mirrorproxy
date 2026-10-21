@@ -76,6 +76,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn system_client_roots_resolve_without_implicitly_enabling_rhel() {
+        let mut upstreams = crate::config::Upstreams::default();
+        for repository in mirrorproxy_catalog::systems::SYSTEM_REPOSITORIES {
+            if repository.upstream.is_empty() {
+                assert!(repository_for_target(&upstreams, repository.code).is_err());
+            } else {
+                let base = repository_for_target(&upstreams, repository.code).unwrap();
+                assert!(reqwest::Url::parse(base).is_ok(), "{}", repository.code);
+            }
+        }
+        upstreams
+            .additional_os
+            .insert("rhel".into(), "https://rhel.example/content-root".into());
+        assert_eq!(
+            repository_for_target(&upstreams, "rhel").unwrap(),
+            "https://rhel.example/content-root"
+        );
+    }
+
+    #[test]
     fn resolves_fixed_and_additional_targets() {
         let upstreams = crate::config::Upstreams::default();
         assert_eq!(
@@ -84,7 +104,7 @@ mod tests {
         );
         assert_eq!(
             repository_for_target(&upstreams, "kali").unwrap(),
-            "https://http.kali.org/kali"
+            "https://kali.download/kali"
         );
         assert_eq!(
             repository_for_target(&upstreams, "ros").unwrap(),

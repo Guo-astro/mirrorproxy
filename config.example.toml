@@ -1,12 +1,41 @@
 listen_addr = "127.0.0.1:3000"
 database_path = "mirrorproxy.sqlite3"
+# Optional, environment-only: MIRRORPROXY_MASTER_KEY=<32-byte hex or base64url>
+# Keep this stable and outside the database/data volume; losing it prevents
+# recovery of encrypted runtime, SMTP, OAuth, email, and ACME secret fields.
 public_base_url = "http://127.0.0.1:3000"
 forward_client_authorization = false
-enabled_proxies = ["github", "composer", "oci", "npm", "nvm", "opam", "go", "maven", "rubygems", "rustup", "nuget", "cpan", "cran", "hackage", "julia", "luarocks", "clojars", "cocoapods", "pub", "anaconda", "texlive", "winget", "elpa", "nix", "guix", "flatpak", "homebrew", "os", "crates", "pypi"]
+enabled_proxies = ["github", "composer", "oci", "npm", "nvm", "opam", "go", "maven", "rubygems", "rustup", "nuget", "cpan", "cran", "hackage", "julia", "luarocks", "clojars", "cocoapods", "pub", "anaconda", "texlive", "winget", "huggingface", "elpa", "nix", "guix", "flatpak", "homebrew", "os", "crates", "pypi"]
+
+[site]
+title = "MirrorProxy"
+description = "MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew，以及 Linux/BSD 系统与常用软件仓库。 Fast self-hosted package and source mirror proxy."
+keywords = ["MirrorProxy", "镜像加速", "软件源", "GitHub", "Docker", "OCI", "npm", "Go Modules", "Maven", "PyPI", "crates.io", "Homebrew", "Linux", "BSD", "软件仓库", "Composer", "RubyGems", "NuGet", "CPAN", "CRAN"]
+icon_url = "/favicon.svg"
+# Left side of the footer. Empty keeps the current hostname-based default. The
+# GitHub project link and service version on the right are intentionally fixed.
+footer_text = ""
+
+# Optional additional private entry point for administration and diagnostics.
+# Enabling it does not hide the authenticated administration routes on the
+# public listener.
+[management]
+enabled = false
+listen_addr = "127.0.0.1:3001"
+
+# Prometheus metrics are local-only by default even though the administration
+# console remains available on the public listener with login protection.
+[metrics]
+local_only = true
 
 [upstreams]
 # Every string field accepts one or more HTTP(S) endpoints separated by commas.
-# Requests try endpoints in order until one returns HTTP 200.
+# Safe requests try the next endpoint after transport errors, 404/408/429, or
+# 5xx responses. Protocol-success and authentication responses are preserved.
+# Redirects to a different destination are followed only after public-address
+# validation and DNS pinning. Private IP redirects stay within an explicitly
+# configured IP origin; redirects through an outbound proxy are restricted to
+# that same IP origin because the proxy controls target DNS resolution.
 github = "https://github.com"
 github_raw = "https://raw.githubusercontent.com"
 packagist = "https://repo.packagist.org"
@@ -14,11 +43,17 @@ docker_hub = "https://registry-1.docker.io"
 ghcr = "https://ghcr.io"
 quay = "https://quay.io"
 kubernetes = "https://registry.k8s.io"
+gcr = "https://gcr.io"
+mcr = "https://mcr.microsoft.com"
+elastic = "https://docker.elastic.co"
+gitlab = "https://registry.gitlab.com"
+nvcr = "https://nvcr.io"
+oracle = "https://container-registry.oracle.com"
 npm = "https://registry.npmjs.org"
 nvm = "https://nodejs.org/dist"
 opam = "https://opam.ocaml.org"
 go_proxy = "https://proxy.golang.org"
-maven = "https://repo.maven.apache.org/maven2"
+maven = "https://maven-central.storage-download.googleapis.com/maven2"
 rubygems = "https://rubygems.org"
 rustup = "https://static.rust-lang.org"
 nuget = "https://api.nuget.org"
@@ -33,6 +68,10 @@ pub_repository = "https://pub.dev"
 anaconda = "https://repo.anaconda.com/pkgs"
 texlive = "https://mirrors.ctan.org/systems/texlive/tlnet"
 winget = "https://cdn.winget.microsoft.com"
+# Public HTTP downloads only; no server cache. Clients must set HF_HUB_DISABLE_XET=1.
+# Uses timeout.request_secs as connect/read idle timeout, without a total deadline.
+# HF CDN redirects need direct egress (outbound-proxy redirects remain fail-closed).
+huggingface = "https://huggingface.co"
 elpa = "https://elpa.gnu.org/packages"
 nix = "https://cache.nixos.org"
 guix = "https://ci.guix.gnu.org"
@@ -43,21 +82,41 @@ openwrt = "https://downloads.openwrt.org"
 termux = "https://packages.termux.dev/apt/termux-main"
 debian = "https://deb.debian.org/debian"
 ubuntu = "https://archive.ubuntu.com/ubuntu"
-fedora = "https://download.fedoraproject.org/pub/fedora/linux"
+fedora = "https://mirrors.xmission.com/fedora/linux"
 archlinux = "https://geo.mirror.pkgbuild.com"
 opensuse = "https://download.opensuse.org"
 void = "https://repo-default.voidlinux.org"
 gentoo = "https://distfiles.gentoo.org"
 freebsd = "https://pkg.freebsd.org"
 
-additional_os = { kali = "https://http.kali.org/kali", rocky = "https://dl.rockylinux.org/pub/rocky", alma = "https://repo.almalinux.org/almalinux", manjaro = "https://repo.manjaro.org/repo", msys2 = "https://repo.msys2.org", raspios = "https://archive.raspberrypi.com/debian", armbian = "https://apt.armbian.com", openeuler = "https://repo.openeuler.org", anolis = "https://mirrors.openanolis.cn/anolis", deepin = "https://community-packages.deepin.com/beige", linuxmint = "https://mirrors.edge.kernel.org/linuxmint-packages", solus = "https://cdn.getsol.us/repo", trisquel = "https://archive.trisquel.info/trisquel", linuxlite = "https://repo.linuxliteos.com/linuxlite", ros = "http://packages.ros.org/ros2/ubuntu", netbsd = "https://cdn.netbsd.org", openbsd = "https://cdn.openbsd.org" }
+# An explicit additional_os map replaces the defaults; merge new keys on upgrade.
+# RHEL has no public default: add rhel = "https://your-authorized-mirror.example"
+# inside this map only when that mirror serves the compatible /content hierarchy.
+
+additional_os = { kali = "https://kali.download/kali", rocky = "https://dl.rockylinux.org/pub/rocky", alma = "https://repo.almalinux.org/almalinux", manjaro = "https://repo.manjaro.org/repo", msys2 = "https://repo.msys2.org", raspios = "https://archive.raspberrypi.com/debian", armbian = "https://apt.armbian.com", openeuler = "https://repo.openeuler.org", anolis = "https://mirrors.openanolis.cn/anolis", deepin = "https://community-packages.deepin.com/beige", linuxmint = "https://mirrors.edge.kernel.org/linuxmint-packages", solus = "https://cdn.getsol.us/repo", trisquel = "https://archive.trisquel.info/trisquel", linuxlite = "https://repo.linuxliteos.com/linuxlite", ros = "http://packages.ros.org/ros2/ubuntu", netbsd = "https://cdn.netbsd.org", openbsd = "https://cdn.openbsd.org", debian-security = "https://security.debian.org/debian-security", debian-archive = "https://archive.debian.org/debian", debian-security-archive = "https://archive.debian.org/debian-security", ubuntu-security = "https://security.ubuntu.com/ubuntu", ubuntu-ports = "https://ports.ubuntu.com/ubuntu-ports", ubuntu-old = "https://old-releases.ubuntu.com/ubuntu", deepin-root = "https://community-packages.deepin.com", proxmox = "https://download.proxmox.com/debian", raspbian = "https://raspbian.raspberrypi.com/raspbian", fedora-archive = "https://archives.fedoraproject.org/pub/archive/fedora/linux", centos-vault = "https://vault.centos.org", centos-stream = "https://mirror.stream.centos.org", oraclelinux = "https://yum.oracle.com/repo", opencloudos = "https://mirrors.opencloudos.tech/opencloudos", openkylin = "https://archive.build.openkylin.top/openkylin", endeavouros = "https://mirrors.alpix.eu/endeavouros/repo", nix-store = "https://cache.nixos.org", nix-channels = "https://channels.nixos.org", opencloudos-stream = "https://mirrors.opencloudos.tech/opencloudos-stream", archlinuxarm = "https://mirror.archlinuxarm.org" }
 crates_index = "https://index.crates.io"
 crates_api = "https://crates.io"
 pypi_simple = "https://pypi.org/simple"
 pypi_files = "https://files.pythonhosted.org"
 
+# OCI bearer challenges may use the challenged registry origin plus these
+# explicit HTTPS token-issuer origins. Add an entry here when a custom registry
+# delegates authentication to a different public origin.
+[oci_token_issuers]
+docker_hub = ["https://auth.docker.io"]
+elastic = ["https://docker-auth.elastic.co"]
+gitlab = ["https://gitlab.com"]
+# ghcr = ["https://auth.registry.example"]
+
 [timeout]
 request_secs = 60
+
+# ordered preserves configured priority. adaptive keeps healthy low-latency
+# endpoints first and temporarily opens a circuit after repeated failures.
+[upstream_selection]
+strategy = "ordered"
+failure_threshold = 3
+cooldown_secs = 30
 
 # Optional single proxy for every mirror-upstream HTTP request. socks5 resolves
 # DNS locally; socks5h delegates DNS resolution to the proxy. The same settings
@@ -70,6 +129,19 @@ no_proxy = ["127.0.0.1", "localhost"]
 # username = "proxy-user"
 # password = "replace-with-secret"
 
+# Mirror-upstream HTTPS trusts both the bundled WebPKI public roots and the
+# operating system root store. Add private/enterprise CA PEM bundles here.
+# These options never affect ACME, DNS-provider APIs, or OAuth clients.
+# Docker users must mount each referenced file into the container.
+[upstream_tls]
+ca_certificates = []
+# Debugging only: disabling verification exposes all mirror-upstream downloads
+# to man-in-the-middle attacks. Keep false in production.
+insecure_skip_verify = false
+# Environment equivalents:
+# MIRRORPROXY_UPSTREAM_TLS_CA_CERTIFICATES=/path/one.pem,/path/two.pem
+# MIRRORPROXY_UPSTREAM_TLS_INSECURE_SKIP_VERIFY=false
+
 [rate_limit]
 enabled = false
 requests_per_minute = 600
@@ -79,6 +151,57 @@ enabled = false
 directory = "mirrorproxy-cache"
 max_entry_mb = 8
 max_total_mb = 256
+# Used only when the upstream omits an explicit public max-age. Mutable package
+# indexes are revalidated after this interval with ETag or Last-Modified.
+default_ttl_secs = 300
+# Never trust an upstream cache lifetime longer than this local ceiling.
+max_ttl_secs = 86400
+
+# Offline ip2region XDB v3 databases. Missing or invalid files degrade regional
+# traffic to "Unknown" without stopping proxy or IP access-list enforcement.
+[geoip]
+enabled = true
+ipv4_path = "geoip/ip2region_v4.xdb"
+ipv6_path = "geoip/ip2region_v6.xdb"
+
+# Optional ACME certificate manager. It writes fullchain.pem and privkey.pem to
+# storage_directory. Keep direct_https=false behind an existing reverse proxy,
+# or enable it to let MirrorProxy bind HTTP/HTTPS and load the files itself.
+# On first startup these values seed the admin-editable SQLite ACME settings.
+# MIRRORPROXY_ACME_* variables keep precedence and make the admin form read-only.
+[acme]
+enabled = false
+email = "admin@example.com"
+domains = ["mirror.example.com"]
+challenge = "http-01" # http-01 or dns-01
+directory_url = "https://acme-v02.api.letsencrypt.org/directory"
+storage_directory = "acme"
+renew_before_days = 30
+check_interval_hours = 12
+# Native edge mode: bind both addresses without Caddy/Nginx. HTTP-01 always
+# remains reachable; other HTTP requests receive 308 after HTTPS becomes ready.
+direct_https = false
+http_listen_addr = "0.0.0.0:80"
+https_listen_addr = "0.0.0.0:443"
+redirect_http_to_https = true
+
+# DNS-01 is required for wildcard certificates. Supported providers are
+# cloudflare, aliyun, tencent, route53, and webhook. Credentials can be entered
+# as write-only secrets in the admin console or supplied through environment variables.
+[acme.dns]
+provider = ""
+cloudflare_zone_id = ""
+# cloudflare_api_token = "replace-with-scoped-token"
+# acme.sh-compatible aliases: CF_Zone_ID, CF_Token, CF_Key, and CF_Email.
+aliyun_domain = ""
+# acme.sh-compatible aliases: Ali_Key and Ali_Secret.
+tencent_domain = ""
+# acme.sh-compatible aliases: Tencent_SecretId and Tencent_SecretKey.
+route53_hosted_zone_id = ""
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN are supported.
+webhook_url = ""
+# webhook_bearer_token = "replace-with-secret"
+propagation_delay_secs = 30
 
 [quota]
 enabled = false
@@ -92,6 +215,17 @@ request_event_retention_days = 30
 # Omit for unlimited. Individual user overrides and billing-group limits are
 # configured from /admin.
 # default_user_monthly_gb = 100
+
+# Generic JSON webhook notifications for approaching quota limits and unhealthy
+# upstream groups. Delivery is deduplicated for the configured cooldown window.
+[alerts]
+enabled = false
+webhook_url = ""
+email_enabled = false
+email_recipients = []
+quota_percent = 80
+source_failures = 3
+cooldown_secs = 3600
 
 # Optional accounting-only user subdomains. Configure wildcard DNS and TLS for
 # *.mirror.example.com before setting mode to "subdomain_required".

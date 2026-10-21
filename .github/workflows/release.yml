@@ -27,9 +27,11 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             archive: mirrorproxy-client-x86_64-unknown-linux-musl.tar.gz
+            deb_arch: amd64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             archive: mirrorproxy-client-aarch64-unknown-linux-gnu.tar.gz
+            deb_arch: arm64
           - os: macos-15-intel
             target: x86_64-apple-darwin
             archive: mirrorproxy-client-x86_64-apple-darwin.tar.gz
@@ -75,12 +77,26 @@ jobs:
           Compress-Archive -Path "target/${{ matrix.target }}/release/mirrorproxy.exe" -DestinationPath $archive
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$archive.sha256", "$hash  $archive`n", [Text.Encoding]::ASCII)
+      - name: Package Debian client
+        if: matrix.deb_arch != ''
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/client/Cargo.toml | head -n1)"
+          ./scripts/package-client-deb.sh \
+            "target/${{ matrix.target }}/release/mirrorproxy" \
+            "$version" "${{ matrix.deb_arch }}" .
+          for deb in mirrorproxy_*.deb; do
+            sha256sum "$deb" >"$deb.sha256"
+          done
       - uses: actions/upload-artifact@v6
         with:
           name: client-${{ matrix.target }}
           path: |
             ${{ matrix.archive }}
             ${{ matrix.archive }}.sha256
+            mirrorproxy_*.deb
+            mirrorproxy_*.deb.sha256
+          if-no-files-found: ignore
 
   server:
     name: Server (${{ matrix.target }})
@@ -91,9 +107,11 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             archive: mirrorproxy-server-x86_64-unknown-linux-musl.tar.gz
+            package_arch: x86_64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             archive: mirrorproxy-server-aarch64-unknown-linux-gnu.tar.gz
+            package_arch: aarch64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -123,6 +141,7 @@ jobs:
       - name: Build server
         shell: bash
         run: |
+          bash scripts/fetch-geoip.sh
           GIT_COMMIT="${GITHUB_SHA}" \
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           cargo build --locked --release -p mirrorproxy-server --target ${{ matrix.target }}
@@ -132,27 +151,96 @@ jobs:
           staging="mirrorproxy-server-${{ matrix.target }}"
           mkdir "$staging"
           cp "target/${{ matrix.target }}/release/mirrorproxy-server" "$staging/mirrorproxy-server"
+          cp config.example.toml "$staging/config.example.toml"
+          cp -R geoip "$staging/geoip"
           chmod +x "$staging/mirrorproxy-server"
-          tar -czf "${{ matrix.archive }}" -C "$staging" mirrorproxy-server
+          tar -czf "${{ matrix.archive }}" -C "$staging" mirrorproxy-server config.example.toml geoip
           shasum -a 256 "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+      - name: Build native Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes rpm
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/server/Cargo.toml | head -n1)"
+          ./scripts/package-linux.sh \
+            "target/${{ matrix.target }}/release/mirrorproxy-server" \
+            "$version" "${{ matrix.package_arch }}" .
+          for package in mirrorproxy-server_*.deb mirrorproxy-server-*.rpm; do
+            sha256sum "$package" >"$package.sha256"
+          done
       - uses: actions/upload-artifact@v6
         with:
           name: server-${{ matrix.target }}
           path: |
             ${{ matrix.archive }}
             ${{ matrix.archive }}.sha256
+            mirrorproxy-server_*.deb
+            mirrorproxy-server-*.rpm
+            mirrorproxy-server_*.deb.sha256
+            mirrorproxy-server-*.rpm.sha256
 
   publish:
     needs: [client, server]
+    permissions:
+      contents: write
+      pages: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: release-artifacts
+      - name: Validate stable distribution credentials
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          test -n "$APT_GPG_PRIVATE_KEY" || { echo "::error title=APT signing key required::Add APT_GPG_PRIVATE_KEY to the repository Actions secrets."; exit 1; }
+          test -n "$HOMEBREW_TAP_TOKEN" || { echo "::error title=Homebrew tap token required::Add HOMEBREW_TAP_TOKEN to the repository Actions secrets."; exit 1; }
       - name: Assemble checksums
         run: |
           find release-artifacts -name '*.sha256' -print0 | sort -z | xargs -0 cat > SHA256SUMS
+      - name: Generate client package manifests
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          mkdir package-manifests
+          ./scripts/generate-package-manifests.sh "${GITHUB_REF_NAME#v}" release-artifacts package-manifests
+          ruby -c package-manifests/mirrorproxy.rb
+          python3 -m json.tool package-manifests/mirrorproxy.json >/dev/null
+          (cd package-manifests/winget && zip -qr ../../mirrorproxy-winget-manifests.zip manifests)
+          sha256sum mirrorproxy-winget-manifests.zip >>SHA256SUMS
+      - name: Build signed APT repository
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes apt-utils dpkg-dev gnupg
+          ./scripts/generate-apt-repository.sh release-artifacts apt-repository stable
+          tar -czf mirrorproxy-apt-repository.tar.gz -C apt-repository .
+          sha256sum mirrorproxy-apt-repository.tar.gz >>SHA256SUMS
+      - name: Publish client APT repository branch
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -C apt-repository init -b apt
+          git -C apt-repository config user.name github-actions[bot]
+          git -C apt-repository config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C apt-repository add --all
+          git -C apt-repository commit -m "apt: publish ${GITHUB_REF_NAME}"
+          git -C apt-repository remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C apt-repository push --force origin HEAD:refs/heads/apt
+      - name: Prepare Homebrew tap checkout
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
       - name: Move rolling Nightly tag
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/github-script@v8
@@ -178,7 +266,7 @@ jobs:
             }
       - name: Publish versioned release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           fail_on_unmatched_files: true
@@ -187,12 +275,30 @@ jobs:
             SHA256SUMS
             scripts/install.sh
             scripts/install.ps1
+            package-manifests/mirrorproxy.rb
+            package-manifests/mirrorproxy.json
+            package-manifests/winget/**/*
+            mirrorproxy-winget-manifests.zip
+            mirrorproxy-apt-repository.tar.gz
+            apt-repository/mirrorproxy-archive-keyring.asc
+      - name: Publish Homebrew formula
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cp package-manifests/mirrorproxy.rb homebrew-tap/Formula/mirrorproxy.rb
+          cd homebrew-tap
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Formula/mirrorproxy.rb
+          git commit -m "mirrorproxy ${GITHUB_REF_NAME#v}"
+          git push
       - name: Publish rolling Nightly
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: nightly
-          name: MirrorProxy Nightly
+          name: Nightly
           body: |
             Automated rolling build from `main` at `${{ github.sha }}`.
 
@@ -206,3 +312,29 @@ jobs:
             SHA256SUMS
             scripts/install.sh
             scripts/install.ps1
+
+  submit-winget:
+    name: Submit WinGet update
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && vars.WINGET_AUTO_SUBMIT == 'true' }}
+    needs: publish
+    runs-on: windows-latest
+    steps:
+      - name: Require WinGet submission token
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_TOKEN)) {
+            throw 'WINGET_TOKEN is required when WINGET_AUTO_SUBMIT=true'
+          }
+      - name: Install WinGetCreate
+        shell: pwsh
+        run: Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+      - name: Submit package update
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/mirrorproxy-client-x86_64-pc-windows-msvc.zip"
+          .\wingetcreate.exe update Inbjo.MirrorProxy --version $version --urls "$url|x64" --token $env:WINGET_TOKEN --submit

@@ -1,3 +1,5 @@
+pub mod systems;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MirrorProvider {
     pub code: &'static str,
@@ -35,6 +37,49 @@ pub struct SourceTarget {
     pub aliases: &'static [&'static str],
     pub supported_modes: &'static [SourceMode],
     pub default_scope: SourceScope,
+}
+
+impl SourceTarget {
+    /// Human-facing clients, shared by the public catalog and native tooling.
+    pub fn clients(&self) -> Vec<&'static str> {
+        match self.code {
+            "npm" => vec!["npm", "Yarn", "pnpm"],
+            "pip" => vec!["pip"],
+            "cargo" => vec!["Cargo"],
+            "go" => vec!["Go"],
+            "composer" => vec!["Composer"],
+            "github" => vec!["Git", "HTTP clients"],
+            "docker" => vec!["Docker", "OCI clients"],
+            "huggingface" => vec!["huggingface_hub SDK", "hf CLI"],
+            "homebrew" => vec!["Homebrew"],
+            "dnf" | "rocky" | "alma" | "anolis" | "openeuler" => vec!["YUM", "DNF"],
+            "apt" | "linuxmint" | "kali" | "trisquel" | "linuxlite" | "ros" | "raspios"
+            | "armbian" | "deepin" => vec!["APT"],
+            "pacman" | "manjaro" | "msys2" => vec!["pacman"],
+            "alpine" => vec!["apk"],
+            "zypper" => vec!["zypper"],
+            "xbps" => vec!["xbps"],
+            "gentoo" => vec!["Portage"],
+            "freebsd" => vec!["pkg"],
+            "openwrt" => vec!["opkg"],
+            "termux" => vec!["pkg", "APT"],
+            "solus" => vec!["eopkg"],
+            "anaconda" => vec!["conda"],
+            "pub" => vec!["dart pub", "flutter pub"],
+            "cpan" => vec!["cpan", "cpanm"],
+            "cran" => vec!["R"],
+            "hackage" => vec!["Cabal"],
+            "clojars" => vec!["Leiningen", "Clojure CLI"],
+            "poetry" => vec!["Poetry"],
+            "pdm" => vec!["PDM"],
+            "uv" => vec!["uv"],
+            "ocaml" => vec!["opam"],
+            "lua" => vec!["LuaRocks"],
+            "elpa" => vec!["Emacs package.el"],
+            "texlive" => vec!["tlmgr"],
+            _ => vec![self.name],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +157,108 @@ pub struct SourceTemplate {
     pub template: &'static str,
     pub requires_sudo: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContainerRegistry {
+    pub code: &'static str,
+    pub name: &'static str,
+    pub host: &'static str,
+    pub aliases: &'static [&'static str],
+    pub example_image: &'static str,
+    pub legacy: bool,
+}
+
+pub const CONTAINER_REGISTRIES: &[ContainerRegistry] = &[
+    ContainerRegistry {
+        code: "docker-hub",
+        name: "Docker Hub",
+        host: "docker.io",
+        aliases: &["registry-1.docker.io"],
+        example_image: "nginx:latest",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "ghcr",
+        name: "GitHub Container Registry",
+        host: "ghcr.io",
+        aliases: &[],
+        example_image: "ghcr.io/astral-sh/uv:latest",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "quay",
+        name: "Quay",
+        host: "quay.io",
+        aliases: &[],
+        example_image: "quay.io/prometheus/prometheus:latest",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "kubernetes",
+        name: "Kubernetes Registry",
+        host: "registry.k8s.io",
+        aliases: &["k8s.gcr.io"],
+        example_image: "registry.k8s.io/pause:3.10",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "gcr",
+        name: "Google Container Registry",
+        host: "gcr.io",
+        aliases: &[],
+        example_image: "gcr.io/distroless/static-debian12:nonroot",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "mcr",
+        name: "Microsoft Container Registry",
+        host: "mcr.microsoft.com",
+        aliases: &[],
+        example_image: "mcr.microsoft.com/dotnet/runtime:8.0",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "elastic",
+        name: "Elastic Container Registry",
+        host: "docker.elastic.co",
+        aliases: &[],
+        example_image: "docker.elastic.co/elasticsearch/elasticsearch:8.13.4",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "gitlab",
+        name: "GitLab Container Registry",
+        host: "registry.gitlab.com",
+        aliases: &[],
+        example_image:
+            "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-latest",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "nvcr",
+        name: "NVIDIA NGC Container Registry",
+        host: "nvcr.io",
+        aliases: &[],
+        example_image: "nvcr.io/nvidia/cuda:12.6.0-base-ubuntu22.04",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "oracle",
+        name: "Oracle Container Registry",
+        host: "container-registry.oracle.com",
+        aliases: &[],
+        example_image: "container-registry.oracle.com/os/oraclelinux:9-slim",
+        legacy: false,
+    },
+    ContainerRegistry {
+        code: "kubernetes-legacy",
+        name: "Kubernetes legacy alias",
+        host: "k8s.gcr.io",
+        aliases: &[],
+        example_image: "k8s.gcr.io/pause:3.8",
+        legacy: true,
+    },
+];
 
 macro_rules! template_only_os_target {
     ($code:literal, $name:literal, [$($alias:literal),* $(,)?], $modes:expr) => {
@@ -387,6 +534,14 @@ pub const SOURCE_TARGETS: &[SourceTarget] = &[
         name: "Dart / Flutter Pub",
         category: SourceCategory::Language,
         aliases: &["dart", "flutter"],
+        supported_modes: &[SourceMode::ProxyAdapter, SourceMode::TemplateOnly],
+        default_scope: SourceScope::User,
+    },
+    SourceTarget {
+        code: "huggingface",
+        name: "Hugging Face",
+        category: SourceCategory::Repository,
+        aliases: &["hf", "hugging-face"],
         supported_modes: &[SourceMode::ProxyAdapter, SourceMode::TemplateOnly],
         default_scope: SourceScope::User,
     },
@@ -953,6 +1108,13 @@ pub const TARGET_SOURCES: &[TargetSource] = &[
         capability: SourceMode::ProxyAdapter,
     },
     TargetSource {
+        target_code: "freebsd",
+        provider_code: "mirrorproxy",
+        repo_url: "/os/freebsd/",
+        speed_url: None,
+        capability: SourceMode::ProxyAdapter,
+    },
+    TargetSource {
         target_code: "termux",
         provider_code: "mirrorproxy",
         repo_url: "/os/termux/",
@@ -998,6 +1160,13 @@ pub const TARGET_SOURCES: &[TargetSource] = &[
         target_code: "winget",
         provider_code: "mirrorproxy",
         repo_url: "/winget/cache",
+        speed_url: None,
+        capability: SourceMode::ProxyAdapter,
+    },
+    TargetSource {
+        target_code: "huggingface",
+        provider_code: "mirrorproxy",
+        repo_url: "/huggingface",
         speed_url: None,
         capability: SourceMode::ProxyAdapter,
     },
@@ -1287,6 +1456,13 @@ pub const SOURCE_TEMPLATES: &[SourceTemplate] = &[
     SourceTemplate { target_code: "ocaml", os_family: "linux", scope: SourceScope::User, template: "opam repository set-url default {repo_url}", requires_sudo: false },
     SourceTemplate { target_code: "clojars", os_family: "any", scope: SourceScope::User, template: "{:mvn/repos {\"clojars\" {:url \"{repo_url}\"}}}", requires_sudo: false },
     SourceTemplate { target_code: "pub", os_family: "any", scope: SourceScope::User, template: "PUB_HOSTED_URL={repo_url} flutter pub get", requires_sudo: false },
+    SourceTemplate {
+        target_code: "huggingface",
+        os_family: "any",
+        scope: SourceScope::User,
+        template: "HF_ENDPOINT='{repo_url}' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json",
+        requires_sudo: false,
+    },
     SourceTemplate { target_code: "anaconda", os_family: "any", scope: SourceScope::User, template: "channels:\n  - {repo_url}main\n  - defaults", requires_sudo: false },
     SourceTemplate {
         target_code: "docker",
