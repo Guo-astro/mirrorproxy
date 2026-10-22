@@ -5925,6 +5925,15 @@ fn validate_admin_username(username: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+const COMMON_ADMIN_PASSWORDS: &[&str] = &[
+    "123456789012",
+    "administrator",
+    "adminpassword",
+    "password1234",
+    "qwertyuiop12",
+    "mirrorproxy",
+];
+
 fn validate_admin_password(username: &str, password: &str) -> anyhow::Result<()> {
     if password.chars().count() < 12 {
         anyhow::bail!("administrator password must contain at least 12 characters");
@@ -5933,15 +5942,7 @@ fn validate_admin_password(username: &str, password: &str) -> anyhow::Result<()>
         anyhow::bail!("administrator password must not equal the username");
     }
     let normalized = password.to_ascii_lowercase();
-    const COMMON_PASSWORDS: &[&str] = &[
-        "123456789012",
-        "administrator",
-        "adminpassword",
-        "password1234",
-        "qwertyuiop12",
-        "mirrorproxy",
-    ];
-    if COMMON_PASSWORDS.contains(&normalized.as_str()) {
+    if COMMON_ADMIN_PASSWORDS.contains(&normalized.as_str()) {
         anyhow::bail!("administrator password is too common");
     }
     Ok(())

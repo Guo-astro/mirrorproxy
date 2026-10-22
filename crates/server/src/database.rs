@@ -942,7 +942,7 @@ impl Database {
             });
         }
         let password_hash: String = row.try_get("password_hash")?;
-        if !verify_password_async(password, &password_hash).await? {
+        if !argon2_matches_async(password, &password_hash).await? {
             let previous_failures: i64 = row.try_get("failed_login_count")?;
             let failures = if locked_until.is_some() {
                 1
@@ -1060,7 +1060,7 @@ impl Database {
             return Ok(false);
         };
         let password_hash: String = row.try_get("password_hash")?;
-        if !verify_password_async(current_password, &password_hash).await? {
+        if !argon2_matches_async(current_password, &password_hash).await? {
             return Ok(false);
         }
 
@@ -1102,7 +1102,7 @@ impl Database {
             return Ok(AdminUsernameChangeOutcome::InvalidCredentials);
         };
         let password_hash: String = row.try_get("password_hash")?;
-        if !verify_password_async(current_password, &password_hash).await? {
+        if !argon2_matches_async(current_password, &password_hash).await? {
             return Ok(AdminUsernameChangeOutcome::InvalidCredentials);
         }
         if sqlx::query("SELECT 1 FROM admin_users WHERE username = ?")
@@ -3511,7 +3511,9 @@ fn harden_private_file(path: &Path) -> anyhow::Result<()> {
 // Keep memory-hard work off Tokio workers and bound aggregate Argon2 memory use.
 static PASSWORD_WORK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
-async fn password_work<T: Send + 'static>(
+// Name this executor after the operation, not its input: it returns either a
+// hash or a boolean, never a plaintext password (including to dataflow tools).
+async fn run_argon2_task<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> anyhow::Result<T> {
     let permit = PASSWORD_WORK.acquire().await?;
@@ -3524,13 +3526,13 @@ async fn password_work<T: Send + 'static>(
 
 async fn hash_password_async(password: &str) -> anyhow::Result<String> {
     let password = password.to_owned();
-    password_work(move || hash_password(&password)).await?
+    run_argon2_task(move || hash_password(&password)).await?
 }
 
-async fn verify_password_async(password: &str, hash: &str) -> anyhow::Result<bool> {
+async fn argon2_matches_async(password: &str, hash: &str) -> anyhow::Result<bool> {
     let password = password.to_owned();
     let hash = hash.to_owned();
-    password_work(move || verify_password(&password, &hash)).await
+    run_argon2_task(move || argon2_matches(&password, &hash)).await
 }
 
 fn hash_password(password: &str) -> anyhow::Result<String> {
@@ -3541,7 +3543,7 @@ fn hash_password(password: &str) -> anyhow::Result<String> {
         .to_string())
 }
 
-fn verify_password(password: &str, password_hash: &str) -> bool {
+fn argon2_matches(password: &str, password_hash: &str) -> bool {
     PasswordHash::new(password_hash)
         .ok()
         .and_then(|parsed| {

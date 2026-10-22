@@ -996,6 +996,40 @@ async fn respond_ok(stream: &mut TcpStream) {
         .unwrap();
 }
 
+// The proxy mocks tunnel to a real TLS origin. Trust only its generated
+// certificate, so SOCKS DNS/authentication tests also retain TLS validation.
+async fn proxy_test_tls_origin(
+    host: &str,
+) -> (SocketAddr, Certificate, axum_server::Handle<SocketAddr>) {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let generated = rcgen::generate_simple_self_signed(vec![host.to_string()]).unwrap();
+    let certificate = Certificate::from_pem(generated.cert.pem().as_bytes()).unwrap();
+    let tls = axum_server::tls_rustls::RustlsConfig::from_pem(
+        generated.cert.pem().into_bytes(),
+        generated.signing_key.serialize_pem().into_bytes(),
+    )
+    .await
+    .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = axum_server::Handle::new();
+    let server_handle = handle.clone();
+    tokio::spawn(async move {
+        axum_server::from_tcp_rustls(listener, tls)
+            .unwrap()
+            .handle(server_handle)
+            .serve(
+                Router::new()
+                    .route("/from-socks", get(|| async { "ok" }))
+                    .into_make_service(),
+            )
+            .await
+            .unwrap();
+    });
+    (address, certificate, handle)
+}
+
 #[test]
 fn generated_admin_credentials_log_contains_username_and_password() {
     let generated_password = uuid::Uuid::new_v4().to_string();
@@ -1030,6 +1064,8 @@ fn parses_admin_password_reset_command_without_a_username() {
 
 #[tokio::test]
 async fn global_http_proxy_handles_upstream_requests_and_authentication() {
+    use base64::Engine as _;
+    let proxy_password = uuid::Uuid::new_v4().to_string();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let proxy_task = tokio::spawn(async move {
@@ -1044,23 +1080,25 @@ async fn global_http_proxy_handles_upstream_requests_and_authentication() {
             url: format!("http://{address}"),
             no_proxy: Vec::new(),
             username: Some("proxy-user".to_string()),
-            password: Some("proxy-password".to_string()),
+            password: Some(proxy_password.clone()),
         },
         ..Config::default()
     };
     let response = build_upstream_client(&config)
         .unwrap()
-        .get("http://upstream.invalid/packages/item")
+        .get("http://127.0.0.1:18080/packages/item")
         .send()
         .await
         .unwrap();
 
     assert_eq!(response.text().await.unwrap(), "ok");
     let request = proxy_task.await.unwrap();
-    assert!(request.starts_with("GET http://upstream.invalid/packages/item HTTP/1.1\r\n"));
+    assert!(request.starts_with("GET http://127.0.0.1:18080/packages/item HTTP/1.1\r\n"));
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(format!("proxy-user:{proxy_password}"));
     assert!(request
         .to_ascii_lowercase()
-        .contains("proxy-authorization: basic "));
+        .contains(&format!("proxy-authorization: basic {}", encoded).to_ascii_lowercase()));
 }
 
 #[test]
@@ -1201,6 +1239,8 @@ async fn global_proxy_honors_no_proxy_hosts() {
 
 #[tokio::test]
 async fn global_socks5h_proxy_resolves_dns_and_authenticates_remotely() {
+    let proxy_password = uuid::Uuid::new_v4().to_string();
+    let (origin, certificate, tls_handle) = proxy_test_tls_origin("upstream.example.invalid").await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let proxy_task = tokio::spawn(async move {
@@ -1234,14 +1274,15 @@ async fn global_socks5h_proxy_resolves_dns_and_authenticates_remotely() {
             .write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0])
             .await
             .unwrap();
-        let request = read_http_headers(&mut stream).await;
-        respond_ok(&mut stream).await;
+        let mut upstream = TcpStream::connect(origin).await.unwrap();
+        tokio::io::copy_bidirectional(&mut stream, &mut upstream)
+            .await
+            .unwrap();
         (
             String::from_utf8(username).unwrap(),
             String::from_utf8(password).unwrap(),
             String::from_utf8(domain).unwrap(),
             port,
-            request,
         )
     });
     let config = Config {
@@ -1249,29 +1290,34 @@ async fn global_socks5h_proxy_resolves_dns_and_authenticates_remotely() {
             enabled: true,
             url: format!("socks5h://{address}"),
             username: Some("proxy-user".to_string()),
-            password: Some("proxy-password".to_string()),
+            password: Some(proxy_password.clone()),
             ..OutboundProxyConfig::default()
         },
         ..Config::default()
     };
-    let response = build_upstream_client(&config)
+    let response = build_upstream_client_builder(&config)
         .unwrap()
-        .get("http://upstream.example.invalid/from-socks")
+        .add_root_certificate(certificate)
+        .build()
+        .unwrap()
+        .get("https://upstream.example.invalid/from-socks")
         .send()
         .await
         .unwrap();
 
     assert_eq!(response.text().await.unwrap(), "ok");
-    let (username, password, domain, port, request) = proxy_task.await.unwrap();
+    // Close any keep-alive connection before awaiting the tunnel.
+    tls_handle.shutdown();
+    let (username, password, domain, port) = proxy_task.await.unwrap();
     assert_eq!(username, "proxy-user");
-    assert_eq!(password, "proxy-password");
+    assert_eq!(password, proxy_password);
     assert_eq!(domain, "upstream.example.invalid");
-    assert_eq!(port, 80);
-    assert!(request.starts_with("GET /from-socks HTTP/1.1\r\n"));
+    assert_eq!(port, 443);
 }
 
 #[tokio::test]
 async fn global_socks5_proxy_resolves_dns_locally() {
+    let (origin, certificate, tls_handle) = proxy_test_tls_origin("socks-local.test").await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let proxy_task = tokio::spawn(async move {
@@ -1303,9 +1349,11 @@ async fn global_socks5_proxy_resolves_dns_locally() {
             .write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0])
             .await
             .unwrap();
-        let request = read_http_headers(&mut stream).await;
-        respond_ok(&mut stream).await;
-        (address_type, port, request)
+        let mut upstream = TcpStream::connect(origin).await.unwrap();
+        tokio::io::copy_bidirectional(&mut stream, &mut upstream)
+            .await
+            .unwrap();
+        (address_type, port)
     });
     let config = Config {
         outbound_proxy: OutboundProxyConfig {
@@ -1317,22 +1365,23 @@ async fn global_socks5_proxy_resolves_dns_locally() {
     };
     let response = build_upstream_client_builder(&config)
         .unwrap()
+        .add_root_certificate(certificate)
         .resolve(
             "socks-local.test",
             SocketAddr::from(([127, 0, 0, 1], 18080)),
         )
         .build()
         .unwrap()
-        .get("http://socks-local.test:18080/from-socks")
+        .get("https://socks-local.test:18080/from-socks")
         .send()
         .await
         .unwrap();
 
     assert_eq!(response.text().await.unwrap(), "ok");
-    let (address_type, port, request) = proxy_task.await.unwrap();
+    tls_handle.shutdown();
+    let (address_type, port) = proxy_task.await.unwrap();
     assert!(matches!(address_type, 1 | 4));
     assert_eq!(port, 18080);
-    assert!(request.starts_with("GET /from-socks HTTP/1.1\r\n"));
 }
 
 #[test]
@@ -2263,19 +2312,20 @@ async fn admin_password_change_revokes_current_session() {
     );
 
     let username = credentials.username.clone();
+    let new_password = uuid::Uuid::new_v4().to_string();
     let response = change_admin_password(
         headers,
         State(state),
         Json(AdminPasswordChangeRequest {
             current_password: credentials.password,
-            new_password: "new-password-for-admin".to_string(),
+            new_password: new_password.clone(),
         }),
     )
     .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     assert!(!database.authorize(&session.token).await.unwrap());
     assert!(database
-        .login(&username, "new-password-for-admin")
+        .login(&username, &new_password)
         .await
         .unwrap()
         .is_some());
@@ -2375,6 +2425,7 @@ fn user_cookie_is_host_only_lax_and_never_scoped_to_wildcard_subdomains() {
 #[tokio::test]
 async fn administrator_login_is_limited_by_username_and_source() {
     let (state, credentials) = admin_test_state().await;
+    let wrong_password = uuid::Uuid::new_v4().to_string();
     for attempt in 0..5 {
         let response = admin_cookie_login(
             State(state.clone()),
@@ -2382,7 +2433,7 @@ async fn administrator_login_is_limited_by_username_and_source() {
             HeaderMap::new(),
             Json(AdminLoginRequest {
                 username: credentials.username.clone(),
-                password: "wrong-password".to_string(),
+                password: wrong_password.clone(),
             }),
         )
         .await;
@@ -2398,7 +2449,7 @@ async fn administrator_login_is_limited_by_username_and_source() {
         HeaderMap::new(),
         Json(AdminLoginRequest {
             username: credentials.username,
-            password: "still-wrong".to_string(),
+            password: uuid::Uuid::new_v4().to_string(),
         }),
     )
     .await;
@@ -2487,7 +2538,7 @@ async fn passkey_only_policy_rejects_new_administrator_accounts() {
         State(state.clone()),
         Json(CreateAdminRequest {
             username: "operator".to_string(),
-            password: "operator-password-123".to_string(),
+            password: uuid::Uuid::new_v4().to_string(),
             role: "admin".to_string(),
         }),
     )
@@ -2995,10 +3046,14 @@ async fn passkey_registration_challenge_is_server_stored_session_bound_and_one_t
 fn administrator_password_policy_rejects_weak_values() {
     assert!(validate_admin_username("ops.admin").is_ok());
     assert!(validate_admin_username("bad name").is_err());
-    assert!(validate_admin_password("admin", "a-long-unique-passphrase").is_ok());
-    assert!(validate_admin_password("admin", "short").is_err());
-    assert!(validate_admin_password("administrator", "administrator").is_err());
-    assert!(validate_admin_password("admin", "password1234").is_err());
+    let password = uuid::Uuid::new_v4().simple().to_string();
+    assert!(validate_admin_password("admin", &password).is_ok());
+    assert!(validate_admin_password("admin", &password[..5]).is_err());
+    assert!(validate_admin_password(&password, &password).is_err());
+    for common in COMMON_ADMIN_PASSWORDS {
+        // Exercise policy data, not reusable authentication credentials.
+        assert!(validate_admin_password("admin", &common.to_uppercase()).is_err());
+    }
 }
 
 #[tokio::test]
@@ -4366,6 +4421,7 @@ async fn serves_embedded_index() {
 #[tokio::test]
 async fn user_summary_requires_super_admin_and_preserves_config_snapshots() {
     let (state, credentials) = admin_test_state().await;
+    let viewer_password = uuid::Uuid::new_v4().to_string();
     let snapshot = state.config();
     assert!(Arc::ptr_eq(&snapshot, &state.config()));
     Arc::make_mut(&mut state.config.write().unwrap()).site.title = "Updated".into();
@@ -4389,12 +4445,12 @@ async fn user_summary_requires_super_admin_and_preserves_config_snapshots() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     state
         .database
-        .create_admin("admin", "viewer", "a-test-password", "admin")
+        .create_admin("admin", "viewer", &viewer_password, "admin")
         .await
         .unwrap();
     let viewer = state
         .database
-        .login("viewer", "a-test-password")
+        .login("viewer", &viewer_password)
         .await
         .unwrap()
         .unwrap();

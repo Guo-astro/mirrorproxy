@@ -160,7 +160,7 @@ impl Database {
             routing_length,
         } = input;
         billing.validate()?;
-        let password_hash = password_work(move || hash_password(&password)).await??;
+        let password_hash = run_argon2_task(move || hash_password(&password)).await??;
         let mut tx = self.pool.begin().await?;
         // First operation is a write, serializing competing claims without a deferred read/write upgrade.
         let (invitation_id, billing) = if let Some(token) = invitation_token {
@@ -241,8 +241,8 @@ impl Database {
         };
         let previous_hash = stored.clone();
         // Unknown accounts also perform Argon2 work to reduce username timing disclosure.
-        let valid = password_work(move || match stored {
-            Some(hash) => verify_password(&password, &hash),
+        let valid = run_argon2_task(move || match stored {
+            Some(hash) => argon2_matches(&password, &hash),
             None => {
                 let _ = hash_password(&password);
                 false
@@ -308,8 +308,8 @@ impl Database {
             return Ok(false);
         };
         let previous = hash.clone();
-        let next = password_work(move || {
-            if verify_password(&current, &hash) {
+        let next = run_argon2_task(move || {
+            if argon2_matches(&current, &hash) {
                 hash_password(&replacement).map(Some)
             } else {
                 Ok(None)
@@ -426,7 +426,7 @@ mod tests {
         .unwrap();
         assert!(hash.starts_with("$argon2"));
         assert!(!hash.contains(&password));
-        assert!(verify_password(&password, &hash));
+        assert!(argon2_matches(&password, &hash));
         let quota = db.user_billing_profile(id).await.unwrap().unwrap();
         assert_eq!(quota.group_id, Some(group.id));
         assert_eq!(quota.user_monthly_limit_bytes, Some(5 * 1024 * 1024 * 1024));

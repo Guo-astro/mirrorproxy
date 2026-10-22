@@ -1,5 +1,48 @@
 use super::*;
 
+#[tokio::test]
+async fn argon2_verification_preserves_salts_and_rejects_invalid_credentials() {
+    let password = random_secret(28);
+    let other = random_secret(28);
+    let first = hash_password_async(&password).await.unwrap();
+    let second = hash_password_async(&password).await.unwrap();
+    assert!(first.starts_with("$argon2id$"));
+    assert_ne!(first, second, "each hash must have an independent salt");
+    assert!(argon2_matches_async(&password, &first).await.unwrap());
+    assert!(argon2_matches_async(&password, &second).await.unwrap());
+    assert!(!argon2_matches_async(&other, &first).await.unwrap());
+    assert!(!argon2_matches_async(&password, &other).await.unwrap());
+}
+
+#[tokio::test]
+async fn login_sessions_use_independent_random_tokens_not_password_material() {
+    let (database, credentials) = Database::open(":memory:").await.unwrap();
+    let credentials = credentials.unwrap();
+    let first = database
+        .login(&credentials.username, &credentials.password)
+        .await
+        .unwrap()
+        .unwrap();
+    let second = database
+        .login(&credentials.username, &credentials.password)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.token.len(), 48);
+    assert_eq!(second.token.len(), 48);
+    assert_ne!(first.token, second.token);
+    assert_ne!(first.token, credentials.password);
+    assert_ne!(second.token, credentials.password);
+    let hashes: Vec<String> = sqlx::query_scalar("SELECT token_hash FROM admin_sessions")
+        .fetch_all(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(hashes.len(), 2);
+    assert!(hashes.contains(&hash_token(&first.token)));
+    assert!(hashes.contains(&hash_token(&second.token)));
+    assert!(!hashes.contains(&credentials.password));
+}
+
 #[test]
 fn missing_or_empty_initial_admin_password_generates_a_random_password() {
     for configured_password in [None, Some(String::new())] {
@@ -21,11 +64,12 @@ fn configured_initial_admin_password_is_used_without_policy_validation() {
 
 #[tokio::test]
 async fn initializes_admin_and_manages_sessions() {
+    let wrong_password = random_secret(28);
     let (database, credentials) = Database::open(":memory:").await.unwrap();
     let credentials = credentials.expect("first database open should create admin");
     assert_eq!(credentials.username, "admin");
     assert!(database
-        .login(&credentials.username, "wrong-password")
+        .login(&credentials.username, &wrong_password)
         .await
         .unwrap()
         .is_none());
@@ -42,6 +86,8 @@ async fn initializes_admin_and_manages_sessions() {
 
 #[tokio::test]
 async fn changing_password_revokes_existing_sessions() {
+    let wrong_password = random_secret(28);
+    let next_password = random_secret(28);
     let (database, credentials) = Database::open(":memory:").await.unwrap();
     let credentials = credentials.unwrap();
     let session = database
@@ -50,20 +96,16 @@ async fn changing_password_revokes_existing_sessions() {
         .unwrap()
         .unwrap();
     assert!(!database
-        .change_admin_password(&credentials.username, "wrong", "next-password-123")
+        .change_admin_password(&credentials.username, &wrong_password, &next_password)
         .await
         .unwrap());
     assert!(database
-        .change_admin_password(
-            &credentials.username,
-            &credentials.password,
-            "next-password-123",
-        )
+        .change_admin_password(&credentials.username, &credentials.password, &next_password,)
         .await
         .unwrap());
     assert!(!database.authorize(&session.token).await.unwrap());
     assert!(database
-        .login(&credentials.username, "next-password-123")
+        .login(&credentials.username, &next_password)
         .await
         .unwrap()
         .is_some());
@@ -71,11 +113,12 @@ async fn changing_password_revokes_existing_sessions() {
 
 #[tokio::test]
 async fn locks_an_administrator_after_repeated_failures() {
+    let wrong_password = random_secret(28);
     let (database, credentials) = Database::open(":memory:").await.unwrap();
     let credentials = credentials.unwrap();
     for attempt in 0..ADMIN_LOGIN_FAILURE_LIMIT {
         let outcome = database
-            .login_with_context(&credentials.username, "wrong-password", "192.0.2.1")
+            .login_with_context(&credentials.username, &wrong_password, "192.0.2.1")
             .await
             .unwrap();
         if attempt + 1 < ADMIN_LOGIN_FAILURE_LIMIT {
@@ -95,14 +138,17 @@ async fn locks_an_administrator_after_repeated_failures() {
 
 #[tokio::test]
 async fn manages_multiple_admins_and_protects_the_last_super_admin() {
+    let operator_password = random_secret(28);
+    let duplicate_password = random_secret(28);
+    let recovery_password = random_secret(28);
     let (database, credentials) = Database::open(":memory:").await.unwrap();
     let initial_username = credentials.unwrap().username;
     assert!(database
-        .create_admin("admin", "operator", "operator-password-123", "admin")
+        .create_admin("admin", "operator", &operator_password, "admin")
         .await
         .unwrap());
     assert!(!database
-        .create_admin("admin", "operator", "another-password-123", "admin")
+        .create_admin("admin", "operator", &duplicate_password, "admin")
         .await
         .unwrap());
     assert!(!database
@@ -110,7 +156,7 @@ async fn manages_multiple_admins_and_protects_the_last_super_admin() {
         .await
         .unwrap());
     assert!(database
-        .create_admin("admin", "recovery", "recovery-password-123", "super_admin",)
+        .create_admin("admin", "recovery", &recovery_password, "super_admin",)
         .await
         .unwrap());
     assert!(database
@@ -118,7 +164,7 @@ async fn manages_multiple_admins_and_protects_the_last_super_admin() {
         .await
         .unwrap());
     assert!(database
-        .login("recovery", "recovery-password-123")
+        .login("recovery", &recovery_password)
         .await
         .unwrap()
         .is_none());
@@ -550,23 +596,25 @@ async fn user_sessions_are_independent_and_revoked_when_user_is_disabled() {
 
 #[tokio::test]
 async fn super_admin_password_reset_revokes_target_sessions() {
+    let operator_password = random_secret(28);
+    let replacement_password = random_secret(28);
     let (database, _) = Database::open(":memory:").await.unwrap();
     database
-        .create_admin("admin", "operator", "operator-password-123", "admin")
+        .create_admin("admin", "operator", &operator_password, "admin")
         .await
         .unwrap();
     let session = database
-        .login("operator", "operator-password-123")
+        .login("operator", &operator_password)
         .await
         .unwrap()
         .unwrap();
     assert!(database
-        .reset_admin_password("admin", "operator", "replacement-password-123")
+        .reset_admin_password("admin", "operator", &replacement_password)
         .await
         .unwrap());
     assert!(!database.authorize(&session.token).await.unwrap());
     assert!(database
-        .login("operator", "replacement-password-123")
+        .login("operator", &replacement_password)
         .await
         .unwrap()
         .is_some());
@@ -656,10 +704,11 @@ async fn username_change_and_password_reset_follow_the_renamed_initial_admin() {
 
 #[tokio::test]
 async fn username_change_rejects_an_existing_username_without_changing_credentials() {
+    let existing_password = random_secret(28);
     let (database, credentials) = Database::open(":memory:").await.unwrap();
     let credentials = credentials.unwrap();
     database
-        .create_admin("cli", "existing-admin", "existing-password-123", "admin")
+        .create_admin("cli", "existing-admin", &existing_password, "admin")
         .await
         .unwrap();
 
