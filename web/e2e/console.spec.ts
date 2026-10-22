@@ -108,6 +108,58 @@ test.beforeEach(async ({ page, context }) => {
   await page.route('**/version', route => route.fulfill({ json: { version: '1.0.2' } }))
 })
 
+test('keeps modal close buttons square, centered and keyboard accessible', async ({ page }) => {
+  await page.goto('/')
+  for (const theme of ['light', 'dark']) {
+    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.locator('.source-tile').first().click()
+      const dialog = page.getByRole('dialog')
+      const close = dialog.getByRole('button', { name: 'Close configuration', exact: true })
+      const button = (await close.boundingBox())!
+      const icon = (await close.locator('svg').boundingBox())!
+      expect(button.width).toBe(44)
+      expect(button.height).toBe(44)
+      expect(Math.abs(icon.x + icon.width / 2 - button.x - button.width / 2)).toBeLessThan(1)
+      expect(Math.abs(icon.y + icon.height / 2 - button.y - button.height / 2)).toBeLessThan(1)
+      await close.hover()
+      await close.screenshot({ path: test.info().outputPath(`close-hover-${theme}-${width}.png`) })
+      await close.focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await expect(close).toBeFocused()
+      await expect(close).toHaveCSS('outline-style', 'solid')
+      await page.keyboard.press('Enter')
+      await expect(dialog).toHaveCount(0)
+    }
+  }
+})
+
+test('keeps source search focus on one rounded outer ring across themes and widths', async ({ page }) => {
+  await page.goto('/')
+  const search = page.getByRole('searchbox', { name: 'Search sources' })
+  const field = page.locator('.source-search')
+  for (const theme of ['light', 'dark']) {
+    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await search.focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await expect(search).toBeFocused()
+      expect(await search.evaluate(element => element.matches(':focus-visible'))).toBe(true)
+      await expect(search).toHaveCSS('outline-style', 'none')
+      await expect(search).toHaveCSS('box-shadow', 'none')
+      await expect(field).not.toHaveCSS('box-shadow', 'none')
+      await expect(field).toHaveCSS('border-radius', '7px')
+      await search.fill('npm')
+      await expect(page.locator('.source-tile')).toHaveCount(1)
+      await field.screenshot({ path: test.info().outputPath(`search-focus-${theme}-${width}.png`) })
+    }
+  }
+})
+
 test('offers public Hugging Face HTTP downloads with POSIX and PowerShell commands', async ({ page }) => {
   const hf = {
     providers: sources.providers,
@@ -826,7 +878,46 @@ test('revokes administrator sessions and searches and soft-deletes users', async
   await page.getByLabel('Search users').fill('search-me')
   await expect(page.getByText('search-me@example.com')).toBeVisible()
   await expect(page.getByText('other@example.com')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Delete' }).click()
+  const deleteButton = page.locator('.admin-user-actions').getByRole('button', { name: 'Delete', exact: true })
+  for (const theme of ['light', 'dark']) {
+    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    await deleteButton.hover()
+    await expect.poll(() => deleteButton.evaluate(element => {
+      const style = getComputedStyle(element)
+      const expected = document.createElement('span')
+      expected.style.background = 'color-mix(in srgb, var(--color-error-strong) 88%, var(--color-error))'
+      element.append(expected)
+      const background = getComputedStyle(expected).backgroundColor
+      expected.remove()
+      return style.backgroundColor === background
+    })).toBe(true)
+    const contrast = await deleteButton.evaluate(element => {
+      const style = getComputedStyle(element)
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 1
+      const context = canvas.getContext('2d')!
+      const luminance = (color: string) => {
+        context.fillStyle = color
+        context.fillRect(0, 0, 1, 1)
+        const channels = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(value => {
+          const channel = value / 255
+          return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+        })
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+      }
+      const foreground = luminance(style.color)
+      const background = luminance(style.backgroundColor)
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+    })
+    expect(contrast).toBeGreaterThanOrEqual(4.5)
+    await deleteButton.screenshot({ path: test.info().outputPath(`delete-hover-${theme}.png`) })
+    await deleteButton.focus()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(deleteButton).toBeFocused()
+    await expect(deleteButton).toHaveCSS('outline-style', 'solid')
+  }
+  await deleteButton.click()
   await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Delete user' }).click()
   await expect.poll(() => deletedUser).toBe(true)
 })

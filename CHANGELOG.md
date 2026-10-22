@@ -5,6 +5,10 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-22
+
+### Linux clients and source visibility
+
 - Add EPEL/Next/Archive, AlmaLinux Vault and independent Docker CE repository
   migration, plus Gentoo signed HTTP snapshot synchronization. Preserve source
   keys, GPG checks and rollback; do not install or restart a Docker daemon.
@@ -30,6 +34,19 @@ follow semantic versioning.
   in the administrator health view, with status refresh independent of probes.
   Keep diagnostics administrator-only, origin-only, bounded, and in memory;
   preserve the existing selection algorithm and forwarding behavior.
+
+### Runtime, security, and interface fixes
+
+- Bound cache and Argon2 work, share immutable runtime snapshots, batch and
+  paginate administrator user summaries, and bound upstream health tracking.
+- Resolve CodeQL authentication-fixture and proxy-test findings without
+  suppressing rules. Preserve Argon2 passwords, independent random sessions,
+  TLS verification, CSRF, authorization, quotas, and existing database formats.
+- Update the Vitest development-tool dependency family to 5.0.5 for the
+  mock-registration injection and Windows redirect traversal advisories.
+- Keep destructive-button hover text readable in both themes, use a single
+  rounded search focus ring, and keep setup-dialog close buttons square and
+  centered with a 44-pixel touch target and keyboard focus feedback.
 
 ## [1.5.0] - 2026-10-21
 
@@ -379,3 +396,4 @@ Multi-instance clustering and high availability are intentionally outside the
 [1.3.0]: https://github.com/inbjo/MirrorProxy/compare/v1.2.0...v1.3.0
 [1.3.1]: https://github.com/inbjo/MirrorProxy/compare/v1.3.0...v1.3.1
 [1.3.2]: https://github.com/inbjo/MirrorProxy/compare/v1.3.1...v1.3.2
+[1.6.0]: https://github.com/inbjo/MirrorProxy/compare/v1.5.0...v1.6.0

@@ -665,7 +665,7 @@ p {
 .admin-user-fields input[type="number"] { font-variant-numeric: tabular-nums; }
 .admin-user-actions { display: flex; flex-wrap: wrap; gap: 7px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .admin-user-actions button { display: inline-flex; align-items: center; justify-content: center; width: auto; min-height: 36px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line)); border-radius: 7px; color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 6%, var(--panel-strong)); cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; }
-.admin-user-actions button:hover { background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong)); }
+.admin-user-actions button:hover:not(:disabled):not(.primary-button):not(.danger-button) { background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong)); }
 .admin-user-actions .primary-button {
   border-color: var(--accent-strong);
   color: var(--primary-text);
@@ -1385,7 +1385,7 @@ p {
 .security-form input { width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; outline: none; color: var(--text); background: var(--panel-strong); font: inherit; }
 .security-form input:focus { border-color: var(--color-error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 16%, transparent); }
 .danger-button { display: inline-flex; grid-column: 1 / -1; gap: 8px; align-items: center; justify-content: center; min-height: 39px; padding: 0 15px; border: 1px solid var(--color-error); border-radius: 7px; color: var(--color-error-ink); background: var(--color-error-strong); cursor: pointer; font-weight: 700; transition: background 150ms var(--ease-out), box-shadow 150ms var(--ease-out), transform 150ms var(--ease-out); }
-.danger-button:hover { background: color-mix(in srgb, var(--color-error-strong) 88%, var(--color-error)); }
+.danger-button:hover:not(:disabled) { background: color-mix(in srgb, var(--color-error-strong) 88%, var(--color-error)); }
 .danger-button:disabled { cursor: wait; opacity: 0.65; transform: none; }
 .danger-zone > .danger-button { min-width: 140px; }
 .danger-zone .settings-card-head p { max-width: 520px; }
@@ -1990,12 +1990,31 @@ p {
   .spin { animation-duration: 1.5s !important; }
 }
 
+.config-modal-close {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out), background 150ms var(--ease-out);
+}
+.config-modal-close:hover {
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+}
+.config-modal-close svg { display: block; }
+
 /* Interaction safety net for controls shared by the public, account, and admin routes. */
 :where(button, input:not([type="checkbox"]):not([type="radio"]), select, textarea) { min-height: var(--control-min); }
 :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { outline: var(--rule-fine) solid transparent; outline-offset: 1px; }
 :where(button, a, summary):active:not(:disabled) { transform: translateY(1px); }
 :where(button, input, select, textarea):disabled { cursor: not-allowed; opacity: .55; }
-:where(button, a, summary, input, select, textarea):focus-visible { outline: var(--rule-fine) solid var(--color-focus) !important; outline-offset: 2px !important; }
+/* The search field already draws one rounded focus ring around its icon and
+   input via :focus-within; do not add a second square ring inside it. */
+:where(button, a, summary, input:not(.source-search input), select, textarea):focus-visible { outline: var(--rule-fine) solid var(--color-focus) !important; outline-offset: 2px !important; }
 
 .connection-notice {
   margin-block: 1rem;
