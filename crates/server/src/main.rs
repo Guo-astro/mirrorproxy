@@ -1780,6 +1780,7 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
         .load_or_seed_runtime_config(service_config.clone())
         .await?;
     config.site.upgrade_legacy_defaults();
+    config.upstreams.upgrade_legacy_defaults();
     // Listener topology is service-owned and only takes effect on restart.
     config.management = service_config.management.clone();
     // Private upstream credentials remain service-owned. Environment variables
@@ -2274,7 +2275,7 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
 }
 
 fn build_upstream_client(config: &Config) -> anyhow::Result<Client> {
-    build_upstream_client_builder(config)?
+    build_streaming_upstream_client_builder(config)?
         .build()
         .context("failed to build upstream HTTP client")
 }

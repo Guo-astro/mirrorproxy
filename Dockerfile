@@ -26,10 +26,13 @@ RUN --mount=type=cache,id=mirrorproxy-cargo-registry-${TARGETPLATFORM},target=/u
     install -D -m 0755 target/release/mirrorproxy-server /out/mirrorproxy-server
 
 FROM ${BASE_IMAGE_REGISTRY}/debian:bookworm-slim AS geoip-data
+ARG GEOIP_MIRROR_PREFIX
 RUN apt-get update && apt-get install --yes --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY scripts/fetch-geoip.sh scripts/fetch-geoip.sh
-RUN MIRRORPROXY_GEOIP_DESTINATION=/out/geoip bash scripts/fetch-geoip.sh
+RUN MIRRORPROXY_GEOIP_DESTINATION=/out/geoip \
+    MIRRORPROXY_GEOIP_MIRROR_PREFIX="${GEOIP_MIRROR_PREFIX}" \
+    bash scripts/fetch-geoip.sh
 
 FROM ${BASE_IMAGE_REGISTRY}/debian:bookworm-slim AS runtime
 ARG UID=10001

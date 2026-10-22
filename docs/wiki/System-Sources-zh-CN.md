@@ -14,7 +14,7 @@
 | `debian` | Debian | 8–14、testing/sid | APT |
 | `ubuntu` | Ubuntu | 14–26 | APT |
 | `kali` | Kali Linux | 滚动版本 | APT |
-| `linuxmint` | Linux Mint / LMDE | Mint 17–22；LMDE 2–7 | APT |
+| `linuxmint` | Linux Mint / LMDE | Mint 19–22；LMDE 6–7 | APT |
 | `deepin` | Deepin | 现有版本布局，含 25/beige | APT |
 | `zorin` | Zorin OS | 现有 Ubuntu 基础仓库布局 | APT |
 | `armbian` | Armbian | 现有 Debian/Ubuntu 布局 | APT |
@@ -65,6 +65,11 @@ sudo mirrorproxy reset system --scope system
 
 系统识别读取 `os-release`，不执行 shell 表达式。Armbian、树莓派与 Proxmox 的标记文件
 用于识别仍报告父发行版 ID 的系统。系统识别文件的符号链接只能指向所选根目录内。
+Mint 厂商 `mint-info` 软件包提供的 `/etc/linuxmint/info` 也用于识别保留父系统 ID 的环境，
+版本采用厂商 `RELEASE`，不会把 Ubuntu 24.04 当作 Mint 24。
+Ubuntu Kylin、Kubuntu、Lubuntu、Xubuntu、Ubuntu MATE/Budgie/Studio/Unity 和 Edubuntu
+的独立 ID 需同时声明 Ubuntu/Debian `ID_LIKE`。不把任意声明 `ID_LIKE=ubuntu` 的系统
+自动当成 Ubuntu。Mint 19 / LMDE 6 以前的版本不再声称已适配；旧回滚记录仍可恢复。
 客户端保留已有版本代号、分支、`$releasever`、`$basearch`、`$repo`、`$arch`、组件、
 密钥环和签名设置，不把 ARM 仓库猜成 x86 仓库，也不切换发行版版本。
 
@@ -75,6 +80,9 @@ pacman 保留 Manjaro 分支并处理 EndeavourOS 独立列表；Void 从 `/usr/
 生成 `/etc` 覆盖文件，不改动厂商原文件。
 
 只有目录声明的官方地址和已知镜像提供方布局会被改写，未知自定义镜像保持原样。
+已知布局包含 LinuxMirrors 的大陆、教育网、海外及云厂商内网镜像站目录，按精确域名、
+路径和仓库边界匹配；阿里云镜像地址使用 `mirrors.aliyun.com`，不使用其开发者首页。
+镜像站目录仅用于识别原配置，不代表每个站点同步所有仓库；最终上游由服务端配置决定。
 缺少或无法识别的原生配置会拒绝处理，而不是猜测配置；修复时请先恢复发行版自身的源定义。
 pacman 专用镜像列表还会识别原生 `$repo`/`$arch` URL 模板，不限于特定镜像站域名。
 新增 Gentoo 设置、NixOS 模块和 Void 覆盖文件属于下文说明的例外，原先不存在的文件在
@@ -93,15 +101,40 @@ pacman 专用镜像列表还会识别原生 `$repo`/`$arch` URL 模板，不限�
   证书；仅接受订阅认证的 Red Hat CDN 不能直接用于此适配器。不会把 RHEL 转成 CentOS。
 - Proxmox 企业/订阅源保持原样，公开 PVE/Ceph 源可以迁移；不会修改订阅、Perl 模块、
   容器模板或企业源策略。
-- Gentoo 只修改 `make.conf` 中的 `GENTOO_MIRRORS`，保留其他设置、同步方式和信任控制。
-  随后执行正常同步和获取命令；多行 shell 赋值需要人工审阅。Rsync/Git 同步不通过 HTTP
-  代理隧道转发。
+- 普通 `set system` 在 Gentoo 只修改 `GENTOO_MIRRORS`。独立的 `set gentoo-sync` 会将
+  Gentoo 仓库切换为 Portage 的 HTTP `webrsync` 快照同步，保留位置及 OpenPGP 密钥设置，
+  强制开启快照签名验证；随后运行 `emerge --sync`。需要已有官方仓库定义及有效密钥。
+  `/etc/portage/repos.conf` 为单文件或存在多个 Gentoo 定义时需先人工整理；不转发 rsync。
 - NixOS 生成 `/etc/nixos/mirrorproxy.nix`，将 `./mirrorproxy.nix` 加入配置的 `imports`
   后执行 `sudo nixos-rebuild switch`。原有可信公钥不变，保留官方缓存。已有 root
   `.nix-channels` 中的 HTTP 地址也可以迁移。不修改 flake 输入、不求值 Nix。
   回退时移除 import，执行 `reset system`，再 rebuild；使用 channel 时还需刷新 channel。
 - openSUSE 上的 RIS 等仓库服务可能重新生成 `.repo` 文件；需要时请先用原生 Zypper
   工具管理对应服务。客户端不会卸载服务软件包或修改其服务策略。
+
+## 独立附加仓库
+
+下面入口均支持 `--dry-run`，并复用系统多文件回滚记录，一次只能应用其中一个操作：
+
+```bash
+sudo mirrorproxy set epel --scope system --replace-existing --base-url https://mirror.example.com
+sudo mirrorproxy reset epel --scope system
+sudo mirrorproxy set docker-ce --scope system --replace-existing --base-url https://mirror.example.com
+sudo mirrorproxy reset docker-ce --scope system
+sudo mirrorproxy set gentoo-sync --scope system --replace-existing --base-url https://mirror.example.com
+sudo mirrorproxy reset gentoo-sync --scope system
+```
+
+- EPEL 迁移已存在的 EPEL、Next、Archive 配置，保留签名和密钥；缺少配置时先通过厂商
+  官方方式安装 `epel-release`。EPEL 7 使用 Archive 并保留过期/签名检查。
+  EPEL Next 对应上游 `pub/epel/next`，是否可下载取决于具体版本的上游生命周期。
+- AlmaLinux 的 Vault 地址与主仓库分别映射到 `/os/alma-vault/` 与 `/os/alma/`，保留固定
+  小版本路径，不把归档仓库变成最新版本。
+- Docker CE 独立迁移已有 APT/RPM 安装源，地址为 `/os/docker-ce/linux/<发行版>/...`。
+  首次安装先按 Docker 官方流程配置公钥（APT 使用 `/etc/apt/keyrings/docker.asc`），再运行
+  `set docker-ce` 生成带签名要求的源定义；已有源则执行迁移。随后使用原生包管理器安装
+  `docker-ce`、`docker-ce-cli`、`containerd.io`。不自动安装或重启 Docker 服务。
+  Docker Hub 镜像加速仍使用原来的 `set docker`，两者配置和回滚分开操作。
 
 ## 安全、服务端升级与回滚
 
@@ -118,6 +151,8 @@ pacman 专用镜像列表还会识别原生 `$repo`/`$arch` URL 模板，不限�
 新公开仓库根地址已加入服务端默认值。如果 TOML 显式配置了 `upstreams.additional_os`，
 请合并 `config.example.toml` 中的新键并保留自定义覆盖；显式映射会替换默认映射。
 `upstreams.debian`、`upstreams.fedora` 等固定根地址继续使用原配置字段。
+服务启动会为旧持久化配置补入 EPEL、Next、Archive、Alma Vault、Docker CE 缺失键，
+已有同名自定义上游会保留。新增键位于 `upstreams.additional_os`。
 预览成功不代表已经验证远程连接。
 
 隔离测试可增加 `--config-root <目录>`，系统识别、原生配置和回滚状态均位于该目录下。
@@ -157,5 +192,21 @@ musl 构建需要安装对应 Rust target 和 musl 工具链，ARM 主机应选�
 可选烟测目标还包括 `rocky`、`alma`、`oraclelinux`。可用
 `MIRRORPROXY_OS_SMOKE_DEBIAN_IMAGE=debian:trixie-slim` 或
 `MIRRORPROXY_OS_SMOKE_FEDORA_IMAGE=fedora:43` 等变量更换家族镜像、验证其他版本。
+
+`scripts/smoke-os-matrix.sh` 独立运行全部 28 个 profile，并输出逐项日志和 `results.tsv`；
+缺少真实镜像显示 `BLOCKED`，不会用父发行版伪造通过。Mint、Zorin、Armbian、Proxmox、
+Raspberry Pi OS、RHEL、EndeavourOS、NixOS 可通过相应的
+`MIRRORPROXY_OS_SMOKE_<大写标识>_IMAGE` 指定真实镜像。`centos-stream` 使用
+`MIRRORPROXY_OS_SMOKE_CENTOS_STREAM_IMAGE`；`nixos/nix` 并不是 NixOS 系统镜像。
+RHEL 另外需要客户授权上游。上游停止服务、签名过期、镜像下载失败均应记录为未通过。
+
+`scripts/smoke-system-extras.sh` 验证 EPEL RPM 签名、Docker CE APT 下载及 Gentoo 签名
+快照同步。使用静态 musl 候选客户端；镜像前缀通过 `MIRRORPROXY_OS_SMOKE_REGISTRY`
+指定（例如 `sina.dev`），代理地址通过 `MIRRORPROXY_OS_SMOKE_BASE` 指定。
+
+镜像站识别目录参考 LinuxMirrors `76fbf173`，许可见
+[LinuxMirrors MIT](https://github.com/inbjo/MirrorProxy/blob/main/docs/licenses/LinuxMirrors-MIT.txt)。
+本轮逐项结果和剩余环境要求见
+[2026-10-22 验收记录](https://github.com/inbjo/MirrorProxy/blob/main/docs/testing/Linux-Source-Acceptance-2026-10-22.md)。
 
 [English](System-Sources)

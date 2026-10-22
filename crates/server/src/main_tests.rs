@@ -3425,9 +3425,9 @@ async fn exposes_unknown_source_health_before_the_first_check() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    // Fixed probes plus the expanded default system repository roots.
-    assert_eq!(value["total"], 81);
-    assert_eq!(value["unknown"], 81);
+    // Fixed probes and system roots, including the five supplemental repositories.
+    assert_eq!(value["total"], 86);
+    assert_eq!(value["unknown"], 86);
     assert_eq!(value["unhealthy"], 0);
     assert_eq!(value["items"].as_array().unwrap().len(), 0);
     assert!(value.get("selection").is_none());
@@ -4133,6 +4133,45 @@ async fn huggingface_streams_past_total_timeout_and_rejects_unsafe_redirects() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    server.abort();
+}
+
+#[tokio::test]
+async fn os_repository_streams_past_total_timeout() {
+    let upstream = Router::new().fallback(|| async move {
+        let stream = futures_util::stream::unfold(0, |i| async move {
+            if i == 3 {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            Some((
+                Ok::<_, std::io::Error>(bytes::Bytes::from_static(b"chunk")),
+                i + 1,
+            ))
+        });
+        Response::builder().body(Body::from_stream(stream)).unwrap()
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+    let mut config = Config::default();
+    config.upstreams.alpine = format!("http://{address}");
+    config.timeout.request_secs = 1;
+    let app = build_router(config).await.unwrap();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/os/alpine/v3.21/main/package.apk")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap(),
+        "chunkchunkchunk"
+    );
     server.abort();
 }
 

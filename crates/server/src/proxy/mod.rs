@@ -447,7 +447,7 @@ pub(crate) async fn send_upstream_request(
             return Err(ProxyError::UnsafeRedirect);
         }
         let host = target.host_str().ok_or(ProxyError::UnsafeRedirect)?;
-        client = crate::build_upstream_client_builder(config)
+        client = crate::build_streaming_upstream_client_builder(config)
             .map_err(|_| ProxyError::UnsafeRedirect)?
             .resolve_to_addrs(host, &addresses)
             .build()?;

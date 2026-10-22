@@ -118,6 +118,7 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
                     profile.versions
                 );
             }
+            println!("\nIndependent repositories: epel, docker-ce, gentoo-sync (set/reset with --scope system; set requires --replace-existing)");
         }
         SourcesCommand::List { category } => {
             let category = category
@@ -166,6 +167,11 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
                 .as_deref()
                 .map(system::validated_base_url)
                 .transpose()?;
+            if matches!(target.as_str(), "epel" | "docker-ce" | "gentoo-sync") {
+                let base = base_url.as_deref().unwrap_or("https://mirror.example.com");
+                println!("target: {target}\ncommand: mirrorproxy set {target} --scope system --replace-existing --base-url {base}\nreset: mirrorproxy reset {target} --scope system");
+                return Ok(());
+            }
             let Some(target) = catalog::find_target(&target) else {
                 anyhow::bail!("unknown source target '{target}'");
             };
@@ -228,8 +234,10 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
             force,
             dry_run,
         } => {
-            if target == "system"
-                || (replace_existing && catalog::systems::system_distribution(&target).is_some())
+            if matches!(
+                target.as_str(),
+                "system" | "epel" | "docker-ce" | "gentoo-sync"
+            ) || (replace_existing && catalog::systems::system_distribution(&target).is_some())
             {
                 let scope = parse_source_scope(&scope)?;
                 anyhow::ensure!(
@@ -244,7 +252,8 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
                 anyhow::ensure!(distribution.is_none(), "--replace-existing preserves existing suites; do not combine it with --distribution");
                 let root = config_root.as_deref().unwrap_or_else(|| Path::new("/"));
                 let rollback = source_rollback_path("system", scope, root);
-                let plan = system::prepare(root, &target, base_url.as_deref())?;
+                let plan =
+                    system::prepare(root, &target, base_url.as_deref())?.with_operation(&target);
                 plan.preview();
                 if !dry_run {
                     plan.apply(&rollback)?;
@@ -334,10 +343,18 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
             force,
             dry_run,
         } => {
-            if target == "system" || catalog::systems::system_distribution(&target).is_some() {
+            if matches!(
+                target.as_str(),
+                "system" | "epel" | "docker-ce" | "gentoo-sync"
+            ) || catalog::systems::system_distribution(&target).is_some()
+            {
                 let root = config_root.as_deref().unwrap_or_else(|| Path::new("/"));
                 let record = source_rollback_path("system", CliSourceScope::System, root);
-                if target == "system" || record.exists() {
+                if matches!(
+                    target.as_str(),
+                    "system" | "epel" | "docker-ce" | "gentoo-sync"
+                ) || record.exists()
+                {
                     let scope = parse_source_scope(&scope)?;
                     anyhow::ensure!(
                         scope == CliSourceScope::System,
@@ -345,7 +362,17 @@ fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {
                     );
                     validate_scope_root(scope, config_root.as_deref())?;
                     let locations = source_locations(scope, config_root.clone(), "system")?;
-                    if target != "system" {
+                    if matches!(target.as_str(), "epel" | "docker-ce" | "gentoo-sync") {
+                        reject_symlink(&locations.rollback_path)?;
+                        if let Some(raw) = read_optional_file(&locations.rollback_path)? {
+                            let manifest: serde_json::Value = serde_json::from_str(&raw)?;
+                            anyhow::ensure!(manifest["system_operation"].as_str() == Some(&target), "rollback belongs to another operation; use reset system after review");
+                        }
+                    }
+                    if !matches!(
+                        target.as_str(),
+                        "system" | "epel" | "docker-ce" | "gentoo-sync"
+                    ) {
                         reject_symlink(&locations.rollback_path)?;
                         let raw = read_optional_file(&locations.rollback_path)?;
                         if let Some(raw) = raw {

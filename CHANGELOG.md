@@ -5,6 +5,17 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Add EPEL/Next/Archive, AlmaLinux Vault and independent Docker CE repository
+  migration, plus Gentoo signed HTTP snapshot synchronization. Preserve source
+  keys, GPG checks and rollback; do not install or restart a Docker daemon.
+- Recognize explicit Ubuntu flavour IDs and LinuxMirrors mirror layouts with
+  exact origin/path boundaries. Narrow Mint/LMDE claims to 19–22 / 6–7.
+- Expand disposable native-client smoke coverage and add a full profile matrix
+  runner that records missing authentic images as blocked instead of passing.
+- Fix CentOS Stream metalink migration, long-running package-stream timeouts,
+  the Fedora default upstream and Void vendor-repository aliases. Allow an
+  optional verified GeoIP download prefix for reproducible container builds.
+
 - Add a shared 28-distribution Linux system-source catalog, automatic system and
   version detection, native configuration migration, real file previews, and
   protected multi-file rollback. Preserve repository signatures and architectures;

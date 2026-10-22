@@ -41,6 +41,207 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn independent_repositories_preserve_unselected_sources_and_restore() {
+    for (target, id, version, path, original, expected) in [
+        ("epel", "almalinux", "9", "etc/yum.repos.d/extra.repo", "[base]\nbaseurl=https://repo.almalinux.org/almalinux/9/BaseOS/$basearch/os/\ngpgcheck=1\n[epel]\nmetalink=https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=$basearch\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-9\n", "/os/epel/9/Everything/$basearch/"),
+        ("epel", "centos", "7", "etc/yum.repos.d/extra.repo", "[epel]\nmetalink=https://mirrors.fedoraproject.org/metalink?repo=epel-7&arch=$basearch\ngpgcheck=1\n", "/os/epel-archive/7/$basearch/"),
+        ("docker-ce", "ubuntu", "24.04", "etc/apt/sources.list.d/docker.list", "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://mirrors.aliyun.com/docker-ce/linux/ubuntu noble stable\n", "/os/docker-ce/linux/ubuntu"),
+    ] {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("etc/os-release"), format!("ID={id}\nVERSION_ID={version}\n")).unwrap();
+        let source = fixture.0.join(path);
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, original).unwrap();
+        let output = fixture.run(&["set", target, "--scope", "system", "--replace-existing", "--base-url", "https://proxy.example"]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let migrated = fs::read_to_string(&source).unwrap();
+        assert!(migrated.contains(expected), "{migrated}");
+        if target == "epel" && version == "9" { assert!(migrated.contains("baseurl=https://repo.almalinux.org/almalinux/9/BaseOS/")); }
+        assert!(migrated.contains(if target == "docker-ce" { "signed-by=/etc/apt/keyrings/docker.asc" } else { "gpgcheck=1" }));
+        let wrong_target = if target == "epel" { "docker-ce" } else { "epel" };
+        assert!(!fixture.run(&["reset", wrong_target, "--scope", "system"]).status.success());
+        assert_eq!(fs::read_to_string(&source).unwrap(), migrated);
+        let output = fixture.run(&["reset", target, "--scope", "system"]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(fs::read_to_string(source).unwrap(), original);
+    }
+}
+
+#[test]
+fn gentoo_snapshot_sync_preserves_key_and_restores_vendor_override_absence() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("etc/os-release"),
+        "ID=gentoo\nVERSION_ID=2.18\n",
+    )
+    .unwrap();
+    let vendor = fixture.0.join("usr/share/portage/config/repos.conf");
+    fs::create_dir_all(vendor.parent().unwrap()).unwrap();
+    let original = "[gentoo]\nlocation = /var/db/repos/gentoo\nsync-type = rsync\nsync-uri = rsync://rsync.gentoo.org/gentoo-portage\nsync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc\nsync-webrsync-verify-signature = yes\n";
+    fs::write(&vendor, original).unwrap();
+    let unrelated = fixture.0.join("etc/portage/repos.conf/overlay.conf");
+    fs::create_dir_all(unrelated.parent().unwrap()).unwrap();
+    fs::write(&unrelated, "[overlay]\nlocation=/var/db/repos/overlay\n").unwrap();
+    let output = fixture.run(&[
+        "set",
+        "gentoo-sync",
+        "--scope",
+        "system",
+        "--replace-existing",
+        "--base-url",
+        "https://proxy.example",
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let configured =
+        fs::read_to_string(fixture.0.join("etc/portage/repos.conf/gentoo.conf")).unwrap();
+    assert!(configured.contains("sync-type = webrsync"));
+    assert!(configured.contains("sync-webrsync-verify-signature = yes"));
+    assert!(
+        configured.contains("sync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc")
+    );
+    assert_eq!(fs::read_to_string(&vendor).unwrap(), original);
+    let output = fixture.run(&["reset", "gentoo-sync", "--scope", "system"]);
+    assert!(output.status.success());
+    assert!(!fixture
+        .0
+        .join("etc/portage/repos.conf/gentoo.conf")
+        .exists());
+    assert!(!fixture.0.join("etc/portage/make.conf").exists());
+    assert_eq!(
+        fs::read_to_string(unrelated).unwrap(),
+        "[overlay]\nlocation=/var/db/repos/overlay\n"
+    );
+}
+
+#[test]
+fn mint_vendor_release_overrides_parent_id_without_using_parent_version() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("etc/os-release"),
+        "ID=ubuntu\nVERSION_ID=24.04\nNAME=Ubuntu\n",
+    )
+    .unwrap();
+    fs::create_dir_all(fixture.0.join("etc/linuxmint")).unwrap();
+    fs::write(
+        fixture.0.join("etc/linuxmint/info"),
+        "RELEASE=22\nDESCRIPTION=\"Linux Mint 22 Wilma\"\n",
+    )
+    .unwrap();
+    fs::write(fixture.0.join("etc/apt/sources.list"), "deb https://mirrors.tuna.tsinghua.edu.cn/linuxmint wilma main\ndeb http://archive.ubuntu.com/ubuntu noble main\n").unwrap();
+    let output = fixture.run(&[
+        "set",
+        "linuxmint",
+        "--scope",
+        "system",
+        "--replace-existing",
+        "--base-url",
+        "https://proxy.example",
+        "--dry-run",
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("/os/linuxmint/"));
+    assert!(output.contains("/os/ubuntu/"));
+    assert!(!fixture.0.join("var").exists());
+}
+
+#[test]
+fn docker_ce_initial_setup_requires_a_key_and_removes_generated_source_on_reset() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("etc/os-release"),
+        "ID=ubuntu\nVERSION_ID=24.04\nVERSION_CODENAME=noble\n",
+    )
+    .unwrap();
+    let set = [
+        "set",
+        "docker-ce",
+        "--scope",
+        "system",
+        "--replace-existing",
+        "--base-url",
+        "https://proxy.example",
+    ];
+    assert!(!fixture.run(&set).status.success());
+    assert!(!fixture
+        .0
+        .join("var/lib/mirrorproxy/sources/system.json")
+        .exists());
+    fs::create_dir_all(fixture.0.join("etc/apt/keyrings")).unwrap();
+    fs::write(
+        fixture.0.join("etc/apt/keyrings/docker.asc"),
+        "operator-provisioned public key",
+    )
+    .unwrap();
+    let output = fixture.run(&set);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let source = fixture
+        .0
+        .join("etc/apt/sources.list.d/mirrorproxy-docker-ce.sources");
+    let content = fs::read_to_string(&source).unwrap();
+    assert!(content.contains("URIs: https://proxy.example/os/docker-ce/linux/ubuntu/"));
+    assert!(content
+        .contains("Suites: noble\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc"));
+    assert!(fixture
+        .run(&["reset", "docker-ce", "--scope", "system"])
+        .status
+        .success());
+    assert!(!source.exists());
+    assert!(fixture.0.join("etc/apt/keyrings/docker.asc").exists());
+}
+
+#[test]
+fn ubuntu_flavours_require_explicit_base_and_old_mint_is_rejected() {
+    for (id, version, like, success) in [
+        ("ubuntukylin", "24.04", "ubuntu", true),
+        ("kubuntu", "24.04", "ubuntu debian", true),
+        ("unknown-os", "24.04", "ubuntu", false),
+        ("kubuntu", "24.04", "", false),
+        ("linuxmint", "18", "ubuntu", false),
+    ] {
+        let fixture = Fixture::new();
+        fs::write(
+            fixture.0.join("etc/os-release"),
+            format!("ID={id}\nVERSION_ID={version}\nID_LIKE=\"{like}\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            fixture.0.join("etc/apt/sources.list"),
+            "deb https://mirrors.aliyun.com/ubuntu noble main\n",
+        )
+        .unwrap();
+        let output = fixture.run(&[
+            "set",
+            "system",
+            "--scope",
+            "system",
+            "--replace-existing",
+            "--base-url",
+            "https://proxy.example",
+            "--dry-run",
+        ]);
+        assert_eq!(
+            output.status.success(),
+            success,
+            "{id}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn existing_sources_preview_apply_and_reset_through_real_cli() {
     let fixture = Fixture::new();
     let source = fixture.0.join("etc/apt/sources.list.d/ubuntu.sources");
@@ -205,7 +406,7 @@ fn every_system_profile_migrates_native_configuration_and_restores_exact_bytes()
         ("alpine", "alpine", "3.22", "https://dl-cdn.alpinelinux.org/alpine/v3.22/main", "alpine"),
         ("gentoo", "gentoo", "2.17", "", "gentoo"),
         ("nixos", "nixos", "25.11", "", "nix-store"),
-        ("void", "void", "", "https://repo-default.voidlinux.org/current", "void"),
+        ("void", "void", "", "https://alpha.de.repo.voidlinux.org/current", "void"),
     ];
     assert_eq!(
         cases.len(),

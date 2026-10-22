@@ -17,7 +17,7 @@ cover all profiles; real package downloads must also be verified on Linux.
 | `debian` | Debian | 8–14, testing/sid | APT |
 | `ubuntu` | Ubuntu | 14–26 | APT |
 | `kali` | Kali Linux | Rolling | APT |
-| `linuxmint` | Linux Mint / LMDE | Mint 17–22; LMDE 2–7 | APT |
+| `linuxmint` | Linux Mint / LMDE | Mint 19–22; LMDE 6–7 | APT |
 | `deepin` | Deepin | Existing release layouts, including 25/beige | APT |
 | `zorin` | Zorin OS | Existing Ubuntu-based layouts | APT |
 | `armbian` | Armbian | Existing Debian/Ubuntu layouts | APT |
@@ -149,6 +149,55 @@ For isolated fixtures, add `--config-root <directory>`; identification, native
 configuration and rollback state are all read/written below that root. The native
 default system scope is Linux; other platforms require this explicit test root.
 
+## Supplemental repositories and Ubuntu flavours
+
+Ubuntu Kylin, Kubuntu, Lubuntu, Xubuntu, Ubuntu MATE/Budgie/Studio/Unity and
+Edubuntu IDs require an Ubuntu/Debian `ID_LIKE` declaration. Unknown derivatives
+are not inferred from `ID_LIKE` alone. Mint before 19 and LMDE before 6 are no
+longer advertised as supported; existing rollback records remain restorable.
+The vendor `mint-info` package's `/etc/linuxmint/info` identifies environments
+retaining their parent OS ID; the vendor `RELEASE` takes precedence over the
+Ubuntu version.
+
+Known mirror layouts include the LinuxMirrors mainland, education, overseas and
+cloud-internal lists. Exact domain and repository-path boundaries are required;
+Aliyun uses `mirrors.aliyun.com`, not its developer homepage. Recognition does
+not assert that each mirror carries every repository. Server settings determine
+the final upstream.
+
+```bash
+sudo mirrorproxy set epel --scope system --replace-existing --base-url https://mirror.example.com
+sudo mirrorproxy reset epel --scope system
+sudo mirrorproxy set docker-ce --scope system --replace-existing --base-url https://mirror.example.com
+sudo mirrorproxy reset docker-ce --scope system
+sudo mirrorproxy set gentoo-sync --scope system --replace-existing --base-url https://mirror.example.com
+sudo mirrorproxy reset gentoo-sync --scope system
+```
+
+All three support `--dry-run` and share the protected system rollback slot. Reset
+the previous operation before starting another. EPEL migrates existing EPEL,
+Next and Archive repositories; bootstrap `epel-release` through the vendor's
+official procedure first. EPEL 7 uses Archive without bypassing trust or expiry.
+EPEL Next uses upstream `pub/epel/next`; version availability follows upstream.
+AlmaLinux Vault uses `/os/alma-vault/` and retains its pinned minor version.
+
+Docker CE independently migrates existing APT/RPM installation sources to
+`/os/docker-ce/linux/<distribution>/...`. For a first install, provision Docker's
+official key first (APT uses `/etc/apt/keyrings/docker.asc`), then `set docker-ce`
+generates a signature-required source. Existing sources are migrated. Use the native package manager to
+install `docker-ce`, `docker-ce-cli` and `containerd.io`. The client does not
+install/restart daemons. Docker Hub acceleration remains `set docker`.
+
+`set gentoo-sync` configures Portage's HTTP `webrsync` snapshots and enables
+snapshot signature verification, retaining the existing repository location and
+OpenPGP key settings. Run `emerge --sync` afterward. It requires an existing
+official repository definition and valid key. A single-file `repos.conf` or
+multiple Gentoo definitions require manual organization first. Ordinary
+`set system` continues to change only `GENTOO_MIRRORS`; rsync is not tunneled.
+
+At startup, missing EPEL, Next, Archive, Alma Vault and Docker CE keys are added
+to old persisted `upstreams.additional_os` maps; existing custom values win.
+
 ## Verify on Linux
 
 After migrating, verify the effective configuration and a real package download:
@@ -186,5 +235,23 @@ architecture on ARM hosts. Optional smoke targets include `rocky`, `alma` and
 `oraclelinux`. Override a family image with variables such as
 `MIRRORPROXY_OS_SMOKE_DEBIAN_IMAGE=debian:trixie-slim` or
 `MIRRORPROXY_OS_SMOKE_FEDORA_IMAGE=fedora:43` to test another version.
+
+`scripts/smoke-os-matrix.sh` runs all 28 profiles independently, writing per-target
+logs and `results.tsv`. Missing authentic images are `BLOCKED`, never substituted
+with a parent distribution. Supply `MIRRORPROXY_OS_SMOKE_<UPPERCASE_CODE>_IMAGE`
+for Mint, Zorin, Armbian, Proxmox, Raspberry Pi OS, RHEL, EndeavourOS and NixOS;
+CentOS Stream uses `MIRRORPROXY_OS_SMOKE_CENTOS_STREAM_IMAGE`. RHEL additionally
+requires an entitled customer upstream. `nixos/nix` alone is not a NixOS image.
+Unavailable upstreams, expired signatures and failed pulls remain non-passing.
+
+`scripts/smoke-system-extras.sh` checks EPEL RPM signatures, Docker CE APT
+downloads and Gentoo signed snapshot synchronization. Use the static musl client;
+set `MIRRORPROXY_OS_SMOKE_REGISTRY=sina.dev` for image pulls and
+`MIRRORPROXY_OS_SMOKE_BASE` for the candidate server.
+
+Mirror-recognition data references LinuxMirrors `76fbf173`; see its
+[MIT notice](https://github.com/inbjo/MirrorProxy/blob/main/docs/licenses/LinuxMirrors-MIT.txt).
+See the [2026-10-22 acceptance record](https://github.com/inbjo/MirrorProxy/blob/main/docs/testing/Linux-Source-Acceptance-2026-10-22.md)
+for per-profile results and remaining environment requirements.
 
 [简体中文](System-Sources-zh-CN)

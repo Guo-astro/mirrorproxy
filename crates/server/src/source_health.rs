@@ -765,7 +765,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             configured_upstream(&config.upstreams, dnf),
-            Some("https://mirrors.xmission.com/fedora/linux")
+            Some("https://dl.fedoraproject.org/pub/fedora/linux")
         );
         assert_eq!(
             configured_upstream(&config.upstreams, kali),
@@ -855,9 +855,9 @@ mod tests {
             .await
             .unwrap();
         let report = report(&state, true).await.unwrap();
-        assert_eq!(report.total, 82);
+        assert_eq!(report.total, 87);
         assert_eq!(report.degraded, 1);
-        assert_eq!(report.unknown, 80);
+        assert_eq!(report.unknown, 85);
         assert!(report
             .items
             .iter()

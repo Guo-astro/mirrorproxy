@@ -9,6 +9,8 @@ pub(super) struct AptPlan {
     apt_files: Vec<AptFile>,
     #[serde(default)]
     system_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    system_operation: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -146,6 +148,7 @@ pub(super) fn prepare(
         target_code: "apt".into(),
         apt_files,
         system_profile: None,
+        system_operation: None,
     })
 }
 
@@ -402,7 +405,15 @@ impl AptPlan {
             target_code: "system".into(),
             apt_files,
             system_profile: Some(profile.into()),
+            system_operation: None,
         })
+    }
+
+    pub(super) fn with_operation(mut self, operation: &str) -> Self {
+        if matches!(operation, "epel" | "docker-ce" | "gentoo-sync") {
+            self.system_operation = Some(operation.into());
+        }
+        self
     }
 
     pub(super) fn preview(&self) {

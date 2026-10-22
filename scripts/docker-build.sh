@@ -22,7 +22,8 @@ Usage: scripts/docker-build.sh [options]
 
 Environment equivalents:
   MIRRORPROXY_DOCKER_IMAGE, MIRRORPROXY_DOCKER_VERSION,
-  MIRRORPROXY_DOCKER_PLATFORMS, MIRRORPROXY_DOCKER_BASE_REGISTRY
+  MIRRORPROXY_DOCKER_PLATFORMS, MIRRORPROXY_DOCKER_BASE_REGISTRY,
+  MIRRORPROXY_GEOIP_MIRROR_PREFIX
 EOF
 }
 
@@ -66,6 +67,7 @@ docker buildx build \
   --build-arg "GIT_COMMIT=${git_commit}" \
   --build-arg "BUILD_TIME=${build_time}" \
   --build-arg "BASE_IMAGE_REGISTRY=${MIRRORPROXY_DOCKER_BASE_REGISTRY:-docker.io/library}" \
+  --build-arg "GEOIP_MIRROR_PREFIX=${MIRRORPROXY_GEOIP_MIRROR_PREFIX:-}" \
   "${tags[@]}" \
   "${output[@]}" \
   "${root}"

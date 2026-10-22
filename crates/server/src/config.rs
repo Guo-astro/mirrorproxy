@@ -1590,6 +1590,28 @@ impl Default for Upstreams {
     }
 }
 
+impl Upstreams {
+    pub(crate) fn upgrade_legacy_defaults(&mut self) {
+        const LEGACY_FEDORA: &str = "https://mirrors.xmission.com/fedora/linux";
+        if self.fedora.trim_end_matches('/') == LEGACY_FEDORA {
+            self.fedora = default_fedora_repository();
+        }
+        for code in [
+            "epel",
+            "epel-next",
+            "epel-archive",
+            "alma-vault",
+            "docker-ce",
+        ] {
+            let repository = mirrorproxy_catalog::systems::system_repository(code)
+                .expect("built-in repository exists");
+            self.additional_os
+                .entry(code.into())
+                .or_insert_with(|| repository.upstream.into());
+        }
+    }
+}
+
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
@@ -2505,7 +2527,7 @@ fn default_ubuntu_repository() -> String {
     "https://archive.ubuntu.com/ubuntu".to_string()
 }
 fn default_fedora_repository() -> String {
-    "https://mirrors.xmission.com/fedora/linux".to_string()
+    "https://dl.fedoraproject.org/pub/fedora/linux".to_string()
 }
 fn default_archlinux_repository() -> String {
     "https://geo.mirror.pkgbuild.com".to_string()
@@ -3014,6 +3036,36 @@ insecure_skip_verify = true
         assert_eq!(
             Config::default().upstreams.additional_os["deepin"],
             "https://community-packages.deepin.com/beige"
+        );
+    }
+
+    #[test]
+    fn upgrades_only_the_legacy_fedora_default() {
+        let mut legacy = Upstreams {
+            fedora: "https://mirrors.xmission.com/fedora/linux/".into(),
+            ..Upstreams::default()
+        };
+        legacy.upgrade_legacy_defaults();
+        assert_eq!(
+            legacy.fedora,
+            "https://dl.fedoraproject.org/pub/fedora/linux"
+        );
+
+        let mut customized = Upstreams {
+            fedora: "https://fedora.example/linux".into(),
+            ..Upstreams::default()
+        };
+        customized.upgrade_legacy_defaults();
+        assert_eq!(customized.fedora, "https://fedora.example/linux");
+        customized.additional_os.clear();
+        customized
+            .additional_os
+            .insert("epel".into(), "https://epel.example".into());
+        customized.upgrade_legacy_defaults();
+        assert_eq!(customized.additional_os["epel"], "https://epel.example");
+        assert_eq!(
+            customized.additional_os["docker-ce"],
+            "https://download.docker.com"
         );
     }
 

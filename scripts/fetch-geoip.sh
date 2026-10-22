@@ -8,6 +8,7 @@ V4_URL="https://raw.githubusercontent.com/lionsoul2014/ip2region/$IP2REGION_COMM
 V6_URL="https://raw.githubusercontent.com/lionsoul2014/ip2region/$IP2REGION_COMMIT/data/ip2region_v6.xdb"
 V4_SHA256="c6edaf379fe524d7283a9c11c7eac27d5641a0976baa48c22c319ccd59aa3f36"
 V6_SHA256="939f6b46bd2b8bec3cf7c5ceb8ba782266ae9b1f35b5ba7916700dec0b7506ed"
+MIRROR_PREFIX="${MIRRORPROXY_GEOIP_MIRROR_PREFIX:-}"
 
 mkdir -p "$DESTINATION"
 
@@ -17,7 +18,8 @@ fetch() {
   if [[ -f "$target" ]] && printf '%s  %s\n' "$expected" "$target" | sha256sum --check --status; then
     return
   fi
-  curl --fail --location --retry 3 --output "$temporary" "$url"
+  curl --fail --location --retry 3 --connect-timeout 15 --max-time 180 \
+    --output "$temporary" "${MIRROR_PREFIX}${url}"
   printf '%s  %s\n' "$expected" "$temporary" | sha256sum --check --status
   mv "$temporary" "$target"
 }

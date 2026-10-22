@@ -1,6 +1,10 @@
 //! System-client compatibility and constrained repository roots.
 //! Version ranges describe configuration adapters, not upstream support lifetimes.
 
+#[path = "system_mirrors.rs"]
+mod mirrors;
+pub use mirrors::SYSTEM_MIRROR_ROOTS;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SystemFormat {
     Apt,
@@ -70,7 +74,7 @@ pub const SYSTEM_DISTRIBUTIONS: &[SystemDistribution] = &[
         "linuxmint",
         "Linux Mint / LMDE",
         ["linuxmint", "lmde"],
-        "17-22 / LMDE 2-7",
+        "19-22 / LMDE 6-7",
         Apt,
         [
             "linuxmint",
@@ -146,7 +150,7 @@ pub const SYSTEM_DISTRIBUTIONS: &[SystemDistribution] = &[
         ["rhel"],
         "7-10 (customer mirror required)",
         Rpm,
-        ["rhel"]
+        ["rhel", "epel", "epel-next", "epel-archive"]
     ),
     distro!(
         "fedora",
@@ -156,23 +160,43 @@ pub const SYSTEM_DISTRIBUTIONS: &[SystemDistribution] = &[
         Rpm,
         ["fedora", "fedora-archive"]
     ),
-    distro!("centos", "CentOS", ["centos"], "7-8", Rpm, ["centos-vault"]),
+    distro!(
+        "centos",
+        "CentOS",
+        ["centos"],
+        "7-8",
+        Rpm,
+        ["centos-vault", "epel", "epel-next", "epel-archive"]
+    ),
     distro!(
         "centos-stream",
         "CentOS Stream",
         ["centos-stream"],
         "8-10",
         Rpm,
-        ["centos-stream", "centos-vault"]
+        [
+            "centos-stream",
+            "centos-vault",
+            "epel",
+            "epel-next",
+            "epel-archive"
+        ]
     ),
-    distro!("rocky", "Rocky Linux", ["rocky"], "8-10", Rpm, ["rocky"]),
+    distro!(
+        "rocky",
+        "Rocky Linux",
+        ["rocky"],
+        "8-10",
+        Rpm,
+        ["rocky", "epel", "epel-next", "epel-archive"]
+    ),
     distro!(
         "alma",
         "AlmaLinux",
         ["almalinux", "alma"],
         "8-10",
         Rpm,
-        ["alma"]
+        ["alma", "alma-vault", "epel", "epel-next", "epel-archive"]
     ),
     distro!(
         "oraclelinux",
@@ -180,7 +204,7 @@ pub const SYSTEM_DISTRIBUTIONS: &[SystemDistribution] = &[
         ["ol", "oraclelinux"],
         "8-10",
         Rpm,
-        ["oraclelinux"]
+        ["oraclelinux", "epel", "epel-next", "epel-archive"]
     ),
     distro!(
         "openeuler",
@@ -291,9 +315,9 @@ impl SystemDistribution {
             }
             "ubuntu" => within(14, 26),
             "linuxmint" if name.contains("LMDE") || name.eq_ignore_ascii_case("lmde") => {
-                within(2, 7)
+                within(6, 7)
             }
-            "linuxmint" => within(17, 22),
+            "linuxmint" => within(19, 22),
             "rhel" => within(7, 10),
             "fedora" => within(30, 44),
             "centos" => within(7, 8),
@@ -334,6 +358,31 @@ macro_rules! repo {
 }
 
 pub const SYSTEM_REPOSITORIES: &[SystemRepository] = &[
+    repo!(
+        "epel",
+        "https://dl.fedoraproject.org/pub/epel",
+        "epel",
+        ["https://download.fedoraproject.org/pub/epel"]
+    ),
+    repo!(
+        "epel-next",
+        "https://dl.fedoraproject.org/pub/epel/next",
+        "epel/next",
+        ["https://download.fedoraproject.org/pub/epel/next"]
+    ),
+    repo!(
+        "epel-archive",
+        "https://archives.fedoraproject.org/pub/archive/epel",
+        "epel-archive",
+        ["https://dl.fedoraproject.org/pub/archive/epel"]
+    ),
+    repo!(
+        "alma-vault",
+        "https://vault.almalinux.org",
+        "almalinux-vault",
+        ["https://repo.almalinux.org/vault"]
+    ),
+    repo!("docker-ce", "https://download.docker.com", "docker-ce", []),
     repo!(
         "debian",
         "https://deb.debian.org/debian",
@@ -549,7 +598,8 @@ pub const SYSTEM_REPOSITORIES: &[SystemRepository] = &[
         "voidlinux",
         [
             "https://repo-us.voidlinux.org",
-            "https://repo-de.voidlinux.org"
+            "https://repo-de.voidlinux.org",
+            "https://alpha.de.repo.voidlinux.org"
         ]
     ),
 ];
@@ -589,7 +639,7 @@ mod tests {
         }
         assert!(system_distribution("linuxmint")
             .unwrap()
-            .supports_version("2", "LMDE"));
+            .supports_version("6", "LMDE"));
         assert!(system_distribution("opensuse")
             .unwrap()
             .supports_version("20261021", "openSUSE Tumbleweed"));
