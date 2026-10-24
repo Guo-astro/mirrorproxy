@@ -101,7 +101,10 @@ impl Root {
                 .as_nanos()
         ));
         fs::create_dir_all(&dir).unwrap();
-        Self(dir)
+        // macOS temporary directories may have system symlink ancestors;
+        // exercise downloads using the real fixture path while retaining the
+        // production refusal of symlinked output/credential paths.
+        Self(fs::canonicalize(dir).unwrap())
     }
 }
 impl Drop for Root {
@@ -326,4 +329,33 @@ fn encoded_payload_bytes_are_preserved_even_when_workspace_enables_compression()
         .unwrap();
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
     assert_eq!(fs::read(output).unwrap(), b"abc");
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_output_paths_are_refused_without_contacting_the_instance() {
+    use std::os::unix::fs::symlink;
+    let s = Server::new("ok");
+    let root = Root::new();
+    let real = root.0.join("real");
+    fs::create_dir(&real).unwrap();
+    let link = root.0.join("linked");
+    symlink(&real, &link).unwrap();
+    let output = link.join("artifact");
+    let r = s
+        .cmd()
+        .args([
+            "download",
+            "--base-url",
+            &s.base,
+            "fetch",
+            "https://example.org/a",
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!r.status.success());
+    assert!(!real.join("artifact").exists());
+    assert!(s.requests.lock().unwrap().is_empty());
 }

@@ -180,26 +180,29 @@ pub fn routes() -> Router<AppState> {
 fn reject(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({"error":message}))).into_response()
 }
+fn failure(status: StatusCode, message: &str) -> Box<Response> {
+    Box::new(reject(status, message))
+}
 fn forbidden() -> Response {
     reject(
         StatusCode::FORBIDDEN,
         "download permission required or revoked",
     )
 }
-async fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(i64, String), Response> {
+async fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(i64, String), Box<Response>> {
     if !state.config().download.enabled {
-        return Err(reject(
+        return Err(failure(
             StatusCode::NOT_FOUND,
             "custom downloads are disabled",
         ));
     }
     let Some(token) = bearer_token(headers) else {
-        return Err(unauthorized_response());
+        return Err(Box::new(unauthorized_response()));
     };
     match state.database.authenticate_download_token(token).await {
         Ok(Some(user)) => Ok((user, token.into())),
-        Ok(None) => Err(forbidden()),
-        Err(_) => Err(internal_error_response()),
+        Ok(None) => Err(Box::new(forbidden())),
+        Err(_) => Err(Box::new(internal_error_response())),
     }
 }
 
@@ -320,7 +323,7 @@ async fn upstream(
     url: Url,
     method: Method,
     range: Option<&str>,
-) -> Result<(reqwest::Response, String, Vec<String>), Response> {
+) -> Result<(reqwest::Response, String, Vec<String>), Box<Response>> {
     let mut url = url;
     let mut hosts = vec![];
     for _ in 0..=5 {
@@ -331,16 +334,16 @@ async fn upstream(
             .database
             .download_blocked(&host)
             .await
-            .map_err(|_| internal_error_response())?
+            .map_err(|_| Box::new(internal_error_response()))?
         {
-            return Err(reject(StatusCode::FORBIDDEN, "download domain is blocked"));
+            return Err(failure(StatusCode::FORBIDDEN, "download domain is blocked"));
         }
         let addresses = resolved(&url)
             .await
-            .map_err(|_| reject(StatusCode::FORBIDDEN, "target DNS/address is not allowed"))?;
+            .map_err(|_| failure(StatusCode::FORBIDDEN, "target DNS/address is not allowed"))?;
         let client = pinned_client(&host, &addresses)
             .build()
-            .map_err(|_| internal_error_response())?;
+            .map_err(|_| Box::new(internal_error_response()))?;
         let mut request = client
             .request(method.clone(), url.clone())
             .header(header::ACCEPT_ENCODING, "identity")
@@ -355,23 +358,23 @@ async fn upstream(
         let response = request
             .send()
             .await
-            .map_err(|_| reject(StatusCode::BAD_GATEWAY, "upstream download request failed"))?;
+            .map_err(|_| failure(StatusCode::BAD_GATEWAY, "upstream download request failed"))?;
         if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
             let location = response
                 .headers()
                 .get(header::LOCATION)
                 .and_then(|h| h.to_str().ok())
-                .ok_or_else(|| reject(StatusCode::BAD_GATEWAY, "invalid upstream redirect"))?;
+                .ok_or_else(|| failure(StatusCode::BAD_GATEWAY, "invalid upstream redirect"))?;
             let next = url
                 .join(location)
-                .map_err(|_| reject(StatusCode::BAD_GATEWAY, "invalid upstream redirect"))?;
+                .map_err(|_| failure(StatusCode::BAD_GATEWAY, "invalid upstream redirect"))?;
             url = target(next.as_str())
-                .map_err(|_| reject(StatusCode::FORBIDDEN, "redirect target is not allowed"))?;
+                .map_err(|_| failure(StatusCode::FORBIDDEN, "redirect target is not allowed"))?;
             continue;
         }
         return Ok((response, host, hosts));
     }
-    Err(reject(
+    Err(failure(
         StatusCode::BAD_GATEWAY,
         "too many upstream redirects",
     ))
@@ -419,7 +422,7 @@ async fn run_request(
     }
     let (user, token) = match authorize(&headers, &state).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if !state.rate_limiter.check(
         &format!("download:{user}"),
@@ -460,7 +463,7 @@ async fn run_request(
         Ok(Ok(v)) => v,
         other => {
             let r = match other {
-                Ok(Err(r)) => r,
+                Ok(Err(r)) => *r,
                 _ => reject(StatusCode::GATEWAY_TIMEOUT, "download deadline exceeded"),
             };
             let failed_host = state
