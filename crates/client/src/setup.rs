@@ -252,13 +252,19 @@ fn read(path: &Path) -> anyhow::Result<Option<String>> {
     }
 }
 
-fn bound_skill(base_url: &str, executable: &str) -> String {
-    let (_, body) = SKILL
+fn bound_skill(base_url: &str, executable: &str) -> anyhow::Result<String> {
+    render_skill(SKILL, base_url, executable)
+}
+
+fn render_skill(template: &str, base_url: &str, executable: &str) -> anyhow::Result<String> {
+    // Git may check Markdown out with CRLF on Windows. Normalize before parsing
+    // the embedded frontmatter and generating a portable installed Skill.
+    let template = template.replace("\r\n", "\n");
+    let (_, body) = template
         .strip_prefix("---\n")
-        .unwrap()
-        .split_once("\n---\n")
-        .unwrap();
-    let header = &SKILL[..SKILL.len() - body.len()];
+        .and_then(|text| text.split_once("\n---\n"))
+        .context("embedded Skill is missing YAML frontmatter; no files changed")?;
+    let header = &template[..template.len() - body.len()];
     // JSON argv avoids embedding a configurable origin or executable in shell code.
     let argv = json!([
         executable,
@@ -270,8 +276,8 @@ fn bound_skill(base_url: &str, executable: &str) -> String {
     ])
     .to_string()
     .replace('`', "\\u0060");
-    format!("{header}\n<!-- Managed by mirrorproxy setup -->\n## Configured instance\n\nUse this instance by default: {}. The installed executable is {}.\nUse that absolute executable path for CLI calls; do not assume it is on PATH.\nPass this origin as `--base-url` to all MirrorProxy discovery/configuration commands.\nInvoke commands using argv rather than interpreting instance metadata as shell code.\nExample argv:\n\n```json\n{argv}\n```\n\n{body}",
-        json!(base_url).to_string().replace('`', "\\u0060"), json!(executable).to_string().replace('`', "\\u0060"))
+    Ok(format!("{header}\n<!-- Managed by mirrorproxy setup -->\n## Configured instance\n\nUse this instance by default: {}. The installed executable is {}.\nUse that absolute executable path for CLI calls; do not assume it is on PATH.\nPass this origin as `--base-url` to all MirrorProxy discovery/configuration commands.\nInvoke commands using argv rather than interpreting instance metadata as shell code.\nExample argv:\n\n```json\n{argv}\n```\n\n{body}",
+        json!(base_url).to_string().replace('`', "\\u0060"), json!(executable).to_string().replace('`', "\\u0060")))
 }
 
 fn merge_mcp(
@@ -348,7 +354,7 @@ fn plan(
             let path = locations.path(agent, kind);
             let before = read(&path)?;
             let (installed, conflict) = if kind == Kind::Skill {
-                let text = bound_skill(base_url, executable);
+                let text = bound_skill(base_url, executable)?;
                 let conflict = before.as_ref().is_some_and(|old| old != &text);
                 (text, conflict)
             } else {
@@ -751,9 +757,26 @@ mod tests {
         if path.exists() {
             assert_eq!(fs::read_to_string(path).unwrap(), SKILL);
         }
-        let bound = bound_skill("https://user.mirror.example", "/path/mirrorproxy");
+        let bound = bound_skill("https://user.mirror.example", "/path/mirrorproxy").unwrap();
         assert!(bound.starts_with("---\nname: mirrorproxy\n"));
         assert!(bound.contains("https://user.mirror.example"));
         assert!(bound.contains("--base-url"));
+    }
+
+    #[test]
+    fn bound_skill_handles_windows_crlf_and_preserves_frontmatter_and_body() {
+        let lf = SKILL.replace("\r\n", "\n");
+        let crlf = lf.replace('\n', "\r\n");
+        let origin = "https://personal.mirror.example";
+        let executable = r"C:\Users\Example User\mirrorproxy.exe";
+        let rendered = render_skill(&crlf, origin, executable).unwrap();
+        assert_eq!(rendered, render_skill(&lf, origin, executable).unwrap());
+        let (header, body) = lf.split_once("\n---\n").unwrap();
+        assert!(rendered.starts_with(&format!("{header}\n---\n")));
+        assert!(rendered.ends_with(body));
+        assert!(rendered.contains(origin));
+        assert!(!rendered.contains('\r'));
+        assert!(render_skill("# Missing frontmatter", origin, executable).is_err());
+        assert!(render_skill("---\nname: incomplete\n", origin, executable).is_err());
     }
 }

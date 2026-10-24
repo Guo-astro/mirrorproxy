@@ -5,6 +5,10 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Handle Windows CRLF line endings when generating instance-bound Skills and
+  report invalid embedded templates without panicking. Update the transitive
+  test dependency `undici` to 7.30.1 to address its DoS and integrity advisories.
+
 - Add Web console commands that bootstrap the client and launch an instance-bound
   Skill/MCP setup wizard for Codex, Claude Code and Cursor. Ask for installation
   scope with current-user global installation strongly recommended by default;
