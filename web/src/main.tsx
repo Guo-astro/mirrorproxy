@@ -402,6 +402,11 @@ const messages = {
     console: 'Admin console',
     installClient: 'Install the CLI',
     installClientDesc: 'Install the latest stable MirrorProxy client. Downloads are checksum-verified and can be accelerated through this MirrorProxy instance.',
+    installAgent: 'Set up your AI agents',
+    installAgentDesc: 'One command installs the client, Skill and MCP connection, bound to this instance. The wizard lets you select agents and asks where to install; global installation for your current user is strongly recommended and selected by default.',
+    installAgentVersion: 'Requires a stable client release containing the setup command. Restart your agent after setup; its normal workspace trust and MCP approvals still apply.',
+    installAgentExisting: 'Client already installed',
+    installAgentExistingHint: 'Start the same setup wizard with your existing client.',
     stableRelease: 'LATEST STABLE RELEASE',
     unixInstall: 'Linux / macOS',
     unixInstallHint: 'One POSIX shell installer detects the operating system and CPU architecture automatically.',
@@ -510,6 +515,11 @@ const messages = {
     console: '管理控制台',
     installClient: '一键安装 CLI',
     installClientDesc: '自动安装最新稳定版 MirrorProxy 客户端，下载后校验 SHA-256，并可通过当前 MirrorProxy 实例加速。',
+    installAgent: '一键配置 AI Agent',
+    installAgentDesc: '一条命令安装客户端、Skill 和 MCP，并绑定当前实例。向导可多选 Agent，并询问安装范围；默认选择当前用户全局安装，强烈推荐，所有项目均可使用。',
+    installAgentVersion: '需要已发布包含 setup 命令的稳定客户端。配置后重启 Agent，仍需遵循其正常的工作区信任和 MCP 授权流程。',
+    installAgentExisting: '已安装客户端',
+    installAgentExistingHint: '使用现有客户端启动同一安装向导。',
     stableRelease: '最新稳定版本',
     unixInstall: 'Linux / macOS',
     unixInstallHint: '共用一份 POSIX shell 安装器，自动识别操作系统和 CPU 架构。',
@@ -1134,6 +1144,7 @@ function InstallClientPanel({ baseUrl, labels, copied, onCopy }: { baseUrl: stri
   const unixCommand = `curl -fsSL ${rawBase}/install.sh | sh -s -- --mirror ${baseUrl}`
   const windowsPolicy = 'Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force'
   const windowsCommand = `$env:MIRRORPROXY_DOWNLOAD_MIRROR='${baseUrl}'; irm '${rawBase}/install.ps1' | iex`
+  const agentCommands = agentSetupCommands(baseUrl)
 
   return <section id="install" className="install-panel">
     <div className="install-heading">
@@ -1149,7 +1160,32 @@ function InstallClientPanel({ baseUrl, labels, copied, onCopy }: { baseUrl: stri
         <InstallCode command={windowsCommand} copied={copied === 'install-windows'} copyLabel={labels.copyCommand} copiedLabel={labels.copied} onCopy={() => onCopy('install-windows', windowsCommand)} />
       </div>
     </div>
+    <div className="agent-install" aria-labelledby="agent-install-title">
+      <div className="install-heading"><div><h2 id="agent-install-title"><Terminal size={24} /> {labels.installAgent}</h2><p>{labels.installAgentDesc}</p></div></div>
+      <div className="install-grid">
+        <InstallCommand title={labels.unixInstall} hint={labels.unixInstallHint} command={agentCommands.unix} copied={copied === 'agent-install-unix'} copyLabel={labels.copyCommand} copiedLabel={labels.copied} onCopy={() => onCopy('agent-install-unix', agentCommands.unix)} />
+        <InstallCommand title={labels.windowsInstall} hint={labels.windowsInstallHint} command={agentCommands.windows} copied={copied === 'agent-install-windows'} copyLabel={labels.copyCommand} copiedLabel={labels.copied} onCopy={() => onCopy('agent-install-windows', agentCommands.windows)} />
+      </div>
+      <InstallCommand title={labels.installAgentExisting} hint={labels.installAgentExistingHint} command={agentCommands.existing} copied={copied === 'agent-install-existing'} copyLabel={labels.copyCommand} copiedLabel={labels.copied} onCopy={() => onCopy('agent-install-existing', agentCommands.existing)} />
+      <p className="field-hint">{labels.installAgentVersion}</p>
+    </div>
   </section>
+}
+
+export function agentSetupCommands(baseUrl: string) {
+  const url = new URL(baseUrl)
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash || /[\s\x00-\x1f\x7f]/.test(baseUrl)) {
+    throw new Error('Agent setup requires an HTTP(S) origin')
+  }
+  const origin = url.origin
+  const rawBase = `${origin}/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts`
+  const posix = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`
+  const powershell = (value: string) => `'${value.replaceAll("'", "''")}'`
+  return {
+    unix: `curl -fsSL ${posix(`${rawBase}/install.sh`)} | sh -s -- --mirror ${posix(origin)} --setup --base-url ${posix(origin)}`,
+    windows: `& ([scriptblock]::Create((irm ${powershell(`${rawBase}/install.ps1`)}))) -Mirror ${powershell(origin)} -Setup -BaseUrl ${powershell(origin)}`,
+    existing: `mirrorproxy setup --base-url ${posix(origin)}`,
+  }
 }
 
 function InstallCommand({ title, hint, command, copied, copyLabel, copiedLabel, onCopy }: { title: string; hint: string; command: string; copied: boolean; copyLabel: string; copiedLabel: string; onCopy: () => void }) {

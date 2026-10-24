@@ -48,6 +48,24 @@ const adminStats = {
   daily: [], targets: [{ target_code: 'npm', request_count: 12, response_bytes: 2048, error_count: 0 }],
 }
 
+test('copies complete Agent setup for this instance in both languages without mobile overflow', async ({ page }) => {
+  await page.goto('/')
+  const panel = page.locator('.agent-install')
+  await expect(panel).toContainText('global installation for your current user is strongly recommended')
+  await panel.getByRole('button', { name: 'Copy command' }).first().click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("--setup --base-url 'https://mirror.example'")
+  await panel.locator('.install-platform').filter({ has: page.getByRole('heading', { name: 'Windows PowerShell', exact: true }) }).getByRole('button').click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("-Setup -BaseUrl 'https://mirror.example'")
+  await page.getByTitle('Language').click()
+  await expect(panel).toContainText('默认选择当前用户全局安装，强烈推荐')
+  for (const width of [320, 375, 768]) {
+    await page.setViewportSize({ width, height: 900 })
+    await panel.scrollIntoViewIfNeeded()
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+    await expect(panel.getByRole('button', { name: '复制命令' }).last()).toBeVisible()
+  }
+})
+
 test('shows source capabilities in cards and setup details across themes and widths', async ({ page }) => {
   await page.goto('/')
   const card = page.locator('.source-tile').filter({ hasText: 'npm' })
@@ -230,7 +248,7 @@ test('offers accelerated stable client installers and a project footer', async (
   await expect(installer.getByRole('heading', { name: 'Install the CLI' })).toBeVisible()
   await expect(installer).toContainText('https://mirror.example/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh')
   await expect(installer).toContainText('Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force')
-  const commandRows = installer.locator('.install-command')
+  const commandRows = installer.locator(':scope > .install-grid .install-command')
   await expect(commandRows).toHaveCount(3)
   const dimensions = await commandRows.evaluateAll((rows) => rows.map((row) => {
     const code = row.querySelector('code')!

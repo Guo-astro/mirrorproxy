@@ -9,6 +9,7 @@
 **日常使用 · Everyday use**
 
 - [客户端改源](Client-zh-CN) · [Client](Client)
+- [Agent Skill 与 MCP](Agent-Integration-zh-CN) · [Agent integration](Agent-Integration)
 - [Linux 系统与版本支持](System-Sources-zh-CN) · [Linux system sources](System-Sources)
 - [其他客户端安装方式](Distribution-zh-CN) · [Client installation](Distribution)
 - [支持的软件源](Proxy-Adapters-zh-CN) · [Sources](Proxy-Adapters)

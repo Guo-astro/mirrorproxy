@@ -5,6 +5,10 @@ repo="${MIRRORPROXY_GITHUB_REPO:-inbjo/MirrorProxy}"
 version="${MIRRORPROXY_VERSION:-latest}"
 install_dir="${MIRRORPROXY_INSTALL_DIR:-/usr/local/bin}"
 mirror="${MIRRORPROXY_DOWNLOAD_MIRROR:-}"
+setup=false
+setup_base_url=""
+install_dir_explicit=false
+[ -z "${MIRRORPROXY_INSTALL_DIR:-}" ] || install_dir_explicit=true
 
 usage() {
   cat <<'EOF'
@@ -13,7 +17,9 @@ Install the latest stable MirrorProxy client release.
 Usage: install.sh [options]
   --mirror URL       Prefix GitHub downloads with a MirrorProxy URL
   --version VERSION  Install a release tag instead of the latest stable release
-  --install-dir DIR  Install directory (default: /usr/local/bin)
+  --install-dir DIR  Directory (default: /usr/local/bin; --setup: ~/.local/bin)
+  --setup            Start the Skill + MCP setup wizard after installing the client
+  --base-url URL     Instance to bind in the setup wizard (required with --setup)
   -h, --help         Show this help
 
 Environment equivalents:
@@ -37,6 +43,16 @@ while [ "$#" -gt 0 ]; do
     --install-dir)
       [ "$#" -ge 2 ] || { echo "--install-dir requires a directory" >&2; exit 2; }
       install_dir=$2
+      install_dir_explicit=true
+      shift 2
+      ;;
+    --setup)
+      setup=true
+      shift
+      ;;
+    --base-url)
+      [ "$#" -ge 2 ] || { echo "--base-url requires a URL" >&2; exit 2; }
+      setup_base_url=$2
       shift 2
       ;;
     -h|--help)
@@ -50,6 +66,17 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$setup" = true ]; then
+  [ -n "$setup_base_url" ] || { echo "--setup requires --base-url" >&2; exit 2; }
+  if [ "$install_dir_explicit" = false ]; then
+    [ -n "${HOME:-}" ] || { echo "HOME is required for user installation" >&2; exit 2; }
+    install_dir="${HOME}/.local/bin"
+  fi
+elif [ -n "$setup_base_url" ]; then
+  echo "--base-url requires --setup" >&2
+  exit 2
+fi
 
 case "$(uname -s)" in
   Linux) os=linux ;;
@@ -122,7 +149,15 @@ install_binary() {
   install -m 0755 "${tmp_dir}/mirrorproxy" "${install_dir}/mirrorproxy"
 }
 
-if [ -w "$install_dir" ] || { [ ! -e "$install_dir" ] && [ -w "$(dirname "$install_dir")" ]; }; then
+# A fresh user may have neither ~/.local nor ~/.local/bin yet. Inspect the
+# nearest existing ancestor before deciding whether privilege is needed.
+writable_parent=$install_dir
+while [ ! -e "$writable_parent" ]; do
+  parent=$(dirname "$writable_parent")
+  [ "$parent" != "$writable_parent" ] || break
+  writable_parent=$parent
+done
+if [ -d "$writable_parent" ] && [ -w "$writable_parent" ]; then
   install_binary
 elif command -v sudo >/dev/null 2>&1; then
   sudo install -d "$install_dir"
@@ -137,3 +172,8 @@ case ":${PATH}:" in
   *":${install_dir}:"*) ;;
   *) echo "Add ${install_dir} to PATH before running mirrorproxy." ;;
 esac
+
+if [ "$setup" = true ]; then
+  # The Rust wizard opens the controlling terminal: stdin can be a script pipe.
+  "${install_dir}/mirrorproxy" setup --base-url "$setup_base_url"
+fi

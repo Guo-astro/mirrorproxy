@@ -5,6 +5,17 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Add Web console commands that bootstrap the client and launch an instance-bound
+  Skill/MCP setup wizard for Codex, Claude Code and Cursor. Ask for installation
+  scope with current-user global installation strongly recommended by default;
+  preserve existing Agent configuration, verify live MCP discovery and provide
+  protected backups and rollback.
+
+- Add native `mirrorproxy mcp` stdio tools and `mirrorproxy agent` JSON queries
+  for live source discovery, enabled adapters and public instance policy.
+  Include a portable Agent Skill and bilingual setup/rollback documentation.
+  Keep discovery read-only and bounded; do not add an arbitrary URL proxy.
+
 ## [1.6.0] - 2026-10-22
 
 ### Linux clients and source visibility

@@ -149,11 +149,21 @@ Linux 客户端还提供 `mirrorproxy systems`，统一迁移 28 类发行版的
 
 ## 文档导航
 
+Agent 可以使用 [MirrorProxy Skill 与原生 MCP 服务](docs/wiki/Agent-Integration-zh-CN.md)
+发现实例实时能力：`mirrorproxy mcp --base-url https://mirror.example.com`。
+WebUI 提供一次安装客户端、绑定当前实例的 Skill 与 MCP 的完整命令；本地向导询问
+Agent 和安装范围，默认并强烈推荐当前用户全局安装。已有客户端时可运行
+`mirrorproxy setup --base-url https://mirror.example.com`。
+Skill 发布到默认分支后，可用 `npx skills add inbjo/MirrorProxy --skill mirrorproxy`
+安装；本地版本可用 `npx skills add . --skill mirrorproxy`。该命令仅安装使用说明，
+原生客户端和 MCP 连接需分别配置。
+
 - [Wiki 首页](https://github.com/inbjo/MirrorProxy/wiki/Home-zh-CN)
 - [快速开始](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started-zh-CN)
 - [Docker、二进制和反向代理部署](https://github.com/inbjo/MirrorProxy/wiki/Deployment-zh-CN)
 - [支持的代理适配器](https://github.com/inbjo/MirrorProxy/wiki/Proxy-Adapters-zh-CN)
 - [独立客户端与本机改源](https://github.com/inbjo/MirrorProxy/wiki/Client-zh-CN)
+- [Agent Skill 与 MCP](docs/wiki/Agent-Integration-zh-CN.md)
 - [客户端分发与安装](https://github.com/inbjo/MirrorProxy/wiki/Distribution-zh-CN)
 - [后台、身份认证、配额和可观测性](https://github.com/inbjo/MirrorProxy/wiki/Administration-zh-CN)
 - [GeoIP、地域流量与 IP 访问控制](https://github.com/inbjo/MirrorProxy/wiki/GeoIP-and-IP-Access-Control-zh-CN)

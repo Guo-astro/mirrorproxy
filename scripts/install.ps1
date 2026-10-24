@@ -3,10 +3,14 @@ param(
     [string]$Mirror = $env:MIRRORPROXY_DOWNLOAD_MIRROR,
     [string]$Version = $(if ($env:MIRRORPROXY_VERSION) { $env:MIRRORPROXY_VERSION } else { "latest" }),
     [string]$InstallDir = $(if ($env:MIRRORPROXY_INSTALL_DIR) { $env:MIRRORPROXY_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\MirrorProxy\bin" }),
-    [string]$Repository = $(if ($env:MIRRORPROXY_GITHUB_REPO) { $env:MIRRORPROXY_GITHUB_REPO } else { "inbjo/MirrorProxy" })
+    [string]$Repository = $(if ($env:MIRRORPROXY_GITHUB_REPO) { $env:MIRRORPROXY_GITHUB_REPO } else { "inbjo/MirrorProxy" }),
+    [switch]$Setup,
+    [string]$BaseUrl
 )
 
 $ErrorActionPreference = "Stop"
+if ($Setup -and [string]::IsNullOrWhiteSpace($BaseUrl)) { throw "-Setup requires -BaseUrl." }
+if (-not $Setup -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) { throw "-BaseUrl requires -Setup." }
 
 $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
 if ($architecture -ne "X64") {
@@ -59,6 +63,10 @@ try {
     }
     $env:Path = "$InstallDir;$env:Path"
     Write-Host "MirrorProxy installed to $(Join-Path $InstallDir 'mirrorproxy.exe')"
+    if ($Setup) {
+        & (Join-Path $InstallDir 'mirrorproxy.exe') setup --base-url $BaseUrl
+        if ($LASTEXITCODE -ne 0) { throw "MirrorProxy setup did not complete. Client remains installed; retry setup --base-url with this instance." }
+    }
 } finally {
     if (Test-Path $tempDir) { Remove-Item -Recurse -Force $tempDir }
 }

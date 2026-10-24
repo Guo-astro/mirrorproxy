@@ -12,7 +12,9 @@ use mirrorproxy_catalog::{SourceCategory, SourceMode};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+mod agent;
 mod apt;
+mod setup;
 mod system;
 
 static TEMPORARY_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -26,6 +28,20 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Install instance-bound Skill and MCP configuration with a local wizard.
+    Setup(setup::SetupArgs),
+    /// Run a read-only MCP server over stdio for an existing instance.
+    Mcp {
+        #[arg(long)]
+        base_url: String,
+    },
+    /// Query live instance capabilities as JSON without modifying configuration.
+    Agent {
+        #[arg(long)]
+        base_url: String,
+        #[command(subcommand)]
+        command: agent::AgentCommand,
+    },
     /// Run a source command through the fully qualified namespace.
     Sources {
         #[command(subcommand)]
@@ -40,6 +56,9 @@ impl Command {
     fn into_source_command(self) -> SourcesCommand {
         match self {
             Self::Sources { command } | Self::Source(command) => command,
+            Self::Mcp { .. } | Self::Agent { .. } | Self::Setup(_) => {
+                unreachable!("not a source command")
+            }
         }
     }
 }
@@ -102,7 +121,12 @@ enum SourcesCommand {
 }
 
 fn main() -> anyhow::Result<()> {
-    run_sources_command(Cli::parse().command.into_source_command())
+    match Cli::parse().command {
+        Command::Setup(args) => setup::run(args),
+        Command::Mcp { base_url } => agent::run(&base_url, None),
+        Command::Agent { base_url, command } => agent::run(&base_url, Some(command)),
+        command => run_sources_command(command.into_source_command()),
+    }
 }
 
 fn run_sources_command(command: SourcesCommand) -> anyhow::Result<()> {

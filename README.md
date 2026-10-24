@@ -177,11 +177,24 @@ guide](https://github.com/inbjo/MirrorProxy/wiki/System-Sources).
 
 ## Documentation
 
+Agents can discover live instance capabilities using the [MirrorProxy Skill and
+native MCP server](docs/wiki/Agent-Integration.md):
+`mirrorproxy mcp --base-url https://mirror.example.com`.
+The Web console offers a complete client + instance-bound Skill + MCP setup
+command. Its local wizard asks which agents and scope to configure, with
+current-user global installation strongly recommended by default. Existing
+clients can run `mirrorproxy setup --base-url https://mirror.example.com`.
+Once the Skill is published on the default branch, install it with
+`npx skills add inbjo/MirrorProxy --skill mirrorproxy` (local checkout:
+`npx skills add . --skill mirrorproxy`). This installs instructions; the native
+client and MCP connection are configured separately.
+
 - [Wiki home](https://github.com/inbjo/MirrorProxy/wiki)
 - [Getting started](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started)
 - [Docker, binary, and reverse-proxy deployment](https://github.com/inbjo/MirrorProxy/wiki/Deployment)
 - [Supported proxy adapters](https://github.com/inbjo/MirrorProxy/wiki/Proxy-Adapters)
 - [Standalone client and source management](https://github.com/inbjo/MirrorProxy/wiki/Client)
+- [Agent Skill and MCP](docs/wiki/Agent-Integration.md)
 - [Client distribution and installation](https://github.com/inbjo/MirrorProxy/wiki/Distribution)
 - [Administration, identity, quotas, and observability](https://github.com/inbjo/MirrorProxy/wiki/Administration)
 - [GeoIP, regional traffic, and IP access control](https://github.com/inbjo/MirrorProxy/wiki/GeoIP-and-IP-Access-Control)

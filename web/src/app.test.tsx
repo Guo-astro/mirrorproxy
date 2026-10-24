@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { App, HttpSecurityBanner, containerRegistryInputTemplate, normalizeContainerImage, rewriteContainerConfig, sourceManualCommand } from './main'
+import { App, HttpSecurityBanner, agentSetupCommands, containerRegistryInputTemplate, normalizeContainerImage, rewriteContainerConfig, sourceManualCommand } from './main'
 
 const containerRegistries = [
   { code: 'docker-hub', name: 'Docker Hub', host: 'docker.io', aliases: ['registry-1.docker.io'], example_image: 'nginx:latest', legacy: false },
@@ -17,6 +17,25 @@ describe('Hugging Face HTTP download commands', () => {
       .toBe("HF_ENDPOINT='https://mirror.example/huggingface' HF_HUB_DISABLE_XET=1 hf download gpt2 config.json")
     expect(sourceManualCommand('huggingface', "https://mirror.example/it's/huggingface"))
       .toContain("it'\"'\"'s")
+  })
+})
+
+describe('Agent setup commands', () => {
+  it('binds both platform installers and the native wizard to the current origin', () => {
+    const commands = agentSetupCommands('https://personal.mirror.example/')
+    expect(commands.unix).toContain("--setup --base-url 'https://personal.mirror.example'")
+    expect(commands.unix).toContain("--mirror 'https://personal.mirror.example'")
+    expect(commands.windows).toContain("-Setup -BaseUrl 'https://personal.mirror.example'")
+    expect(commands.existing).toBe("mirrorproxy setup --base-url 'https://personal.mirror.example'")
+    expect(commands.unix).not.toContain('--scope')
+  })
+
+  it('rejects credentials, non-HTTP schemes and paths before producing installation code', () => {
+    for (const origin of ['https://user:secret@mirror.example', 'file:///etc/passwd', 'https://mirror.example/path', 'https://mirror.example/?token=secret', 'https://mirror.example/#x', 'https://mirror.example\n']) {
+      expect(() => agentSetupCommands(origin)).toThrow()
+    }
+    expect(agentSetupCommands("https://it's.example").unix).toContain("it'\"'\"'s.example")
+    expect(agentSetupCommands("https://it's.example").windows).toContain("it''s.example")
   })
 })
 
@@ -97,6 +116,25 @@ describe('App preferences', () => {
     expect(container.querySelector<HTMLAnchorElement>('.site-footer-project a')?.href).toBe('https://github.com/inbjo/MirrorProxy')
     expect(container.querySelector('.site-footer-project code')?.textContent).toBe('v1.0.2')
     expect(container.querySelector<HTMLAnchorElement>('.account-entry')?.getAttribute('href')).toBe('/login')
+  })
+
+  it('copies the complete Agent setup command with the assigned personal instance', async () => {
+    const json = (value: unknown) => Promise.resolve(new Response(JSON.stringify(value), { status: 200 }))
+    vi.stubGlobal('fetch', vi.fn((input: string) => {
+      if (input === '/api/public-config') return json({ public_base_url: 'https://mirror.example', enabled_proxies: [], quota: { enabled: false } })
+      if (input === '/api/account/profile') return json({ proxy_base_url: 'https://personal.mirror.example', user: { email: 'user@example.com' } })
+      return Promise.reject(new Error('offline'))
+    }))
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.assign(navigator, { clipboard: { writeText } })
+    const { container } = render(<App />)
+    await waitFor(() => expect(container.querySelector('.agent-install')?.textContent).toContain('https://personal.mirror.example'))
+    const panel = container.querySelector('.agent-install')!
+    expect(panel.textContent).toContain('strongly recommended')
+    fireEvent.click(within(panel as HTMLElement).getAllByRole('button', { name: 'Copy command' })[0])
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(agentSetupCommands('https://personal.mirror.example').unix))
+    fireEvent.click(container.querySelector<HTMLButtonElement>('button[title="Language"]')!)
+    expect(panel.textContent).toContain('当前用户全局安装')
   })
 
   it('shows degraded mirror health and individual upstreams in the public source catalog', async () => {
