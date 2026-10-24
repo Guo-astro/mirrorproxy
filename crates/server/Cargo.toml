@@ -62,4 +62,5 @@ x509-parser = "0.18"
 
 [dev-dependencies]
 rcgen = "0.14.8"
+ring = "0.17"
 tower = { version = "0.5", features = ["util"] }

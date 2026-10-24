@@ -39,7 +39,7 @@ bash scripts/smoke-clients.sh
 
 它使用隔离的临时客户端目录，需要相应生态工具与公网访问，不修改开发者真实配置。
 某个生态通过，不代表所有 OS 仓库和容器运行时都已验证。
-依赖检查使用 `cargo audit --ignore RUSTSEC-2023-0071`（仅限[安全策略中的 RSA 例外](https://github.com/inbjo/MirrorProxy/blob/main/SECURITY.md#scoped-dependency-advisory-exception--限定的依赖告警例外)）和 `web` 下的 `npm audit`。不带忽略参数的 Rust 审计仍会报告该未修复条目，不能将其描述为已修复。
+依赖检查使用 `cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0387`（仅限[已复核的 OIDC 公钥验签例外](https://github.com/inbjo/MirrorProxy/blob/main/SECURITY.md#scoped-dependency-advisory-exception--限定的依赖告警例外)）和 `web` 下的 `npm audit`。不带例外参数的 Rust 审计仍会报告这些未修复依赖，不能将其描述为已修复。引入私钥操作或修改 OIDC 依赖链前，必须重新评估。
 
 ## 进阶：仓库结构与交付
 

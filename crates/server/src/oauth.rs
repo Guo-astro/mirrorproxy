@@ -1433,4 +1433,103 @@ mod tests {
         provider.scopes.push("openid".into());
         assert!(validate_provider(&provider, false).is_ok());
     }
+
+    #[test]
+    fn oidc_ec_public_keys_verify_signatures_and_reject_invalid_tokens() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use openidconnect::core::{
+            CoreIdToken, CoreIdTokenVerifier, CoreJsonWebKey, CoreJsonWebKeySet,
+            CoreJwsSigningAlgorithm,
+        };
+        use ring::{
+            rand::SystemRandom,
+            signature::{self, KeyPair},
+        };
+
+        // The mock provider signs with a fresh ring key only in this test.
+        // Production OIDC receives only public x/y coordinates and verifies;
+        // it never sends an EC private scalar to crypto-bigint.
+        for (algorithm, curve, width, signing) in [
+            (
+                CoreJwsSigningAlgorithm::EcdsaP256Sha256,
+                "P-256",
+                32,
+                &signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+            ),
+            (
+                CoreJwsSigningAlgorithm::EcdsaP384Sha384,
+                "P-384",
+                48,
+                &signature::ECDSA_P384_SHA384_FIXED_SIGNING,
+            ),
+        ] {
+            let random = SystemRandom::new();
+            let pkcs8 = signature::EcdsaKeyPair::generate_pkcs8(signing, &random).unwrap();
+            let key_pair =
+                signature::EcdsaKeyPair::from_pkcs8(signing, pkcs8.as_ref(), &random).unwrap();
+            let public = key_pair.public_key().as_ref();
+            let key: CoreJsonWebKey = serde_json::from_value(serde_json::json!({
+                "kty": "EC", "use": "sig", "kid": "provider-test-key", "crv": curve,
+                "x": URL_SAFE_NO_PAD.encode(&public[1..1 + width]),
+                "y": URL_SAFE_NO_PAD.encode(&public[1 + width..]),
+                "alg": algorithm,
+            }))
+            .unwrap();
+            let verifier = CoreIdTokenVerifier::new_public_client(
+                OidcClientId::new("mirrorproxy-test".into()),
+                IssuerUrl::new("https://identity.example".into()).unwrap(),
+                CoreJsonWebKeySet::new(vec![key]),
+            )
+            .set_allowed_algs(vec![algorithm.clone()]);
+            let nonce = Nonce::new("expected-nonce".into());
+            let claims = serde_json::json!({
+                "iss": "https://identity.example", "aud": "mirrorproxy-test", "sub": "user-1",
+                "iat": now(), "exp": now() + 3600, "nonce": "expected-nonce",
+            });
+            let token = |claims: &Value, alg: &str, corrupt: bool| -> CoreIdToken {
+                let header = serde_json::json!({"alg": alg, "kid": "provider-test-key"});
+                let input = format!(
+                    "{}.{}",
+                    URL_SAFE_NO_PAD.encode(header.to_string()),
+                    URL_SAFE_NO_PAD.encode(claims.to_string())
+                );
+                let mut signed = key_pair
+                    .sign(&random, input.as_bytes())
+                    .unwrap()
+                    .as_ref()
+                    .to_vec();
+                if corrupt {
+                    signed[0] ^= 1;
+                }
+                format!("{input}.{}", URL_SAFE_NO_PAD.encode(signed))
+                    .parse()
+                    .unwrap()
+            };
+            let algorithm_name = if width == 32 { "ES256" } else { "ES384" };
+            assert!(token(&claims, algorithm_name, false)
+                .claims(&verifier, &nonce)
+                .is_ok());
+            assert!(token(&claims, algorithm_name, true)
+                .claims(&verifier, &nonce)
+                .is_err());
+            assert!(token(&claims, "RS256", false)
+                .claims(&verifier, &nonce)
+                .is_err());
+            for (field, invalid) in [
+                ("iss", serde_json::json!("https://other.example")),
+                ("aud", serde_json::json!("other-client")),
+                ("nonce", serde_json::json!("wrong-nonce")),
+                ("exp", serde_json::json!(now() - 3600)),
+            ] {
+                let mut invalid_claims = claims.clone();
+                invalid_claims[field] = invalid;
+                assert!(
+                    token(&invalid_claims, algorithm_name, false)
+                        .claims(&verifier, &nonce)
+                        .is_err(),
+                    "accepted invalid {field} for {algorithm_name}"
+                );
+            }
+        }
+    }
 }

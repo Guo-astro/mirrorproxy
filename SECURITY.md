@@ -15,6 +15,18 @@ MirrorProxy 仅为最新正式版本提供安全修复。报告问题或应用�
 
 ## Scoped dependency advisory exception / 限定的依赖告警例外
 
+CI excludes only the two reviewed advisory IDs below. All other vulnerabilities
+and yanked-version warnings remain outside these exceptions. An unfiltered
+audit still reports the unpatched dependencies; an excepted audit must not be
+described as a dependency fix or as exception-free. Review these exceptions
+when upstream publishes compatible fixes or when OIDC/cryptographic usage changes.
+
+CI 只排除下文经过复核的两个告警 ID，其他漏洞和撤回版本告警均不在例外范围内。
+不带例外参数的审计仍会报告这些未修复依赖，不能将带例外的审计描述为依赖已修复或
+无例外零告警。上游提供兼容修复版，或 OIDC/密码学用途发生变化时，必须重新评估。
+
+### RSA private-key timing / RSA 私钥运算计时
+
 Reviewed on 2026-10-21: [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
 remains in the dependency graph as `openidconnect 4.0.1 -> rsa 0.9.10`.
 Upstream has no patched version. The advisory concerns RSA private-key timing
@@ -23,20 +35,57 @@ with public keys. It does not use it to decrypt data or sign with RSA private
 keys. This affected private-key path is therefore not applicable to the current
 application.
 
-The existing CI exception is limited to `cargo audit --ignore RUSTSEC-2023-0071`.
-An unfiltered audit still reports this advisory; it must not be described as
-fixed or as an exception-free audit. No other vulnerability or yanked-version
-warning is covered. Reassess this exception when upstream publishes a patch or
-when OIDC/cryptographic code changes, especially before introducing any RSA
-private-key operation.
+The exception for this path is `RUSTSEC-2023-0071`. Reassess it before introducing
+any RSA private-key operation through this dependency.
 
 2026-10-21 复核：依赖链 `openidconnect 4.0.1 -> rsa 0.9.10` 仍包含上述告警，
 上游尚无修复版。告警涉及 RSA 私钥运算的计时泄露；MirrorProxy 仅使用该依赖对 OIDC
 提供方的签名做公钥验证，不使用它解密或执行 RSA 私钥签名，因此当前应用不涉及受影响路径。
 
-现有 CI 例外仅限 `cargo audit --ignore RUSTSEC-2023-0071`。不带忽略参数的审计仍会报告
-该条，不能将其描述为“已修复”或“无例外零告警”。其他漏洞和撤回版本告警均不在例外范围内。
-上游发布修复版、OIDC/密码学代码变化，尤其是引入任何 RSA 私钥运算前，必须重新评估。
+此路径的例外为 `RUSTSEC-2023-0071`。通过此依赖引入任何 RSA 私钥运算前必须重新评估。
+
+### OIDC EC public-key verification / OIDC 椭圆曲线公钥验签
+
+Reviewed on 2026-10-24: [RUSTSEC-2026-0387](https://github.com/rustsec/advisory-db/blob/main/crates/crypto-bigint/RUSTSEC-2026-0387.md)
+affects `crypto-bigint` operations on secret integers. The current chain is
+`openidconnect 4.0.1 -> p256/p384 0.13 -> elliptic-curve 0.13.8 -> crypto-bigint 0.5.5`.
+The patched `crypto-bigint >=0.7.6` is not compatible with that chain; the latest
+published `openidconnect` release still requires the old curve implementations.
+
+`oidc_exchange` in `crates/server/src/oauth.rs` calls the SDK's ID-token verifier.
+For ES256/ES384, `openidconnect`'s `core::crypto::verify_ec_signature` constructs a
+`p256`/`p384` `VerifyingKey` from the provider's public JWK `x` and `y`, then verifies
+the message/signature. No EC private scalar, ECDH operation, signing key or
+client secret is supplied to these integer operations. The sensitive-operand
+path described by the advisory is not applicable to this verification-only use.
+Other uses of EC private keys elsewhere (such as TLS/ACME) do not use this chain.
+
+The precise CI exception is `RUSTSEC-2026-0387`; it does not patch the library or
+permit secret-integer use. The OIDC regression test
+`oidc_ec_public_keys_verify_signatures_and_reject_invalid_tokens` covers ES256
+and ES384 verification, corrupt signatures, algorithm confusion, issuer,
+audience, nonce and expiration checks. Mock-provider private keys are generated
+ephemerally with `ring` only in the test, never persisted or passed to the OIDC
+SDK. These tests protect the verification contract; the applicability assessment
+also relies on the reviewed call chain and must be repeated for changes to it.
+
+2026-10-24 复核：该告警涉及秘密整数的时序泄漏，当前依赖链如上。修复版
+`crypto-bigint >=0.7.6` 与该依赖链不兼容，最新发布的 `openidconnect` 仍使用旧版曲线库。
+MirrorProxy 的 `oidc_exchange` 只调用 ID Token 验证器；ES256/ES384 验签从身份提供方
+公开 JWK 的 `x/y` 构造公钥并验证消息与签名，不向这些整数运算传入 EC 私钥、ECDH
+操作、签名密钥或客户端密钥。因此，通告描述的秘密操作数路径不适用于当前用途。
+TLS/ACME 等其他 EC 私钥用途不走这条依赖链。
+
+精确例外为 `RUSTSEC-2026-0387`，不表示库已修复，也不允许将此依赖用于秘密整数。
+回归测试覆盖两种曲线验签、损坏签名、算法混淆、issuer、audience、nonce 与过期检查；
+测试身份提供方的临时私钥仅由 `ring` 在测试中生成，不持久化，也不传给 OIDC SDK。
+测试用于保护验签契约，适用性判断还依赖人工核对的调用边界，调用链变化时必须重审。
+
+Current CI command / 当前 CI 命令：
+
+```sh
+cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0387
+```
 
 ## Reporting a vulnerability / 报告安全漏洞
 

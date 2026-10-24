@@ -62,10 +62,11 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked --version 0.22.2
       - name: Audit Rust dependencies
-        # RUSTSEC-2023-0071 affects RSA private-key operations. MirrorProxy only
-        # reaches rsa through openidconnect for public-key signature verification,
-        # and the advisory currently has no patched rsa release.
-        run: cargo audit --ignore RUSTSEC-2023-0071
+        # Only the reviewed OIDC public-key verification paths are excepted:
+        # RSA private-key timing (2023-0071) and crypto-bigint secret-integer
+        # timing (2026-0387). Neither path handles private keys in MirrorProxy.
+        # See SECURITY.md; all other vulnerabilities still fail this gate.
+        run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0387
       - name: Audit web dependencies
         working-directory: web
         run: |

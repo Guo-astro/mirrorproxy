@@ -5,6 +5,11 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Document the reviewed OIDC verification-only exception for RUSTSEC-2026-0387,
+  whose affected secret-integer path is not used by MirrorProxy. Add ES256/ES384
+  signature and ID-token validation regression coverage; keep all other RustSec
+  vulnerabilities blocking CI. The upstream dependency remains unpatched.
+
 - Handle Windows CRLF line endings when generating instance-bound Skills and
   report invalid embedded templates without panicking. Update the transitive
   test dependency `undici` to 7.30.1 to address its DoS and integrity advisories.
