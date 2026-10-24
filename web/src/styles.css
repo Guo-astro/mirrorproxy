@@ -2059,3 +2059,8 @@ p {
 .toast-region .toast-action { justify-self: start; padding: 0; border: 0; background: none; color: var(--accent-strong); font: inherit; font-weight: 700; cursor: pointer; }
 .toast-region button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 600px) { .toast-region { bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; } }
+
+.download-scroll { max-width: 100%; overflow-x: auto; }
+.download-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .875rem; }
+.download-table th, .download-table td { padding: .65rem; vertical-align: top; overflow-wrap: anywhere; }
+.download-table th { font-weight: 600; }

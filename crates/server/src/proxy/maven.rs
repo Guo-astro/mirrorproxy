@@ -114,6 +114,7 @@ mod tests {
     async fn test_state(config: Config) -> AppState {
         let (database, _) = Database::open(":memory:").await.unwrap();
         AppState {
+            downloads: Arc::new(crate::download::Runtime::default()),
             config: Arc::new(RwLock::new(Arc::new(config))),
             database: Arc::new(database),
             client: Arc::new(RwLock::new(reqwest::Client::new())),

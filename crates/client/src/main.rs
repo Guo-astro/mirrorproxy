@@ -14,6 +14,7 @@ use url::Url;
 
 mod agent;
 mod apt;
+mod download;
 mod setup;
 mod system;
 
@@ -28,9 +29,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Authenticate, check or fetch a controlled custom download.
+    Download(download::DownloadArgs),
     /// Install instance-bound Skill and MCP configuration with a local wizard.
     Setup(setup::SetupArgs),
-    /// Run a read-only MCP server over stdio for an existing instance.
+    /// Run instance discovery and controlled download MCP tools over stdio.
     Mcp {
         #[arg(long)]
         base_url: String,
@@ -56,7 +59,7 @@ impl Command {
     fn into_source_command(self) -> SourcesCommand {
         match self {
             Self::Sources { command } | Self::Source(command) => command,
-            Self::Mcp { .. } | Self::Agent { .. } | Self::Setup(_) => {
+            Self::Mcp { .. } | Self::Agent { .. } | Self::Setup(_) | Self::Download(_) => {
                 unreachable!("not a source command")
             }
         }
@@ -123,6 +126,7 @@ enum SourcesCommand {
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::Setup(args) => setup::run(args),
+        Command::Download(args) => download::run(args),
         Command::Mcp { base_url } => agent::run(&base_url, None),
         Command::Agent { base_url, command } => agent::run(&base_url, Some(command)),
         command => run_sources_command(command.into_source_command()),

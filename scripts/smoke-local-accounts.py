@@ -107,3 +107,39 @@ request(admin, f"/admin/api/registration-invitations/{revoked['id']}", method="D
 revoked_token = urllib.parse.parse_qs(urllib.parse.urlsplit(revoked["url"]).fragment)["register"][0]
 request(client(), "/api/auth/register", {**registration, "token": revoked_token, "username": "smoke-revoked"}, expected=400)
 print("embedded console digest, authenticated connection diagnostics, local account login, password change, CSRF, invitation registration/replay/revocation, and quotas passed")
+
+# Exercise download setup through real administrator/user sessions and CSRF.
+report = request(admin, "/admin/api/download")
+assert report["config"]["enabled"] is False
+request(friend, "/admin/api/download", expected=401)
+assert request(friend, "/api/account/download")["allowed"] is False
+request(friend, "/api/account/download/tokens", {"name": "Smoke", "days": 1}, expected=403)
+download_config = {**report["config"], "enabled": True}
+request(admin, "/admin/api/download/config", download_config, method="PUT", csrf=False, expected=403)
+request(admin, "/admin/api/download/config", download_config, method="PUT")
+request(admin, "/admin/api/download/permissions", {"kind": "user", "subject_id": user["id"], "policy": "allow"}, method="PUT", expected=204)
+assert request(friend, "/api/account/download")["allowed"] is True
+scoped = request(friend, "/api/account/download/tokens", {"name": "Smoke", "days": 1}, expected=201)
+assert scoped["scope"] == "download:fetch"
+assert scoped["token"] not in json.dumps(request(friend, "/api/account/download"))
+request(admin, "/admin/api/download/blocks", {"domain": "example.org", "subdomains": True, "reason": "smoke", "blocked": True}, method="PUT", expected=204)
+
+
+def token_request(path, expected):
+    req = urllib.request.Request(base + path, headers={"Authorization": "Bearer " + scoped["token"]})
+    try:
+        response = client()[0].open(req)
+    except urllib.error.HTTPError as error:
+        response = error
+    assert response.status == expected, (path.split("?")[0], response.status)
+    response.read()
+
+
+token_request("/admin/api/download", 401)
+token_request("/api/download?" + urllib.parse.urlencode({"url": "https://example.org/artifact"}), 403)
+token_request("/api/download?" + urllib.parse.urlencode({"url": "https://127.0.0.1/private"}), 400)
+report = request(admin, "/admin/api/download")
+assert report["usage"]["totals"][0]["denied"] == 1
+request(friend, f"/api/account/download/tokens/{scoped['id']}", method="DELETE", expected=204)
+token_request("/api/download?" + urllib.parse.urlencode({"url": "https://example.org/artifact"}), 403)
+print("download admin/user sessions, CSRF, opt-in grants, token secrecy/revocation, SSRF refusal, domain block and denial statistics passed")

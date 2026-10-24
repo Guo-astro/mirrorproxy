@@ -164,6 +164,7 @@ Skill 发布到默认分支后，可用 `npx skills add inbjo/MirrorProxy --skil
 - [支持的代理适配器](https://github.com/inbjo/MirrorProxy/wiki/Proxy-Adapters-zh-CN)
 - [独立客户端与本机改源](https://github.com/inbjo/MirrorProxy/wiki/Client-zh-CN)
 - [Agent Skill 与 MCP](docs/wiki/Agent-Integration-zh-CN.md)
+- **受控自定义下载**：默认关闭，用户/分组授权、下载专用 token、SSRF 防护、域名统计与封禁，以及 CLI/MCP 下载。见[自定义下载](docs/wiki/Custom-Downloads-zh-CN.md)。
 - [客户端分发与安装](https://github.com/inbjo/MirrorProxy/wiki/Distribution-zh-CN)
 - [后台、身份认证、配额和可观测性](https://github.com/inbjo/MirrorProxy/wiki/Administration-zh-CN)
 - [GeoIP、地域流量与 IP 访问控制](https://github.com/inbjo/MirrorProxy/wiki/GeoIP-and-IP-Access-Control-zh-CN)

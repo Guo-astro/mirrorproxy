@@ -1,4 +1,5 @@
 pub mod billing;
+pub mod download;
 use std::{
     collections::BTreeMap,
     path::Path,
@@ -31,7 +32,7 @@ const ADMIN_LOGIN_LOCK_SECS: i64 = 15 * 60;
 const WEBAUTHN_CHALLENGE_LIFETIME_SECS: i64 = 5 * 60;
 const ROUTING_ID_INSERT_ATTEMPTS: usize = 16;
 const USER_SESSION_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 pub mod local_accounts;
 
 #[derive(Debug, Serialize)]
@@ -481,6 +482,7 @@ impl Database {
             .execute(&self.pool)
             .await?;
         self.migrate_local_accounts().await?;
+        self.migrate_downloads().await?;
         Ok(())
     }
 

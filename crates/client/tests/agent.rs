@@ -201,12 +201,12 @@ fn stdio_lifecycle_discovery_and_notifications() {
     assert_eq!(replies[1]["result"]["protocolVersion"], "2025-11-25");
     assert_eq!(replies[2]["error"]["code"], -32600);
     assert_eq!(replies[3]["result"], json!({}));
-    assert_eq!(replies[4]["result"]["tools"].as_array().unwrap().len(), 3);
+    assert_eq!(replies[4]["result"]["tools"].as_array().unwrap().len(), 5);
     assert!(replies[4]["result"]["tools"]
         .as_array()
         .unwrap()
         .iter()
-        .all(|t| t["annotations"]["readOnlyHint"] == true));
+        .all(|t| t["annotations"]["readOnlyHint"] == (t["name"] != "download_file")));
     assert_eq!(replies[5]["error"]["code"], -32601);
     assert_eq!(replies[6]["error"]["code"], -32600);
 }

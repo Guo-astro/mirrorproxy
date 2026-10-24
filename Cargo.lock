@@ -2016,10 +2016,12 @@ version = "1.6.0"
 dependencies = [
  "anyhow",
  "clap",
+ "hex",
  "mirrorproxy-catalog",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "toml_edit",
  "url",

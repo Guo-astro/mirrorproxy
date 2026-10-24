@@ -1122,3 +1122,30 @@ test('switches an open login page to invitation registration on fragment navigat
   await page.evaluate(() => { location.hash = '' })
   await expect(page.getByRole('heading', { name: 'Sign in with a password' })).toBeVisible()
 })
+
+test('manages custom download domains in both languages on narrow screens', async ({ page }) => {
+  const config = { enabled: false, max_file_bytes: 2147483648, daily_user_bytes: 5368709120, max_concurrent: 16, max_user_concurrent: 2, requests_per_minute: 30, max_duration_secs: 1800, bandwidth_bytes_per_sec: 20971520 }
+  const usage = { domain: 'very-long-artifact-download-hostname.example.org', user_id: 1, day: '2026-10-24', entry_domain: 'example.org', requests: 1, errors: 0, denied: 0, bytes: 1024, upstream_bytes: 1024 }
+  let blocked: unknown
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', r => r.fulfill({ json: { items: [], total: 0 } }))
+  await page.route('**/admin/api/admins', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/users/summary?*', r => r.fulfill({ json: { items: [] } }))
+  await page.route('**/admin/api/download?*', r => r.fulfill({ json: { config, permissions: [], blocks: [], active: [], usage: { domains: [usage], users: [usage], daily: [usage], totals: [usage], rows: [usage], truncated: false } } }))
+  await page.route('**/admin/api/download/blocks', r => { blocked = r.request().postDataJSON(); return r.fulfill({ status: 204 }) })
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Custom downloads', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Custom download policy' })).toBeVisible()
+  for (const width of [320, 375, 768]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+  }
+  await page.getByLabel('Domain', { exact: true }).fill('cdn.example.org')
+  await page.getByRole('button', { name: 'Block', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect.poll(() => blocked).toEqual({ domain: 'cdn.example.org', subdomains: true, reason: '', blocked: true })
+  await page.getByTitle('Language').click()
+  await expect(page.getByRole('heading', { name: '自定义下载策略' })).toBeVisible()
+})

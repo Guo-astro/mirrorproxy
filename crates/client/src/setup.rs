@@ -507,7 +507,7 @@ fn verify(executable: &Path, base_url: &str) -> anyhow::Result<()> {
         .map(serde_json::from_str)
         .collect::<Result<_, _>>()?;
     ensure!(messages.len() == 3 && messages[0]["result"]["protocolVersion"] == "2025-11-25"
-        && messages[1]["result"]["tools"].as_array().is_some_and(|t| t.len() == 3)
+        && messages[1]["result"]["tools"].as_array().is_some_and(|t| t.len() == 5)
         && messages[2]["result"]["isError"] == false, "MCP handshake or live source discovery failed; check instance/TLS/public APIs; no Agent configuration was changed");
     let data: Value = serde_json::from_str(
         messages[2]["result"]["content"][0]["text"]

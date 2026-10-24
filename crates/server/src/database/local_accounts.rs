@@ -68,11 +68,12 @@ pub struct LocalUserCreation<'a> {
 impl Database {
     pub(super) async fn migrate_local_accounts(&self) -> anyhow::Result<()> {
         let mut tx = self.pool.begin().await?;
-        let version: i64 =
-            sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
-                .fetch_one(&mut *tx)
-                .await?;
-        if version < CURRENT_SCHEMA_VERSION {
+        let version: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations WHERE version<=4",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if version < 4 {
             sqlx::query("ALTER TABLE users ADD COLUMN username TEXT COLLATE NOCASE")
                 .execute(&mut *tx)
                 .await?;
@@ -83,7 +84,7 @@ impl Database {
             .await?;
             sqlx::query("CREATE TABLE local_user_credentials (user_id INTEGER PRIMARY KEY REFERENCES users(id), password_hash TEXT NOT NULL, failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0)").execute(&mut *tx).await?;
             sqlx::query("CREATE TABLE registration_invitations (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE, billing_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, created_by TEXT NOT NULL, user_id INTEGER REFERENCES users(id))").execute(&mut *tx).await?;
-            sqlx::query("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, 'local-users-and-registration-invitations', ?)").bind(CURRENT_SCHEMA_VERSION).bind(unix_timestamp()).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, 'local-users-and-registration-invitations', ?)").bind(4_i64).bind(unix_timestamp()).execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(())

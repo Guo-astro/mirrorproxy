@@ -1,8 +1,8 @@
 # Agent 接入：Skill 与 MCP
 
-MirrorProxy 提供可移植的 Skill，以及集成在 `mirrorproxy` 客户端中的原生只读
+MirrorProxy 提供可移植的 Skill，以及集成在 `mirrorproxy` 客户端中的原生
 MCP stdio 服务，用于发现现有实例的源目录、已启用适配器、公开访问限制与配额策略。
-它们不提供任意 URL 代理，也不直接修改客户端配置。
+也可通过独立授权的受控下载通道获取公网文件；不提供无限制正向代理，也不直接修改客户端配置。
 
 ## 安装
 
@@ -142,7 +142,7 @@ npx skills add inbjo/MirrorProxy --skill mirrorproxy
 ```
 
 如果应用不继承 PATH，请使用二进制绝对路径。配置文件位置和外层字段以具体应用
-要求为准。实例地址在启动时固定，工具无法选择其他实例或请求任意 URL。
+要求为准。实例地址在启动时固定，工具无法选择其他实例或直接连接任意上游。受控下载通过绑定的实例执行服务端策略。
 这是本地 stdio 进程，不是托管的 `/mcp` HTTP 接口。它使用逐行 JSON-RPC，支持
 初始化、ping、工具发现与调用。诊断写入 stderr，stdout 仅输出协议消息。
 支持的协议版本为 `2025-06-18` 和 `2025-11-25`，不声明支持需要 JSON-RPC 批处理的旧协议。
@@ -152,6 +152,8 @@ npx skills add inbjo/MirrorProxy --skill mirrorproxy
 | `inspect_instance` | 无 | 已启用适配器、公开访问模式与配额策略 |
 | `list_sources` | 可选 `category`：`lang`、`os`、`repo`；`enabled_only`：布尔值 | 实时源元数据及映射，包括自定义操作系统仓库 |
 | `get_source` | `target`：源代号或别名 | 对应源、地址、限制及供参考的配置模板 |
+| `check_download` | `url`：公网 HTTPS 地址 | 认证后的 HEAD/策略检查，不预留配额 |
+| `download_file` | `url`、`output`，可选 `max_bytes` | 新建本地文件、字节数及 SHA-256，需本地下载 token |
 
 每条映射的 `enabled` 值：MirrorProxy 代理路由为 `true` 或 `false`；第三方镜像及
 仅指导用途的映射为 `null`。启用状态不是健康检查，也不证明当前用户获得了访问
@@ -198,8 +200,12 @@ set/reset 应使用相同作用域。系统仓库还可能需要指定发行版�
 Docker `registry-mirrors` 只适用于 Docker Hub，其他 OCI 仓库必须显式改写镜像
 主机名。Composer 支持不代表支持 PHP 源码压缩包。Playwright 浏览器压缩包需要
 匹配的下载适配器；Chromium 操作系统依赖可以按情况使用已有系统源。
-通用 `/proxy?url=...` 下载接口尚未实现。
+通用 `/proxy?url=...` 下载接口尚未实现。独立的认证下载通道见[自定义下载](Custom-Downloads-zh-CN)。
 
 移除接入时，删除 MCP 配置与已安装的 Skill 目录即可，也可使用
 `npx skills remove mirrorproxy` 卸载（全局安装时加 `-g`）。能力查询本身不修改客户端
 文件；如果另外应用过改源，请使用 CLI 现有回滚机制恢复。
+
+## 受控下载
+
+[下载授权、CLI 凭据、MCP 工具及域名统计](Custom-Downloads-zh-CN)。

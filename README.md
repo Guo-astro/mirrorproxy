@@ -195,6 +195,7 @@ client and MCP connection are configured separately.
 - [Supported proxy adapters](https://github.com/inbjo/MirrorProxy/wiki/Proxy-Adapters)
 - [Standalone client and source management](https://github.com/inbjo/MirrorProxy/wiki/Client)
 - [Agent Skill and MCP](docs/wiki/Agent-Integration.md)
+- **Controlled custom downloads**: opt-in user/group grants, download-only tokens, SSRF protection, domain statistics and blocking, plus CLI/MCP downloads. See [Custom downloads](docs/wiki/Custom-Downloads.md).
 - [Client distribution and installation](https://github.com/inbjo/MirrorProxy/wiki/Distribution)
 - [Administration, identity, quotas, and observability](https://github.com/inbjo/MirrorProxy/wiki/Administration)
 - [GeoIP, regional traffic, and IP access control](https://github.com/inbjo/MirrorProxy/wiki/GeoIP-and-IP-Access-Control)

@@ -29,3 +29,5 @@
 
 - [开发与路线图](Development-and-Roadmap-zh-CN) · [Development](Development-and-Roadmap)
 - [发布维护者配置](Release-Maintenance-zh-CN) · [Publisher setup](Release-Maintenance)
+
+- [Custom downloads](Custom-Downloads) / [自定义下载](Custom-Downloads-zh-CN)

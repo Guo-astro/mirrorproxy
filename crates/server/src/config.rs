@@ -52,6 +52,8 @@ pub struct Config {
     #[serde(default)]
     pub quota: QuotaConfig,
     #[serde(default)]
+    pub download: crate::download::DownloadConfig,
+    #[serde(default)]
     pub alerts: AlertConfig,
     #[serde(default)]
     pub user_access: UserAccessConfig,
@@ -986,6 +988,7 @@ impl Config {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        self.download.validate()?;
         if self.database_path.trim().is_empty() {
             anyhow::bail!("database_path cannot be empty");
         }
@@ -1451,6 +1454,7 @@ impl Default for Config {
             geoip: GeoIpConfig::default(),
             acme: AcmeConfig::default(),
             quota: QuotaConfig::default(),
+            download: crate::download::DownloadConfig::default(),
             alerts: AlertConfig::default(),
             user_access: UserAccessConfig::default(),
             registration: RegistrationConfig::default(),

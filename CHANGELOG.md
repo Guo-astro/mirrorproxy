@@ -5,6 +5,9 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+- Add opt-in authenticated public HTTPS downloads, user/group grants, scoped tokens, SSRF-safe pinned connections, per-chunk quotas, domain statistics/blocking, and shared CLI/MCP tools.
+
+
 - Document the reviewed OIDC verification-only exception for RUSTSEC-2026-0387,
   whose affected secret-integer path is not used by MirrorProxy. Add ES256/ES384
   signature and ID-token validation regression coverage; keep all other RustSec

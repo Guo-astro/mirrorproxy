@@ -1,9 +1,10 @@
 # Agent integration: Skill and MCP
 
-MirrorProxy offers a portable Skill and a native, read-only MCP stdio server in
+MirrorProxy offers a portable Skill and a native MCP stdio server in
 the `mirrorproxy` client. They discover an existing instance's source catalog,
-enabled adapters, public access restrictions and quota policy. They do not
-provide an arbitrary URL proxy or change client configuration.
+enabled adapters, public access restrictions and quota policy. Optional controlled
+download tools require separate user authorization. They do not provide an
+unrestricted forward proxy or change client configuration.
 
 ## Install
 
@@ -166,7 +167,8 @@ configuration shape is:
 Use an absolute executable path if the application does not inherit your PATH.
 Configuration file locations and wrapper keys depend on the application.
 Set the origin explicitly at startup; tools cannot select another instance or
-request arbitrary URLs. This is a local stdio process, not a hosted `/mcp`
+contact upstream URLs directly. Controlled downloads pass through the fixed
+instance and its server policy. This is a local stdio process, not a hosted `/mcp`
 HTTP endpoint. It implements initialization, ping, tool listing and tool calls
 using newline-delimited JSON-RPC. Diagnostics go to stderr; stdout is reserved
 for protocol messages. Supported protocol versions are `2025-06-18` and
@@ -177,6 +179,8 @@ for protocol messages. Supported protocol versions are `2025-06-18` and
 | `inspect_instance` | None | Enabled adapters, public access mode and quota policy |
 | `list_sources` | Optional `category`: `lang`, `os`, `repo`; `enabled_only`: boolean | Live source metadata and mappings, including custom OS repositories |
 | `get_source` | `target`: source code or alias | Matching source, URLs, limitations and advisory configuration templates |
+| `check_download` | `url`: public HTTPS URL | Authenticated HEAD/policy check; no quota reservation |
+| `download_file` | `url`, `output`, optional `max_bytes` | New local file, byte count and SHA-256; requires local download token |
 
 `enabled` is a per-mapping value: `true`/`false` for MirrorProxy proxy routes,
 and `null` for third-party or guidance-only mappings. An enabled adapter is not
@@ -230,9 +234,13 @@ Docker `registry-mirrors` covers Docker Hub; other OCI registries require explic
 image-host rewriting. Composer support does not imply PHP source archive
 support. Playwright browser archives require a compatible download adapter;
 Chromium OS dependencies may use existing system repositories. The general
-`/proxy?url=...` downloader is not implemented.
+`/proxy?url=...` downloader is not implemented. The separate authenticated controlled download channel is documented in [Custom downloads](Custom-Downloads).
 
 To remove the integration, remove its MCP configuration and installed Skill
 directory (or use `npx skills remove mirrorproxy`, with `-g` for a global
 installation). Discovery itself changes no client files. If source settings were
 applied separately, restore them with the CLI's normal rollback mechanism.
+
+## Controlled downloads / 受控下载
+
+[Download permissions, CLI credentials, MCP tools and domain statistics](Custom-Downloads).

@@ -5,6 +5,7 @@ mod admin_billing;
 mod alerts;
 mod config;
 mod database;
+mod download;
 mod email;
 mod geoip;
 mod local_accounts;
@@ -203,6 +204,7 @@ pub struct AppState {
     acme: Arc<acme::AcmeManager>,
     acme_environment_managed: bool,
     upstream_selector: Arc<upstream_selection::UpstreamSelector>,
+    downloads: Arc<download::Runtime>,
 }
 
 pub struct RateLimiter {
@@ -1144,6 +1146,15 @@ fn plan_config_set(config: &Config, key: &str, value: &str) -> anyhow::Result<Pl
     let spec = config_set_spec(key)
         .ok_or_else(|| anyhow::anyhow!("config key '{key}' is not settable"))?;
     validate_config_set_value(&spec.key, value)?;
+    if let Some(field) = spec.key.strip_prefix("download.") {
+        let mut candidate = serde_json::to_value(&config.download)?;
+        candidate[field] = if field == "enabled" {
+            serde_json::json!(value.parse::<bool>()?)
+        } else {
+            serde_json::json!(value.parse::<u64>()?)
+        };
+        serde_json::from_value::<download::DownloadConfig>(candidate)?.validate()?;
+    }
     if spec.key == "outbound_proxy.enabled"
         && value == "true"
         && config.outbound_proxy.url.trim().is_empty()
@@ -1324,6 +1335,46 @@ fn config_set_spec(key: &str) -> Option<ConfigSetSpec> {
         "cache.max_ttl_secs" => (
             "cache.max_ttl_secs",
             "cache.max_ttl_secs",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.enabled" => (
+            "download.enabled",
+            "download.enabled",
+            ConfigValueKind::Bool,
+        ),
+        "download.max_file_bytes" => (
+            "download.max_file_bytes",
+            "download.max_file_bytes",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.daily_user_bytes" => (
+            "download.daily_user_bytes",
+            "download.daily_user_bytes",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.max_concurrent" => (
+            "download.max_concurrent",
+            "download.max_concurrent",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.max_user_concurrent" => (
+            "download.max_user_concurrent",
+            "download.max_user_concurrent",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.requests_per_minute" => (
+            "download.requests_per_minute",
+            "download.requests_per_minute",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.max_duration_secs" => (
+            "download.max_duration_secs",
+            "download.max_duration_secs",
+            ConfigValueKind::PositiveU64,
+        ),
+        "download.bandwidth_bytes_per_sec" => (
+            "download.bandwidth_bytes_per_sec",
+            "download.bandwidth_bytes_per_sec",
             ConfigValueKind::PositiveU64,
         ),
         "quota.enabled" => ("quota.enabled", "quota.enabled", ConfigValueKind::Bool),
@@ -1530,6 +1581,16 @@ fn config_value(config: &Config, key: &str) -> Option<String> {
         "cache.max_total_mb" => Some(config.cache.max_total_mb.to_string()),
         "cache.default_ttl_secs" => Some(config.cache.default_ttl_secs.to_string()),
         "cache.max_ttl_secs" => Some(config.cache.max_ttl_secs.to_string()),
+        "download.enabled" => Some(config.download.enabled.to_string()),
+        "download.max_file_bytes" => Some(config.download.max_file_bytes.to_string()),
+        "download.daily_user_bytes" => Some(config.download.daily_user_bytes.to_string()),
+        "download.max_concurrent" => Some(config.download.max_concurrent.to_string()),
+        "download.max_user_concurrent" => Some(config.download.max_user_concurrent.to_string()),
+        "download.requests_per_minute" => Some(config.download.requests_per_minute.to_string()),
+        "download.max_duration_secs" => Some(config.download.max_duration_secs.to_string()),
+        "download.bandwidth_bytes_per_sec" => {
+            Some(config.download.bandwidth_bytes_per_sec.to_string())
+        }
         "quota.enabled" => Some(config.quota.enabled.to_string()),
         "quota.bidirectional_accounting" => Some(config.quota.bidirectional_accounting.to_string()),
         "quota.monthly_gb" => Some(config.quota.monthly_gb.to_string()),
@@ -1635,6 +1696,14 @@ fn config_entries(config: &Config) -> Vec<(String, String)> {
         "cache.max_total_mb",
         "cache.default_ttl_secs",
         "cache.max_ttl_secs",
+        "download.enabled",
+        "download.max_file_bytes",
+        "download.daily_user_bytes",
+        "download.max_concurrent",
+        "download.max_user_concurrent",
+        "download.requests_per_minute",
+        "download.max_duration_secs",
+        "download.bandwidth_bytes_per_sec",
         "quota.enabled",
         "quota.bidirectional_accounting",
         "quota.monthly_gb",
@@ -1857,6 +1926,7 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
     }
 
     let state = AppState {
+        downloads: Arc::new(download::Runtime::default()),
         rate_limiter: Arc::new(RateLimiter::new()),
         admin_login_limiter: Arc::new(AdminLoginRateLimiter::new()),
         webauthn: Arc::new(RwLock::new(webauthn)),
@@ -1970,6 +2040,7 @@ async fn build_application(config: Config) -> anyhow::Result<BuiltApplication> {
             get(admin_source_health).post(run_source_health_check),
         )
         .route("/admin/api/users", get(list_users).post(create_user))
+        .merge(download::routes())
         .route(
             "/admin/api/users/summary",
             get(admin_billing::user_summaries),
@@ -2891,6 +2962,8 @@ fn route_group_for_path(path: &str) -> String {
         "/metrics".to_string()
     } else if path == "/version" {
         "/version".to_string()
+    } else if matches!(path, "/api/download" | "/api/download/check") {
+        "/api/download".to_string()
     } else if path == "/api/sources" {
         "/api/sources".to_string()
     } else if path == "/api/config" || path == "/api/public-config" {
@@ -3562,6 +3635,7 @@ async fn metrics(
 
 #[derive(Serialize)]
 struct PublicConfig {
+    download: download::DownloadConfig,
     public_base_url: String,
     site: config::SiteConfig,
     enabled_proxies: Vec<String>,
@@ -3603,6 +3677,7 @@ async fn public_config(State(state): State<AppState>, headers: HeaderMap) -> imp
         }
     };
     Json(PublicConfig {
+        download: config.download.clone(),
         public_base_url: state.public_base_url(&headers),
         site: config.site.clone(),
         enabled_proxies: config.enabled_proxies.clone(),
@@ -5141,6 +5216,13 @@ async fn update_admin_config(
     };
 
     let current = state.config();
+    if next_config.download != current.download && identity.role != "super_admin" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error":"super administrator access required"})),
+        )
+            .into_response();
+    }
     if next_config.alerts.webhook_url.trim().is_empty()
         && !current.alerts.webhook_url.trim().is_empty()
     {
@@ -5255,6 +5337,9 @@ async fn update_admin_config(
     {
         tracing::error!(%error, "failed to save runtime configuration");
         return internal_error_response();
+    }
+    if next_config.download != current.download {
+        state.downloads.cancel_all();
     }
     state.upstream_selector.configure(&next_config);
     *state.config.write().expect("runtime config lock poisoned") = Arc::new(next_config.clone());
