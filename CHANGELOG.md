@@ -5,28 +5,46 @@ follow semantic versioning.
 
 ## [Unreleased]
 
-- Add opt-in authenticated public HTTPS downloads, user/group grants, scoped tokens, SSRF-safe pinned connections, per-chunk quotas, domain statistics/blocking, and shared CLI/MCP tools.
+## [1.7.0] - 2026-10-26
 
+### Web console and public portal
 
-- Document the reviewed OIDC verification-only exception for RUSTSEC-2026-0387,
-  whose affected secret-integer path is not used by MirrorProxy. Add ES256/ES384
-  signature and ID-token validation regression coverage; keep all other RustSec
-  vulnerabilities blocking CI. The upstream dependency remains unpatched.
+- Rebuild administration with Umi, Ant Design 6 and native Ant Design Pro
+  layouts, forms, statistic cards and tables. Add paginated user/audit tables,
+  clearer status and configuration groups, consistent responsive spacing,
+  accessible controls, and a password-change shortcut in the account menu.
+- Introduce a separately scoped Apple-style public portal, login, registration
+  and account experience with shared wide-screen alignment, redesigned source
+  cards, highlighted copyable commands, refined dialogs and new site icons.
+  Preserve Chinese/English, light/dark themes and existing authentication flows.
 
-- Handle Windows CRLF line endings when generating instance-bound Skills and
-  report invalid embedded templates without panicking. Update the transitive
-  test dependency `undici` to 7.30.1 to address its DoS and integrity advisories.
+### Agent setup and controlled downloads
 
-- Add Web console commands that bootstrap the client and launch an instance-bound
-  Skill/MCP setup wizard for Codex, Claude Code and Cursor. Ask for installation
-  scope with current-user global installation strongly recommended by default;
-  preserve existing Agent configuration, verify live MCP discovery and provide
-  protected backups and rollback.
+- Add instance-bound Skill/MCP setup for Codex, Claude Code and Cursor, read-only
+  discovery tools, installation-scope selection, protected backups and rollback.
+  Serve matching Unix/PowerShell installers from the instance; verify release
+  checksums and reject clients without setup support before replacing a binary.
+- Add opt-in authenticated public HTTPS downloads with scoped download-only
+  tokens, user/group grants, SSRF-safe pinned connections, per-chunk quotas,
+  domain statistics/blocking and CLI/MCP integration. Disabled by default.
+- Set new download-policy defaults to 10 GiB/file, 20 GiB/user/day, 16 instance
+  and 5 user concurrency, 300 requests/minute, 1800 seconds and 100 MiB/s.
+  Preserve explicitly saved policies. Apply additive SQLite schema-5 migration.
 
-- Add native `mirrorproxy mcp` stdio tools and `mirrorproxy agent` JSON queries
-  for live source discovery, enabled adapters and public instance policy.
-  Include a portable Agent Skill and bilingual setup/rollback documentation.
-  Keep discovery read-only and bounded; do not add an arbitrary URL proxy.
+### Security, compatibility and builds
+
+- Upgrade Vitest/mocker to 5.0.5 for mock-registration injection and Windows
+  redirect traversal fixes. Keep API authorization, CSRF, TLS, path checks and
+  quotas intact. Document scoped verification-only RustSec exceptions.
+- Update Tokio to 1.53.3 for the AsyncFd I/O safety advisory RUSTSEC-2026-0386.
+- Replace the unused Max lint/DVA/legacy internationalization bundle with Umi
+  core, remove 17 of 20 deprecated toolchain entries and test maintained SVG,
+  TypeScript runner, coverage and cleanup dependency APIs. Three upstream
+  development-tool deprecations remain visible; npm audit reports zero findings.
+- Add content/digest-validated local build caches and stage timings while
+  retaining locked Cargo and GeoIP checksum checks. Add forced rebuild support.
+- Make Windows download test fixtures unique across identical clock ticks and
+  retain original-file preservation, symlink refusal and negative-path tests.
 
 ## [1.6.0] - 2026-10-22
 
@@ -419,4 +437,5 @@ Multi-instance clustering and high availability are intentionally outside the
 [1.3.0]: https://github.com/inbjo/MirrorProxy/compare/v1.2.0...v1.3.0
 [1.3.1]: https://github.com/inbjo/MirrorProxy/compare/v1.3.0...v1.3.1
 [1.3.2]: https://github.com/inbjo/MirrorProxy/compare/v1.3.1...v1.3.2
+[1.7.0]: https://github.com/inbjo/MirrorProxy/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/inbjo/MirrorProxy/compare/v1.5.0...v1.6.0
