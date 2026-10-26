@@ -33,13 +33,19 @@ shim (1.7.0). No force/legacy-peer-deps or log-level suppression is used. npm 11
 allowScripts permits only the two locked esbuild binary installers, explicitly
 denying nonessential core-js, core-js-pure and es5-ext postinstall notices.
 
-A clean install still reports 20 deprecated transitive toolchain packages,
-including Umi's legacy lint/router/formatting dependencies. Removing or renaming
-these through broad overrides can break their callers; they remain visible.
-`npm ls --all` also reports Umi's unused react-redux 8 optional React 18 type
-peers against this React 19 project. It is not a fully clean dependency-tree
-result. Targeted runtime dependency checks, TypeScript, production build and
-browser acceptance pass; a framework-level dependency refresh is separate work.
+A clean install now reports 3 deprecated transitive toolchain packages, down
+from 20: `@stagewise/toolbar`, `@floating-ui/react-dom-interactions` and
+`node-domexception`. Umi's optional development toolbar, click-to-source tooling
+and Node-fetch fallback still install these upstream dependencies. They remain
+visible; no empty shim or incompatible renamed replacement hides their warnings.
+The unused Max lint, DVA and react-intl stacks are removed, with Umi core 4.7.28
+retaining routing/builds and Ant Design Pro retaining layout/components. The
+application's existing providers own locale and theme. `npm ls --all` now passes
+without optional React type-peer conflicts. Vitest/mocker is pinned to 5.0.5 for
+the two reported 5.0.0 mock-registration/Windows-path advisories. SVGO 3.3.5,
+tsx 4.20.6, test-exclude 8 and rimraf 6 replace deprecated dependency chains;
+four API compatibility tests exercise their actual callers. All-severity npm
+audit reports zero vulnerabilities.
 
 Validation includes four Node tests for source/output invalidation, missing
 packages, changed locks, compiler/binary changes, forced builds and two identical

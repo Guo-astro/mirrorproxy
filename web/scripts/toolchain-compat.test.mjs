@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { createRequire } from 'node:module'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+
+const require = createRequire(import.meta.url)
+const fromPackage = name => createRequire(require.resolve(`${name}/package.json`))
+
+test('SVGR uses the patched SVG optimizer and preserves React component generation', () => {
+  const fromSvgr = fromPackage('@svgr/plugin-svgo')
+  assert.equal(fromSvgr('svgo/package.json').version, '3.3.5')
+  const { transform } = require('@svgr/core')
+  const component = transform.sync('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#1677ff" d="M2 2h20v20H2z"/></svg>', {
+    plugins: [require.resolve('@svgr/plugin-svgo'), require.resolve('@svgr/plugin-jsx')],
+    icon: true,
+  }, { componentName: 'FixtureIcon', filePath: '/fixture.svg' })
+  assert.match(component, /FixtureIcon/)
+  assert.match(component, /viewBox="0 0 24 24"/)
+  assert.match(component, /1em/)
+})
+
+test('Babel coverage exclusion keeps its sync file selection API', t => {
+  const root = mkdtempSync(join(tmpdir(), 'mirrorproxy-coverage-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'src'))
+  writeFileSync(join(root, 'src/selected.js'), 'export const value = 1')
+  writeFileSync(join(root, 'src/excluded.test.js'), 'test fixture')
+  const fromIstanbul = fromPackage('babel-plugin-istanbul')
+  const TestExclude = fromIstanbul('test-exclude')
+  const exclude = new TestExclude({ cwd: root })
+  assert.equal(exclude.shouldInstrument(join(root, 'src/selected.js')), true)
+  assert.equal(exclude.shouldInstrument(join(root, 'src/excluded.test.js')), false)
+  assert.deepEqual(exclude.globSync(), ['src/selected.js'])
+})
+
+test('Mako cleanup keeps the rimraf promise API and only removes the requested directory', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'mirrorproxy-rimraf-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'output'))
+  writeFileSync(join(root, 'output/chunk.js'), 'generated')
+  writeFileSync(join(root, 'retained'), 'source')
+  const { rimraf } = fromPackage('@umijs/bundler-mako')('rimraf')
+  assert.equal(await rimraf(join(root, 'output')), true)
+  assert.equal(existsSync(join(root, 'output')), false)
+  assert.equal(readFileSync(join(root, 'retained'), 'utf8'), 'source')
+})
+
+test('Umi run executes TypeScript through the maintained tsx runner', t => {
+  const root = mkdtempSync(join(tmpdir(), 'mirrorproxy-tsx-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const script = join(root, 'fixture.ts')
+  writeFileSync(script, 'const message: string = "typed-runner-ok"; console.log(message)')
+  const fromRun = fromPackage('@umijs/plugin-run')
+  const packagePath = fromRun.resolve('tsx/package.json')
+  const pkg = JSON.parse(readFileSync(packagePath, 'utf8'))
+  const bin = join(dirname(packagePath), pkg.bin.tsx ?? pkg.bin)
+  assert.equal(execFileSync(process.execPath, [bin, script], { encoding: 'utf8' }).trim(), 'typed-runner-ok')
+})

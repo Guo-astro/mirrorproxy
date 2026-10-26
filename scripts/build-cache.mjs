@@ -60,7 +60,7 @@ export function createCache(root, { env = process.env, node = process.version, n
     dependenciesValid() {
       const state = json(statePath('dependencies'))
       if (!state || state.key !== dependenciesKey() || !existsSync(hiddenLock) || state.lock !== sha(readFileSync(hiddenLock))) return false
-      if (!['max', 'tsc'].every(name => existsSync(join(root, 'web/node_modules/.bin', name)))) return false
+      if (!['umi', 'tsc'].every(name => existsSync(join(root, 'web/node_modules/.bin', name)))) return false
       // Match npm's hidden-lock validity rules, including removed package directories.
       const lock = json(hiddenLock)
       if (!lock?.packages) return false

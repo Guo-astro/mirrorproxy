@@ -22,7 +22,8 @@ cargo build --workspace --locked
 显示各阶段耗时。`./build.sh --force` 可强制重装依赖并重建前端；发布自动化仍可
 显式设置 `BUILD_TIME`。
 
-首次安装仍可能看到 Umi 工具链间接依赖的废弃提示，不隐藏日志。React 19 的
+首次安装仍会看到 Umi 可选开发工具引入的三条废弃提示，不隐藏日志；未使用的
+Max lint、DVA 和旧国际化插件已不再安装。React 19 的
 Helmet/外部存储依赖和 Utoo 的 Less-loader 已定向锁定兼容版本。npm 11 安装脚本
 策略仅允许已审查版本的 esbuild，拒绝 core-js/core-js-pure/es5-ext 的非必要
 postinstall 提示。`npm audit` 仍是独立验证步骤；命中构建缓存不会重新执行在线
@@ -71,7 +72,7 @@ bash scripts/smoke-clients.sh
 
 ### Ant Design Pro 控制台
 
-Web UI 使用 React 19、Umi Max 4、Ant Design 6 和 ProComponents。在 `web` 目录
+Web UI 使用 React 19、Umi 核心 4、Ant Design 6 和 ProComponents。在 `web` 目录
 依次运行 `npm ci`、`npm test`、`npm run build` 和 `npm run test:e2e`。Umi 仍输出
 到 `web/dist`，必须先构建前端再编译 Rust 服务端。`npm run dev` 使用 4173 端口；
 连接真实本地 API 时设置 `MIRRORPROXY_DEV_API=http://127.0.0.1:3000`，保留原有

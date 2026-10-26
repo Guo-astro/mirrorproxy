@@ -26,6 +26,7 @@ jobs:
         run: |
           npm ci
           npm test
+          npm run test:toolchain
           npm run build
       - name: Verify local build cache invalidation
         run: node --test scripts/build-cache.test.mjs

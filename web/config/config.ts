@@ -1,4 +1,4 @@
-import { defineConfig } from '@umijs/max'
+import { defineConfig } from 'umi'
 
 export default defineConfig({
   npmClient: 'npm',
@@ -30,11 +30,6 @@ export default defineConfig({
     { rel: 'manifest', href: '/site.webmanifest' },
   ],
   metas: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#0b73fd' }],
-  locale: { default: 'en-US', antd: true, baseNavigator: false },
-  initialState: {},
-  access: {},
-  model: {},
-  antd: {},
   mfsu: false,
   codeSplitting: { jsStrategy: 'granularChunks' },
   headScripts: [],

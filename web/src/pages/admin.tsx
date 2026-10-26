@@ -1,6 +1,6 @@
 import { Alert, Button, ConfigProvider, Dropdown, Space } from 'antd'
 import { HomeOutlined, UserOutlined } from '@ant-design/icons'
-import { history } from '@umijs/max'
+import { history } from 'umi'
 import { ProLayout, PageContainer, ProCard, ProTable } from '@ant-design/pro-components'
 import { request } from '../services/request'
 import { Action, Field, SettingsForm, Panel, Choice, TextArea } from '../components/controls'

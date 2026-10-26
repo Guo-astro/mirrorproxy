@@ -24,8 +24,9 @@ retains its build timestamp; changed inputs or binaries invalidate it. Stage
 timings appear in the log. Use `./build.sh --force` for a fresh dependency install
 and frontend build, or set `BUILD_TIME` explicitly for release automation.
 
-Initial dependency installation may still report deprecated transitive packages
-from Umi's toolchain. Logs are not suppressed. React 19 Helmet/external-store
+Initial dependency installation still reports three deprecated transitive
+packages from Umi's optional development tooling. Unused Max lint, DVA and
+legacy internationalization dependencies are no longer installed. Logs are not suppressed. React 19 Helmet/external-store
 peers and the Utoo Less-loader peer are pinned to compatible versions. npm 11's
 install-script policy allows only the reviewed esbuild versions; nonessential
 core-js/core-js-pure/es5-ext postinstall notices are denied. `npm audit` remains
@@ -76,7 +77,7 @@ Track features and defects through [Issues](https://github.com/inbjo/MirrorProxy
 
 ### Ant Design Pro console
 
-The Web UI uses React 19, Umi Max 4, Ant Design 6 and ProComponents. From `web`,
+The Web UI uses React 19, Umi core 4, Ant Design 6 and ProComponents. From `web`,
 run `npm ci`, `npm test`, `npm run build` and `npm run test:e2e`. The Umi build
 still writes `web/dist`; build the console before compiling the Rust server.
 `npm run dev` listens on port 4173. For a real local API, set

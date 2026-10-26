@@ -1,6 +1,11 @@
 # Ant Design Pro Web UI migration
 
-The UI uses Ant Design Pro's React 19 / Umi Max 4 / Ant Design 6 stack.
+The UI uses React 19 / Umi 4 / Ant Design 6 with native Ant Design Pro components.
+Umi's core package supplies routing and builds; the unused Max plugin bundle was
+removed because it installed legacy lint, DVA and react-intl stacks. Existing
+application providers supply Ant locale/theme and cookie/CSRF-aware requests.
+No permission checks rely on the removed, unused Max access model: API role and
+CSRF checks and the application's session handling are preserved.
 Template baseline: ant-design/ant-design-pro master commit
 `52506486ea134486937043c5fb677d89bbcd07f2` (MIT).
 Only the application architecture and dependencies are adopted; template mock

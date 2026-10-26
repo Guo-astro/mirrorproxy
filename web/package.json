@@ -4,13 +4,14 @@
   "version": "1.6.0",
   "type": "module",
   "scripts": {
-    "dev": "cross-env PORT=4173 max dev",
-    "build": "max setup && tsc --noEmit && max build && node scripts/check-browser-build.mjs",
-    "preview": "max preview --port 4173",
+    "dev": "cross-env PORT=4173 umi dev",
+    "build": "umi setup && tsc --noEmit && umi build && node scripts/check-browser-build.mjs",
+    "preview": "umi preview --port 4173",
     "pretest": "node scripts/check-docker-context.mjs && node scripts/check-browser-dependencies.mjs",
     "test": "vitest run",
+    "test:toolchain": "node --test scripts/toolchain-compat.test.mjs",
     "test:e2e": "playwright test",
-    "postinstall": "max setup"
+    "postinstall": "umi setup"
   },
   "dependencies": {
     "@multiavatar/multiavatar": "^1.0.7",
@@ -18,11 +19,11 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.9.0",
-    "@umijs/max": "4.7.27",
     "antd": "6.6.7",
     "@ant-design/pro-components": "3.1.14-2",
     "@ant-design/icons": "6.3.2",
-    "@ant-design/plots": "2.6.8"
+    "@ant-design/plots": "2.6.8",
+    "umi": "4.7.28"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -31,16 +32,13 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "jsdom": "^29.1.1",
-    "vitest": "^5.0.0",
+    "vitest": "5.0.5",
     "vite": "8.1.6",
     "@types/node": "^24.0.0",
     "cross-env": "10.1.0",
     "crypto-browserify": "file:build/no-node-crypto"
   },
   "overrides": {
-    "@umijs/plugins": {
-      "@ant-design/pro-components": "$@ant-design/pro-components"
-    },
     "path-to-regexp@>=8 <8.4.2": "8.4.2",
     "immer@<9.0.6": "9.0.21",
     "node-fetch@<2.6.7": "2.7.0",
@@ -62,7 +60,19 @@
     "@umijs/bundler-utoopack": {
       "less-loader": "12.3.3"
     },
-    "use-sync-external-store@<1.7.0": "1.7.0"
+    "use-sync-external-store@<1.7.0": "1.7.0",
+    "@umijs/plugin-run": {
+      "tsx": "4.20.6"
+    },
+    "@svgr/plugin-svgo": {
+      "svgo": "3.3.5"
+    },
+    "babel-plugin-istanbul": {
+      "test-exclude": "8.0.0"
+    },
+    "@umijs/bundler-mako": {
+      "rimraf": "6.1.3"
+    }
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

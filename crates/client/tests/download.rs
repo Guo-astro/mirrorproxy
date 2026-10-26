@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     thread,
@@ -90,17 +90,25 @@ impl Drop for Server {
     }
 }
 struct Root(PathBuf);
+static ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 impl Root {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "mirrorproxy-download-test-{}-{}",
-            std::process::id(),
+        Self::with_timestamp(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+        )
+    }
+
+    fn with_timestamp(timestamp: u128) -> Self {
+        let dir = std::env::temp_dir().join(format!(
+            "mirrorproxy-download-test-{}-{}-{}",
+            std::process::id(),
+            ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+            timestamp
         ));
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir(&dir).unwrap();
         // macOS temporary directories may have system symlink ancestors;
         // exercise downloads using the real fixture path while retaining the
         // production refusal of symlinked output/credential paths.
@@ -110,6 +118,24 @@ impl Root {
 impl Drop for Root {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn download_fixtures_with_identical_clock_ticks_have_independent_lifetimes() {
+    let roots: Vec<_> = (0..32).map(|_| Root::with_timestamp(0)).collect();
+    let paths: std::collections::HashSet<_> = roots.iter().map(|root| root.0.clone()).collect();
+    assert_eq!(paths.len(), roots.len());
+    for root in &roots {
+        fs::write(root.0.join("retained"), b"owned by this fixture").unwrap();
+    }
+    let mut roots = roots;
+    drop(roots.pop());
+    for root in roots {
+        assert_eq!(
+            fs::read(root.0.join("retained")).unwrap(),
+            b"owned by this fixture"
+        );
     }
 }
 #[test]

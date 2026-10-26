@@ -15,7 +15,7 @@ function fixture(t) {
   }
   put('web/package.json', '{}')
   put('web/package-lock.json', '{"packages":{}}')
-  put('web/node_modules/.bin/max', '')
+  put('web/node_modules/.bin/umi', '')
   put('web/node_modules/.bin/tsc', '')
   put('web/node_modules/example/package.json', '{}')
   put('web/node_modules/.package-lock.json', '{"packages":{"node_modules/example":{}}}')
@@ -99,7 +99,7 @@ if(args[0]==='--version'){console.log('11.19.0');process.exit(0)}
 fs.appendFileSync(process.env.MOCK_LOG, JSON.stringify(['npm',...args])+'\\n');
 if(args[0]==='ci'){
  fs.mkdirSync('node_modules/example',{recursive:true});fs.mkdirSync('node_modules/.bin',{recursive:true});
- fs.writeFileSync('node_modules/.bin/max','');fs.writeFileSync('node_modules/.bin/tsc','');
+ fs.writeFileSync('node_modules/.bin/umi','');fs.writeFileSync('node_modules/.bin/tsc','');
  fs.writeFileSync('node_modules/.package-lock.json',JSON.stringify({packages:{'node_modules/example':{}}}));
 }else if(args[0]==='run'&&args[1]==='build'){
  fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/index.html','built index');fs.writeFileSync('dist/chunk.js','built chunk');
