@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
+**在线演示：[https://sina.dev](https://sina.dev)** · [快速开始](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started-zh-CN) · [最新版本](https://github.com/inbjo/MirrorProxy/releases/latest)
+
 [![CI](https://img.shields.io/github/actions/workflow/status/inbjo/MirrorProxy/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI)](https://github.com/inbjo/MirrorProxy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/inbjo/MirrorProxy?style=flat-square&logo=github&label=Release)](https://github.com/inbjo/MirrorProxy/releases/latest)
 [![License](https://img.shields.io/github/license/inbjo/MirrorProxy?style=flat-square&label=License)](LICENSE)
@@ -66,6 +68,10 @@ MirrorProxy 提供约 30 类内置代理适配器，并允许在后台添加自�
   定时健康检测。
 - **统一源管理**：在 Web 后台启停内置源、调整上游，并添加自定义操作系统静态仓库；客户端可在
   Windows、macOS 和 Linux 上安全改源与回滚。
+- **AI Agent 集成**：为 Codex、Claude Code 和 Cursor 配置绑定当前实例的 Skill 与原生 MCP，
+  查询实时镜像能力、生成配置命令，并在单独授权后使用下载工具。
+- **受控自定义下载**：下载镜像目录之外的公网 HTTPS 文件；默认关闭，支持用户/分组授权、
+  下载专用 token、流量限额、域名统计与封禁，可通过 CLI 或 MCP 使用。
 - **用户与团队运营**：邀请注册、邮箱登录、OAuth/OIDC、计费组/团队、全局—团队—用户三级
   月度配额，以及团队可用镜像范围控制。
 - **安全访问控制**：请求限速、IP/CIDR 黑白名单、用户专属子域名、私有上游凭据、可信反向代理、
@@ -128,7 +134,7 @@ brew install inbjo/tap/mirrorproxy
 ```
 
 ```powershell
-# Windows（WinGet 首次上架 PR 合并后可用）
+# Windows
 winget install --id Inbjo.MirrorProxy --exact
 ```
 
@@ -147,16 +153,45 @@ sudo apt install mirrorproxy
 Linux 客户端还提供 `mirrorproxy systems`，统一迁移 28 类发行版的原生软件源。
 版本范围、特殊仓库条件及回滚方法见[系统与版本支持矩阵](https://github.com/inbjo/MirrorProxy/wiki/System-Sources-zh-CN)。
 
-## 文档导航
+## AI Agent：Skill 与 MCP
 
-Agent 可以使用 [MirrorProxy Skill 与原生 MCP 服务](docs/wiki/Agent-Integration-zh-CN.md)
-发现实例实时能力：`mirrorproxy mcp --base-url https://mirror.example.com`。
-WebUI 提供一次安装客户端、绑定当前实例的 Skill 与 MCP 的完整命令；本地向导询问
-Agent 和安装范围，默认并强烈推荐当前用户全局安装。已有客户端时可运行
-`mirrorproxy setup --base-url https://mirror.example.com`。
-Skill 发布到默认分支后，可用 `npx skills add inbjo/MirrorProxy --skill mirrorproxy`
-安装；本地版本可用 `npx skills add . --skill mirrorproxy`。该命令仅安装使用说明，
-原生客户端和 MCP 连接需分别配置。
+支持 Codex、Claude Code 和 Cursor。Skill 提供实例使用说明，原生 MCP 工具让 Agent 查询
+实时软件源、可用适配器和访问策略，无需依赖写死的镜像地址。
+配置向导要求客户端 **v1.7.0 及以上**；已有旧版客户端时，可先通过首页安装命令升级。
+
+在[演示站](https://sina.dev)或自己的实例首页，打开 **一键配置 AI Agent**，复制对应系统的
+命令，即可安装客户端并启动 Skill + MCP 配置向导。向导询问 Agent 与安装范围，默认并
+强烈推荐当前用户全局安装，保留已有配置，并提供备份与回滚。
+
+已有客户端时可直接运行，将地址替换为自己的实例：
+
+```bash
+mirrorproxy setup --base-url https://mirror.example.com
+```
+
+配置后重启 Agent，保留其正常的工作区信任与 MCP 授权检查。原生 stdio 服务入口为
+`mirrorproxy mcp --base-url https://mirror.example.com`。只安装 Skill 可运行
+`npx skills add inbjo/MirrorProxy --skill mirrorproxy`；这不会安装原生客户端或配置 MCP 连接。
+详细步骤见 [Agent Skill 与 MCP](docs/wiki/Agent-Integration-zh-CN.md)。
+
+## 受控自定义下载
+
+除已支持的软件仓库外，也可通过实例下载源码归档、安装包等公网 HTTPS 文件。该通道
+**默认关闭**：管理员需先启用并为用户或分组授权，用户再在用户中心创建下载专用 token。
+支持大小、流量、并发和速率限制，以及域名统计、封禁与下载取消。
+
+在本机配置下载凭据后，使用 CLI 下载到一个新文件；成功后输出大小与 SHA-256：
+
+```bash
+mirrorproxy download --base-url https://mirror.example.com fetch https://example.org/source.tar.xz --output source.tar.xz
+```
+
+同一 MCP 连接也提供 `check_download` 和 `download_file`，文件内容直接写入本机，不进入
+模型上下文。凭据仅保存在本机，不要发给 Agent 或写入 Skill；下载工具需单独授权并消耗
+配额。此功能不是任意转发代理，不支持私网目标、上传或客户端凭据透传。
+配置、凭据保存与验证方法见[自定义下载](docs/wiki/Custom-Downloads-zh-CN.md)。
+
+## 文档导航
 
 - [Wiki 首页](https://github.com/inbjo/MirrorProxy/wiki/Home-zh-CN)
 - [快速开始](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started-zh-CN)
@@ -164,7 +199,7 @@ Skill 发布到默认分支后，可用 `npx skills add inbjo/MirrorProxy --skil
 - [支持的代理适配器](https://github.com/inbjo/MirrorProxy/wiki/Proxy-Adapters-zh-CN)
 - [独立客户端与本机改源](https://github.com/inbjo/MirrorProxy/wiki/Client-zh-CN)
 - [Agent Skill 与 MCP](docs/wiki/Agent-Integration-zh-CN.md)
-- **受控自定义下载**：默认关闭，用户/分组授权、下载专用 token、SSRF 防护、域名统计与封禁，以及 CLI/MCP 下载。见[自定义下载](docs/wiki/Custom-Downloads-zh-CN.md)。
+- [受控自定义下载](docs/wiki/Custom-Downloads-zh-CN.md)
 - [客户端分发与安装](https://github.com/inbjo/MirrorProxy/wiki/Distribution-zh-CN)
 - [后台、身份认证、配额和可观测性](https://github.com/inbjo/MirrorProxy/wiki/Administration-zh-CN)
 - [GeoIP、地域流量与 IP 访问控制](https://github.com/inbjo/MirrorProxy/wiki/GeoIP-and-IP-Access-Control-zh-CN)
@@ -173,6 +208,7 @@ Skill 发布到默认分支后，可用 `npx skills add inbjo/MirrorProxy --skil
 
 ## 项目链接
 
+- [在线演示](https://sina.dev)
 - [最新版本](https://github.com/inbjo/MirrorProxy/releases/latest)
 - [Docker 镜像](https://hub.docker.com/r/kudang/mirrorproxy)
 - [配置示例](config.example.toml)

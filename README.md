@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
+**Live demo: [https://sina.dev](https://sina.dev)** · [Quick start](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started) · [Latest release](https://github.com/inbjo/MirrorProxy/releases/latest)
+
 [![CI](https://img.shields.io/github/actions/workflow/status/inbjo/MirrorProxy/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI)](https://github.com/inbjo/MirrorProxy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/inbjo/MirrorProxy?style=flat-square&logo=github&label=Release)](https://github.com/inbjo/MirrorProxy/releases/latest)
 [![License](https://img.shields.io/github/license/inbjo/MirrorProxy?style=flat-square&label=License)](LICENSE)
@@ -85,6 +87,12 @@ administrator-defined static operating-system repositories:
 - **Unified source management:** enable and configure built-in sources or add
   custom static OS repositories in the web console; safely switch and roll back
   local settings with the Windows, macOS, and Linux client.
+- **AI Agent integration:** configure instance-bound Skills and native MCP for
+  Codex, Claude Code and Cursor. Discover live mirror capabilities, generate
+  configuration commands and use separately authorized download tools.
+- **Controlled custom downloads:** fetch public HTTPS files outside the source
+  catalog. Disabled by default, with user/group grants, download-only tokens,
+  quotas, domain statistics and blocking, and CLI/MCP access.
 - **User and team operations:** invitations, email login, OAuth/OIDC,
   billing groups/teams, global-team-user monthly quotas, and per-team source
   restrictions.
@@ -155,7 +163,7 @@ brew install inbjo/tap/mirrorproxy
 ```
 
 ```powershell
-# Windows (available after the WinGet submission is merged)
+# Windows
 winget install --id Inbjo.MirrorProxy --exact
 ```
 
@@ -175,19 +183,58 @@ The Linux client also provides `mirrorproxy systems` and a unified native source
 migration for 28 distribution profiles. See the [OS/version matrix and rollback
 guide](https://github.com/inbjo/MirrorProxy/wiki/System-Sources).
 
-## Documentation
+## AI agents: Skill and MCP
 
-Agents can discover live instance capabilities using the [MirrorProxy Skill and
-native MCP server](docs/wiki/Agent-Integration.md):
-`mirrorproxy mcp --base-url https://mirror.example.com`.
-The Web console offers a complete client + instance-bound Skill + MCP setup
-command. Its local wizard asks which agents and scope to configure, with
-current-user global installation strongly recommended by default. Existing
-clients can run `mirrorproxy setup --base-url https://mirror.example.com`.
-Once the Skill is published on the default branch, install it with
-`npx skills add inbjo/MirrorProxy --skill mirrorproxy` (local checkout:
-`npx skills add . --skill mirrorproxy`). This installs instructions; the native
-client and MCP connection are configured separately.
+Connect Codex, Claude Code or Cursor to your instance. The Skill provides usage
+instructions, while native MCP tools discover live sources, enabled adapters and
+access policy instead of relying on hard-coded mirror URLs.
+The setup workflow requires client **v1.7.0 or newer**; the homepage installer
+can upgrade an older client before configuration.
+
+On the [live demo](https://sina.dev) or your own instance, open **Set up your AI
+agents** and copy the command for your platform. It installs the client and
+starts the Skill + MCP wizard. The wizard asks which Agents and scope to use,
+strongly recommends the current user's global scope by default, preserves
+existing configuration and provides backups and rollback.
+
+With the client already installed, run this with your instance address:
+
+```bash
+mirrorproxy setup --base-url https://mirror.example.com
+```
+
+Restart your Agent afterward and retain its normal workspace trust and MCP
+approval checks. The native stdio entry point is
+`mirrorproxy mcp --base-url https://mirror.example.com`. To install only the Skill,
+run `npx skills add inbjo/MirrorProxy --skill mirrorproxy`; this does not install
+the native client or configure its MCP connection. See
+[Agent Skill and MCP](docs/wiki/Agent-Integration.md) for details.
+
+## Controlled custom downloads
+
+Use the instance to download public HTTPS artifacts such as source archives and
+installers beyond the supported repository catalog. This channel is **disabled
+by default**: an administrator enables it and grants access to a user or group,
+then the user creates a download-only token in their account. Controls include
+file-size, traffic, concurrency and rate limits, domain statistics, blocking and
+active-download cancellation.
+
+After configuring credentials locally, download to a new file with the CLI;
+successful results include its size and SHA-256:
+
+```bash
+mirrorproxy download --base-url https://mirror.example.com fetch https://example.org/source.tar.xz --output source.tar.xz
+```
+
+The same MCP connection exposes `check_download` and `download_file`. File bodies
+are written locally rather than entering model context. Keep credentials local,
+never send them to an Agent or place them in a Skill; download tools require
+separate permission and consume quota. This is not an unrestricted forward proxy
+and does not support private-network targets, uploads or forwarding client
+credentials. See [Custom downloads](docs/wiki/Custom-Downloads.md) for setup,
+credential storage and verification.
+
+## Documentation
 
 - [Wiki home](https://github.com/inbjo/MirrorProxy/wiki)
 - [Getting started](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started)
@@ -195,7 +242,7 @@ client and MCP connection are configured separately.
 - [Supported proxy adapters](https://github.com/inbjo/MirrorProxy/wiki/Proxy-Adapters)
 - [Standalone client and source management](https://github.com/inbjo/MirrorProxy/wiki/Client)
 - [Agent Skill and MCP](docs/wiki/Agent-Integration.md)
-- **Controlled custom downloads**: opt-in user/group grants, download-only tokens, SSRF protection, domain statistics and blocking, plus CLI/MCP downloads. See [Custom downloads](docs/wiki/Custom-Downloads.md).
+- [Controlled custom downloads](docs/wiki/Custom-Downloads.md)
 - [Client distribution and installation](https://github.com/inbjo/MirrorProxy/wiki/Distribution)
 - [Administration, identity, quotas, and observability](https://github.com/inbjo/MirrorProxy/wiki/Administration)
 - [GeoIP, regional traffic, and IP access control](https://github.com/inbjo/MirrorProxy/wiki/GeoIP-and-IP-Access-Control)
@@ -204,6 +251,7 @@ client and MCP connection are configured separately.
 
 ## Project links
 
+- [Live demo](https://sina.dev)
 - [Latest release](https://github.com/inbjo/MirrorProxy/releases/latest)
 - [Docker image](https://hub.docker.com/r/kudang/mirrorproxy)
 - [Configuration example](config.example.toml)
