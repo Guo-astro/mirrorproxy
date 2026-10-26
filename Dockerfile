@@ -18,6 +18,7 @@ ARG BUILD_TIME=unknown
 ARG TARGETPLATFORM
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+COPY scripts/install.sh scripts/install.ps1 scripts/
 COPY --from=web-build /app/web/dist web/dist
 RUN --mount=type=cache,id=mirrorproxy-cargo-registry-${TARGETPLATFORM},target=/usr/local/cargo/registry \
     --mount=type=cache,id=mirrorproxy-cargo-git-${TARGETPLATFORM},target=/usr/local/cargo/git \
