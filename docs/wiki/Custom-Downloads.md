@@ -85,9 +85,10 @@ include this guidance; restart the Agent to refresh the MCP tool list.
 
 ## Limits and statistics
 
-`[download]` in `config.example.toml` documents defaults: 2 GiB/file,
-5 GiB/user/day (UTC), 16 instance downloads, 2 per user, 30 requests/user/minute,
-30-minute deadline and a shared 20 MiB/s output rate. Config values are persisted
+`[download]` in `config.example.toml` documents defaults: 10 GiB/file,
+20 GiB/user/day (UTC), 16 instance downloads, 5 per user, 300 requests/user/minute,
+30-minute deadline and a shared 100 MiB/s output rate. Downloads remain disabled
+by default. Existing saved policies are preserved. Config values are persisted
 using the existing runtime configuration mechanism. Saving download policy
 cancels active transfers. Existing global, user and billing-group monthly quotas
 also apply; the same transaction checks the budgets before each queued chunk.

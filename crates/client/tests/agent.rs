@@ -690,8 +690,10 @@ fn setup_reads_a_real_terminal_when_standard_input_is_a_pipe_and_defaults_to_glo
 }
 
 #[cfg(unix)]
-#[test]
-fn bootstrap_installs_verified_user_binary_and_passes_the_bound_instance_to_setup() {
+fn bootstrap_fixture(
+    client_script: &str,
+    valid_checksum: bool,
+) -> (SetupWorkspace, std::process::Output, std::path::PathBuf) {
     use std::os::unix::fs::PermissionsExt;
     let workspace = SetupWorkspace::new();
     let tools = workspace.0.join("tools");
@@ -699,11 +701,7 @@ fn bootstrap_installs_verified_user_binary_and_passes_the_bound_instance_to_setu
     fs::create_dir_all(&tools).unwrap();
     fs::create_dir_all(&payload).unwrap();
     let binary = payload.join("mirrorproxy");
-    fs::write(
-        &binary,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$SETUP_CAPTURE\"\n",
-    )
-    .unwrap();
+    fs::write(&binary, client_script).unwrap();
     fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
     let archive = workspace.0.join("client.tar.gz");
     assert!(Command::new("tar")
@@ -718,13 +716,24 @@ fn bootstrap_installs_verified_user_binary_and_passes_the_bound_instance_to_setu
     let hash_output = Command::new("sh").arg("-c").arg("if command -v sha256sum >/dev/null 2>&1; then sha256sum \"$1\"; else shasum -a 256 \"$1\"; fi").arg("checksum").arg(&archive).output().unwrap();
     assert!(hash_output.status.success());
     let checksum = workspace.0.join("client.sha256");
-    fs::write(&checksum, hash_output.stdout).unwrap();
+    fs::write(
+        &checksum,
+        if valid_checksum {
+            hash_output.stdout
+        } else {
+            format!("{}  client.tar.gz\n", "0".repeat(64)).into_bytes()
+        },
+    )
+    .unwrap();
     let curl = tools.join("curl");
     fs::write(&curl, "#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do\n case \"$1\" in\n -o) destination=$2; shift 2;;\n http*) url=$1; shift;;\n *) shift;;\n esac\ndone\ncase \"$url\" in\n *.sha256) cp \"$SETUP_CHECKSUM\" \"$destination\";;\n *) cp \"$SETUP_ARCHIVE\" \"$destination\";;\nesac\n").unwrap();
     fs::set_permissions(&curl, fs::Permissions::from_mode(0o755)).unwrap();
     let capture = workspace.0.join("setup-args");
     let installer =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/install.sh");
+    let installed = workspace.0.join("home/.local/bin/mirrorproxy");
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    fs::write(&installed, "previous client").unwrap();
     let output = Command::new("sh")
         .arg(installer)
         .args(["--setup", "--base-url", "https://personal.mirror.example"])
@@ -740,6 +749,16 @@ fn bootstrap_installs_verified_user_binary_and_passes_the_bound_instance_to_setu
         .env("SETUP_CAPTURE", &capture)
         .output()
         .unwrap();
+    (workspace, output, capture)
+}
+
+#[cfg(unix)]
+#[test]
+fn bootstrap_installs_verified_user_binary_and_passes_the_bound_instance_to_setup() {
+    let (workspace, output, capture) = bootstrap_fixture(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$SETUP_CAPTURE\"\n",
+        true,
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -750,4 +769,31 @@ fn bootstrap_installs_verified_user_binary_and_passes_the_bound_instance_to_setu
         fs::read_to_string(capture).unwrap(),
         "setup\n--base-url\nhttps://personal.mirror.example\n"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn bootstrap_rejects_old_client_before_replacing_existing_binary() {
+    let (workspace, output, capture) = bootstrap_fixture("#!/bin/sh\nexit 2\n", true);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("does not support setup"));
+    assert_eq!(
+        fs::read_to_string(workspace.0.join("home/.local/bin/mirrorproxy")).unwrap(),
+        "previous client"
+    );
+    assert!(!capture.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn bootstrap_checks_digest_before_executing_or_installing_client() {
+    let (workspace, output, capture) =
+        bootstrap_fixture("#!/bin/sh\nprintf ran > \"$SETUP_CAPTURE\"\n", false);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("checksum verification failed"));
+    assert_eq!(
+        fs::read_to_string(workspace.0.join("home/.local/bin/mirrorproxy")).unwrap(),
+        "previous client"
+    );
+    assert!(!capture.exists());
 }

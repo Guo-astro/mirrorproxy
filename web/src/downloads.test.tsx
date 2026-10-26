@@ -1,3 +1,4 @@
+import { choose } from './test/select'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AdminDownloads, UserDownloads } from './downloads'
@@ -14,8 +15,8 @@ it('shows final-host traffic and saves explicit user permission and domain block
   vi.stubGlobal('fetch', fetcher)
   render(<ConfirmDialogProvider><AdminDownloads locale="en" /></ConfirmDialogProvider>)
   await screen.findByRole('button', { name: 'cdn.example.org' })
-  await screen.findByRole('option', { name: /Alice/ })
-  fireEvent.change(screen.getByLabelText('Permission subject'), { target: { value: '1' } })
+  await waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).startsWith('/admin/api/users/summary'))).toBe(true))
+  await choose(screen.getByRole('combobox', { name: 'Permission subject' }), '1 · Alice a@example.org')
   fireEvent.click(screen.getByRole('button', { name: 'Save permission' }))
   await waitFor(() => expect(fetcher.mock.calls.some(([url, init]) => String(url).endsWith('/permissions') && JSON.parse(init!.body as string).policy === 'allow')).toBe(true))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Set block' }).hasAttribute('disabled')).toBe(false))

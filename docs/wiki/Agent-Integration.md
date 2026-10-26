@@ -17,6 +17,16 @@ Signed-in users with an assigned proxy subdomain get that personal origin.
 This flow requires a published stable client containing `setup`; it does not
 make unpublished source changes available through an older stable release.
 
+The homepage serves `/install.sh` and `/install.ps1` from the same server build,
+so it does not depend on a possibly stale `main` branch script. Each download is
+checksum-verified, and setup capability is checked before replacing an installed
+client. A release without `setup` is rejected without changing the existing
+binary. Publishing a new stable client remains a separate release step.
+
+The Windows command runs the downloaded text as a script block with explicit
+parameters; it does not run `Set-ExecutionPolicy` or change machine/user policy.
+Enterprise application control and group policy restrictions still apply.
+
 The local wizard asks for the installation scope first:
 
 1. **Global, current user — strongly recommended (default)**: available across projects.

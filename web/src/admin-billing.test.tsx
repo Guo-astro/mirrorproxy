@@ -23,7 +23,8 @@ it('loads paginated summaries without per-user reads and resets pagination when 
   vi.stubGlobal('fetch', fetcher)
   render(<ConfirmDialogProvider><AdminBillingManagement locale="en" targets={[]} /></ConfirmDialogProvider>)
   await screen.findByText('User 1')
-  expect(screen.getByText(/1.0 KB this month/)).toBeTruthy()
+  expect(screen.getByRole('columnheader', { name: 'Monthly traffic' })).toBeTruthy()
+  expect(screen.getByText('1.0 KB')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
   await screen.findByText('User 11')
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Friend' } })
@@ -46,4 +47,20 @@ it('shows a retry action when the summary cannot be loaded', async () => {
   failed = false
   fireEvent.click(screen.getByRole('button', { name: '重试' }))
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+})
+
+it.each([['', null], ['0', 0]] as const)('preserves group quota semantics for %j', async (value, expected) => {
+  let saved: unknown
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url === '/admin/api/groups' && init?.method === 'POST') { saved = JSON.parse(String(init.body)); return new Response('{}') }
+    if (url.startsWith('/admin/api/users/summary?')) return new Response(JSON.stringify({ items: [], total: 0, page: 1, per_page: 10 }))
+    return new Response('[]')
+  }))
+  render(<ConfirmDialogProvider><AdminBillingManagement locale="en" targets={[]} /></ConfirmDialogProvider>)
+  await screen.findByRole('button', { name: 'Create billing group' })
+  fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Reviewers' } })
+  fireEvent.change(screen.getByLabelText('Shared monthly quota (GB)'), { target: { value } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create billing group' }))
+  await waitFor(() => expect(saved).toEqual({ name: 'Reviewers', monthly_gb: expected }))
 })

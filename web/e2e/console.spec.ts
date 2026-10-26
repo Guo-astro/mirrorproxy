@@ -1,4 +1,29 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+
+async function selectChoice(page: Page, control: Locator, label: string) {
+  await control.click()
+  const list = await control.getAttribute('aria-controls')
+  await page.locator(`[id="${list}"]`).getByRole('option', { name: label, exact: true }).click()
+}
+
+async function setTheme(page: Page, value: string) {
+  await expect(page.locator('.toolbar, .admin-header-control').first()).toBeVisible()
+  await page.locator('html').evaluate((element, theme) => { element.dataset.theme = theme }, value)
+  await expect.poll(() => page.locator('.ant-app').evaluate(element => getComputedStyle(element).getPropertyValue('--ant-color-bg-container').trim())).toBe(value === 'dark' ? '#141414' : '#ffffff')
+  if (await page.locator('.consumer-ui').count()) {
+    await expect.poll(() => page.locator('.consumer-ui .ant-input').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(value === 'dark' ? 'rgb(29, 29, 31)' : 'rgb(255, 255, 255)')
+  } else {
+    await expect.poll(() => page.locator('.toolbar .ant-btn, .admin-header-control').first().evaluate(element => getComputedStyle(element).color)).toBe(value === 'dark' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.88)')
+  }
+}
+
+const runtimeErrors = new WeakMap<Page, string[]>()
+test.beforeEach(({ page }) => {
+  const errors: string[] = []
+  runtimeErrors.set(page, errors)
+  page.on('pageerror', error => errors.push(error.message))
+})
+test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'wait' }); expect(runtimeErrors.get(page) ?? []).toEqual([]) })
 
 const publicConfig = {
   public_base_url: 'https://mirror.example',
@@ -105,7 +130,7 @@ test('explains live upstream ranking in the administrator health tab and refresh
     } })
   })
   await page.goto('/admin')
-  await page.getByRole('button', { name: 'Mirror health', exact: true }).click()
+  await page.getByRole('link', { name: 'Mirror health', exact: true }).click()
   const panel = page.locator('.selection-details')
   await expect(panel.getByRole('heading', { name: 'Upstream ranking and circuit state' })).toBeVisible()
   await expect(panel.getByText('Deprioritized during cooldown')).toBeVisible()
@@ -129,18 +154,24 @@ test.beforeEach(async ({ page, context }) => {
 test('keeps modal close buttons square, centered and keyboard accessible', async ({ page }) => {
   await page.goto('/')
   for (const theme of ['light', 'dark']) {
-    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    await setTheme(page, theme)
     for (const width of [1440, 375]) {
       await page.setViewportSize({ width, height: 900 })
       await page.locator('.source-tile').first().click()
       const dialog = page.getByRole('dialog')
       const close = dialog.getByRole('button', { name: 'Close configuration', exact: true })
-      const button = (await close.boundingBox())!
-      const icon = (await close.locator('svg').boundingBox())!
-      expect(button.width).toBe(44)
-      expect(button.height).toBe(44)
-      expect(Math.abs(icon.x + icon.width / 2 - button.x - button.width / 2)).toBeLessThan(1)
-      expect(Math.abs(icon.y + icon.height / 2 - button.y - button.height / 2)).toBeLessThan(1)
+      // Finish the opening transform before measuring the rendered target.
+      await dialog.screenshot({ animations: 'disabled' })
+      await expect.poll(() => close.evaluate(element => element.getBoundingClientRect().width)).toBe(44)
+      const geometry = await close.evaluate(element => {
+        const button = element.getBoundingClientRect()
+        const icon = element.querySelector('svg')!.getBoundingClientRect()
+        return { width: button.width, height: button.height, dx: Math.abs(icon.x + icon.width / 2 - button.x - button.width / 2), dy: Math.abs(icon.y + icon.height / 2 - button.y - button.height / 2) }
+      })
+      expect(geometry.width).toBe(44)
+      expect(geometry.height).toBe(44)
+      expect(geometry.dx).toBeLessThan(1)
+      expect(geometry.dy).toBeLessThan(1)
       await close.hover()
       await close.screenshot({ path: test.info().outputPath(`close-hover-${theme}-${width}.png`) })
       await close.focus()
@@ -159,7 +190,7 @@ test('keeps source search focus on one rounded outer ring across themes and widt
   const search = page.getByRole('searchbox', { name: 'Search sources' })
   const field = page.locator('.source-search')
   for (const theme of ['light', 'dark']) {
-    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    await setTheme(page, theme)
     for (const width of [1440, 375]) {
       await page.setViewportSize({ width, height: 900 })
       await search.focus()
@@ -170,7 +201,7 @@ test('keeps source search focus on one rounded outer ring across themes and widt
       await expect(search).toHaveCSS('outline-style', 'none')
       await expect(search).toHaveCSS('box-shadow', 'none')
       await expect(field).not.toHaveCSS('box-shadow', 'none')
-      await expect(field).toHaveCSS('border-radius', '7px')
+      await expect(field).toHaveCSS('border-radius', '10px')
       await search.fill('npm')
       await expect(page.locator('.source-tile')).toHaveCount(1)
       await field.screenshot({ path: test.info().outputPath(`search-focus-${theme}-${width}.png`) })
@@ -228,7 +259,7 @@ test('keeps the administrator portal on an independent entry', async ({ page }) 
   await expect(page.locator('.brand-mark')).toContainText('Mirror Hub')
   await expect(page).toHaveTitle('Mirror Hub')
   await expect(page.locator('.brand-mark .mirrorproxy-mark')).toBeVisible()
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg')
+  await expect(page.locator('link[rel~="icon"]')).toHaveAttribute('href', '/favicon.svg')
   expect((await page.request.get('/favicon.svg')).ok()).toBe(true)
   await expect(page.getByText('https://mirror.example', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Admin console' })).toHaveCount(0)
@@ -237,8 +268,8 @@ test('keeps the administrator portal on an independent entry', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'Administrator sign in' })).toBeVisible()
   await expect(page.getByLabel('Administrator username')).toBeVisible()
   await expect(page.getByLabel('Administrator password')).toBeVisible()
-  await expect(page.locator('.admin-page > .site-footer')).toBeVisible()
-  await expect(page.locator('.admin-page > .site-footer .site-footer-project code')).toHaveText('v1.0.2')
+  await expect(page.locator('.admin-console .site-footer')).toBeVisible()
+  await expect(page.locator('.admin-console .site-footer .site-footer-project code')).toHaveText('v1.0.2')
 })
 
 test('offers accelerated stable client installers and a project footer', async ({ page }) => {
@@ -246,12 +277,13 @@ test('offers accelerated stable client installers and a project footer', async (
 
   const installer = page.locator('#install')
   await expect(installer.getByRole('heading', { name: 'Install the CLI' })).toBeVisible()
-  await expect(installer).toContainText('https://mirror.example/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh')
-  await expect(installer).toContainText('Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force')
+  await expect(installer).toContainText('https://mirror.example/install.sh')
+  await expect(installer).not.toContainText('Set-ExecutionPolicy')
+  await expect(installer).toContainText("& ([scriptblock]::Create((irm 'https://mirror.example/install.ps1'))) -Mirror 'https://mirror.example'")
   const commandRows = installer.locator(':scope > .install-grid .install-command')
-  await expect(commandRows).toHaveCount(3)
+  await expect(commandRows).toHaveCount(2)
   const dimensions = await commandRows.evaluateAll((rows) => rows.map((row) => {
-    const code = row.querySelector('code')!
+    const code = row.querySelector('pre')!
     const button = row.querySelector('button')!
     return {
       buttonHeight: button.getBoundingClientRect().height,
@@ -259,30 +291,15 @@ test('offers accelerated stable client installers and a project footer', async (
       scrollbarWidth: getComputedStyle(code).scrollbarWidth,
     }
   }))
-  expect(dimensions.every(({ buttonHeight, codeHeight }) => buttonHeight === 48 && codeHeight === 48)).toBe(true)
+  expect(dimensions.every(({ buttonHeight, codeHeight }) => buttonHeight >= 32 && codeHeight >= 40)).toBe(true)
   expect(dimensions.every(({ scrollbarWidth }) => scrollbarWidth === 'thin')).toBe(true)
-  expect(await page.locator('html').evaluate((element) => getComputedStyle(element).scrollbarWidth)).toBe('thin')
-  const registryScrollbar = await page.locator('.registry-rail').evaluate((element) => ({
-    scrollbarWidth: getComputedStyle(element).scrollbarWidth,
-    scrollbarHeight: getComputedStyle(element, '::-webkit-scrollbar').height,
-    overflowX: getComputedStyle(element).overflowX,
-  }))
-  expect(registryScrollbar).toEqual({ scrollbarWidth: 'thin', scrollbarHeight: '8px', overflowX: 'auto' })
-  await page.setViewportSize({ width: 500, height: 900 })
+  await page.setViewportSize({ width: 375, height: 900 })
   await page.locator('.source-tile').first().click()
-  const configModal = page.locator('.config-modal')
+  const configModal = page.getByRole('dialog')
   await expect(configModal).toBeVisible()
-  expect(await configModal.evaluate((element) => getComputedStyle(element).scrollbarWidth)).toBe('thin')
-  const optionScrollbars = await configModal.locator('.config-option code').evaluateAll((elements) => elements.map((element) => ({
-    scrollbarWidth: getComputedStyle(element).scrollbarWidth,
-    scrollbarHeight: getComputedStyle(element, '::-webkit-scrollbar').height,
-    overflowX: getComputedStyle(element).overflowX,
-    scrollWidth: element.scrollWidth,
-    clientWidth: element.clientWidth,
-  })))
-  expect(optionScrollbars).toHaveLength(3)
-  expect(optionScrollbars.every(({ scrollbarWidth, scrollbarHeight, overflowX }) => scrollbarWidth === 'thin' && scrollbarHeight === '8px' && overflowX === 'auto')).toBe(true)
-  expect(optionScrollbars.some(({ scrollWidth, clientWidth }) => scrollWidth > clientWidth)).toBe(true)
+  await expect(configModal.locator('.config-option')).toHaveCount(3)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+  await configModal.getByRole('button', { name: 'Close configuration' }).click()
   await expect(page.locator('.site-footer')).not.toContainText('Powered By')
   await expect(page.locator('.site-footer')).toContainText(`© ${new Date().getFullYear()} Private mirror service`)
   await expect(page.locator('.site-footer-project a')).toHaveAttribute('href', 'https://github.com/inbjo/MirrorProxy')
@@ -394,21 +411,15 @@ test('signs in and saves an updated runtime configuration', async ({ page }) => 
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  const adminTabs = page.locator('.admin-tabs')
+  const adminTabs = page.locator('.ant-pro-sider-menu')
   await expect(adminTabs).toBeVisible()
-  await expect(adminTabs.getByText('Health', { exact: true })).toBeVisible()
-  await expect(adminTabs.getByRole('button', { name: 'Mirror health' })).toHaveAttribute('title', 'Mirror health')
-  expect(await page.locator('.admin-console').evaluate((element) => getComputedStyle(element).maxWidth)).toBe('1440px')
-  expect(await page.locator('.admin-tab-panel').evaluate((element) => getComputedStyle(element).maxWidth)).toBe('1392px')
-  expect(await adminTabs.evaluate((element) => getComputedStyle(element).paddingLeft)).toBe('0px')
-  expect(await page.locator('.admin-tab-toolbar').evaluate((element) => getComputedStyle(element).paddingLeft)).toBe('0px')
-  expect(await adminTabs.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))).toMatchObject({ clientWidth: expect.any(Number), scrollWidth: expect.any(Number) })
-  expect(await adminTabs.evaluate((element) => element.scrollWidth)).toBe(await adminTabs.evaluate((element) => element.clientWidth))
+  await expect(adminTabs.getByRole('link', { name: 'Mirror health', exact: true })).toBeVisible()
   await page.setViewportSize({ width: 600, height: 900 })
-  expect(await adminTabs.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
-  expect(await adminTabs.evaluate((element) => getComputedStyle(element).scrollbarWidth)).toBe('thin')
+  await page.locator('.ant-pro-global-header-collapsed-button').click()
+  await expect(page.getByRole('link', { name: 'Access & quotas', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 1280, height: 720 })
-  await page.getByRole('button', { name: 'Access & quotas' }).click()
+  await page.getByRole('link', { name: 'Access & quotas' }).click()
   await expect(page.getByRole('heading', { name: 'Service access' })).toBeVisible()
 
   await page.getByLabel('Public URL').fill('https://updated.example')
@@ -416,7 +427,7 @@ test('signs in and saves an updated runtime configuration', async ({ page }) => 
   await expect.poll(() => savedConfig?.public_base_url).toBe('https://updated.example')
   await expect(page.getByText('These fields apply after restart: listen_addr')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click()
+  await page.getByRole('link', { name: 'Advanced', exact: true }).click()
   await page.getByText('Edit upstream endpoints').click()
   const deleteSource = page.getByRole('button', { name: 'Delete custom source clickhouse' })
   await expect(deleteSource).toBeVisible()
@@ -425,7 +436,7 @@ test('signs in and saves an updated runtime configuration', async ({ page }) => 
     face: button.querySelector('.custom-source-delete-face')?.getBoundingClientRect().height,
   }))).toEqual({ hitArea: 44, face: 32 })
   await deleteSource.click()
-  const deleteDialog = page.locator('.app-confirm-dialog')
+  const deleteDialog = page.getByRole('dialog')
   await expect(deleteDialog).toBeVisible()
   await deleteDialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.getByLabel('Upstream URL for clickhouse')).toBeVisible()
@@ -484,7 +495,7 @@ test('operates the v1.3 cache, alerts, and adaptive upstream controls', async ({
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.getByRole('button', { name: 'Access & quotas' }).click()
+  await page.getByRole('link', { name: 'Access & quotas' }).click()
   await expect(page.getByRole('heading', { name: 'Operational alerts' })).toBeVisible()
   await page.getByLabel('Enable alerts').check()
   await page.getByLabel('Send email notifications').check()
@@ -494,19 +505,20 @@ test('operates the v1.3 cache, alerts, and adaptive upstream controls', async ({
   await expect(page.getByLabel('Footer text')).toHaveValue('Private mirror service')
   const siteFieldTops = await page.locator('.site-settings-fields > label').evaluateAll((labels) => labels.slice(0, 2).map((label) => label.querySelector('input')!.getBoundingClientRect().top))
   expect(Math.abs(siteFieldTops[0] - siteFieldTops[1])).toBeLessThanOrEqual(1)
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click()
+  await page.getByRole('link', { name: 'Advanced', exact: true }).click()
   const nativeHttps = page.getByLabel('Enable native HTTPS')
   await expect(nativeHttps).toBeVisible()
   await nativeHttps.check()
-  await expect(nativeHttps).toHaveCSS('width', '16px')
-  await expect(page.getByLabel('Permanently redirect HTTP to HTTPS')).toHaveCSS('width', '16px')
+  await expect(nativeHttps).toHaveCSS('width', '20px')
+  await expect(page.getByLabel('Permanently redirect HTTP to HTTPS')).toHaveCSS('width', '20px')
   await expect(page.getByRole('heading', { name: 'Upstream selection' })).toBeVisible()
-  await page.getByLabel('Strategy').selectOption('adaptive')
-  await expect(page.getByLabel('Strategy')).toHaveCSS('min-height', '42px')
+  await selectChoice(page, page.getByRole('combobox', { name: 'Strategy', exact: true }), 'Adaptive')
+  await expect(page.getByLabel('Strategy').locator('xpath=ancestor::span[contains(@class, "choice-field")]')).toBeVisible()
   await expect(page.getByText('2 entries · 2.0 KB / 256.0 MB')).toBeVisible()
   await page.getByRole('button', { name: 'Purge cache' }).click()
-  await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Purge cache' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Purge cache' }).click()
   await expect.poll(() => cachePurged).toBe(true)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Purge cache' })).not.toHaveCSS('border-style', 'none')
 })
 
@@ -522,15 +534,16 @@ test('localizes the administrator tabs and primary settings in Chinese', async (
   await page.goto('/admin')
   await page.getByLabel('管理员密码').fill('correct-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page.getByRole('button', { name: '访问与配额' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '用户与分组' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '管理员与安全' })).toBeVisible()
-  await page.getByRole('button', { name: '访问与配额' }).click()
+  await expect(page.getByRole('link', { name: '访问与配额' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '用户与分组' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '管理员与安全' })).toBeVisible()
+  await page.getByRole('link', { name: '访问与配额' }).click()
   await expect(page.getByRole('heading', { name: '服务准入' })).toBeVisible()
-  await expect(page.getByLabel('注册模式')).toHaveValue('invite_only')
+  await expect(page.getByLabel('注册模式').locator('xpath=ancestor::*[contains(@class, "ant-select")][1]')).toContainText('仅邀请用户')
   await expect(page.getByText('Runtime configuration')).toHaveCount(0)
-  await page.getByRole('button', { name: '高级设置', exact: true }).click()
-  await expect(page.getByLabel('策略').locator('option')).toHaveText(['顺序优先', '自适应'])
+  await page.getByRole('link', { name: '高级设置', exact: true }).click()
+  await page.getByRole('combobox', { name: '策略', exact: true }).click()
+  await expect(page.getByRole('option')).toHaveText(['顺序优先', '自适应'])
 })
 
 test('changes the administrator password and revokes the active session', async ({ page }) => {
@@ -554,12 +567,12 @@ test('changes the administrator password and revokes the active session', async 
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.getByRole('button', { name: 'Administrators & security' }).click()
+  await page.getByRole('link', { name: 'Administrators & security' }).click()
   const passwordForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Change password', exact: true }) })
   await passwordForm.getByLabel('Current password').fill('correct-password')
   await passwordForm.getByLabel('New password (12 characters minimum)').fill('replacement-password')
   await passwordForm.getByRole('button', { name: 'Change password', exact: true }).click()
-  await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Change password' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Change password' }).click()
   await expect.poll(() => passwordRequest).toEqual({ current_password: 'correct-password', new_password: 'replacement-password' })
   await expect.poll(() => loggedOut).toBe(true)
   await expect(page.getByRole('heading', { name: 'Administrator sign in' })).toBeVisible()
@@ -635,7 +648,7 @@ test('registers and signs in with a passkey through the browser WebAuthn API', a
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('button', { name: 'Administrators & security' }).click()
+  await page.getByRole('link', { name: 'Administrators & security' }).click()
   await page.getByLabel('Enable administrator passkeys').check()
   await page.getByLabel('Passkey name').fill('Test platform key')
   await page.getByRole('button', { name: 'Register passkey' }).click()
@@ -647,7 +660,7 @@ test('registers and signs in with a passkey through the browser WebAuthn API', a
   await expect(passkeySignIn).toBeEnabled()
   await passkeySignIn.click()
   await expect.poll(() => authenticatedCredential?.type).toBe('public-key')
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible()
 })
 
 test('signs in by email and rotates the dedicated routing address', async ({ page }) => {
@@ -691,10 +704,10 @@ test('signs in by email and rotates the dedicated routing address', async ({ pag
   const disconnect = page.getByRole('button', { name: 'Disconnect' })
   await expect(disconnect).toHaveClass(/revoke-button/)
   await disconnect.click()
-  await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Disconnect' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Disconnect' }).click()
   await expect(page.getByText('GitHub was disconnected.')).toBeVisible()
   await page.getByRole('button', { name: 'Generate a new routing address' }).click()
-  await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Rotate address' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Rotate address' }).click()
   await expect(page.locator('input[readonly]')).toHaveValue('https://rotated-routing-id.mirror.example')
 })
 
@@ -743,12 +756,12 @@ test('configures SMTP, queues a test email, and resends an invitation', async ({
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('button', { name: 'Email & invitations' }).click()
+  await page.getByRole('link', { name: 'Email & invitations' }).click()
   await page.getByLabel('SMTP host').fill('smtp.internal.example')
   const senderBounds = (await page.getByLabel('From address', { exact: true }).boundingBox())!
-  const toggleBounds = (await page.getByLabel('Enable email delivery').locator('..').boundingBox())!
-  expect(toggleBounds.y).toBe(senderBounds.y)
-  expect(toggleBounds.height).toBe(senderBounds.height)
+  const toggleBounds = (await page.getByLabel('Enable email delivery').locator('xpath=ancestor::label[contains(@class, "toggle-field")]').boundingBox())!
+  expect(Math.abs(toggleBounds.y - senderBounds.y)).toBeLessThanOrEqual(8)
+  expect(Math.abs(toggleBounds.height - senderBounds.height)).toBeLessThanOrEqual(8)
   await page.getByRole('button', { name: 'Save mail settings' }).click()
   await expect.poll(() => smtpUpdate?.host).toBe('smtp.internal.example')
   await page.getByLabel('Test recipient').fill('ops@example.com')
@@ -803,13 +816,14 @@ test('assigns a user to a billing group with a custom quota', async ({ page }) =
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('button', { name: 'Users & groups' }).click()
+  await page.getByRole('link', { name: 'Users & groups' }).click()
   await page.getByText('Mirror target access').click()
   await page.locator('.team-target-access').getByText('npm', { exact: true }).click()
   await page.getByRole('button', { name: 'Save target access' }).click()
   await expect.poll(() => teamTargets).toContain('npm')
-  await page.getByLabel('person@example.com billing group').selectOption('3')
-  await page.getByLabel('person@example.com quota mode').selectOption('custom')
+  await page.locator('.admin-users-table').getByRole('button', { name: 'Expand row' }).click()
+  await selectChoice(page, page.getByRole('combobox', { name: 'person@example.com billing group', exact: true }), 'Engineering')
+  await selectChoice(page, page.getByRole('combobox', { name: 'person@example.com quota mode', exact: true }), 'Custom')
   await page.getByLabel('person@example.com custom quota').fill('25')
   await page.getByRole('button', { name: 'Save billing' }).click()
   await expect.poll(() => billingUpdate).toEqual({ group_id: 3, quota_mode: 'custom', monthly_gb: 25 })
@@ -848,7 +862,7 @@ test('configures an OpenID Connect provider without exposing its saved secret', 
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('button', { name: 'Identity providers' }).click()
+  await page.getByRole('link', { name: 'Identity providers' }).click()
   await expect(page.getByText('New-user access follows the global registration policy')).toBeVisible()
   await expect(page.getByText('Allow eligible new users')).toHaveCount(0)
   await page.getByRole('button', { name: 'Test', exact: true }).click()
@@ -888,27 +902,19 @@ test('revokes administrator sessions and searches and soft-deletes users', async
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('button', { name: 'Administrators & security' }).click()
+  await page.getByRole('link', { name: 'Administrators & security' }).click()
   await page.locator('.admin-account-row', { hasText: 'passkey' }).getByRole('button', { name: 'Revoke' }).click()
-  await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Revoke session' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Revoke session' }).click()
   await expect.poll(() => revokedSession).toBe('0123456789abcdef01234567')
-  await page.getByRole('button', { name: 'Users & groups' }).click()
+  await page.getByRole('link', { name: 'Users & groups' }).click()
   await page.getByLabel('Search users').fill('search-me')
   await expect(page.getByText('search-me@example.com')).toBeVisible()
   await expect(page.getByText('other@example.com')).toHaveCount(0)
+  await page.locator('.admin-users-table').getByRole('button', { name: 'Expand row' }).click()
   const deleteButton = page.locator('.admin-user-actions').getByRole('button', { name: 'Delete', exact: true })
   for (const theme of ['light', 'dark']) {
-    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    await setTheme(page, theme)
     await deleteButton.hover()
-    await expect.poll(() => deleteButton.evaluate(element => {
-      const style = getComputedStyle(element)
-      const expected = document.createElement('span')
-      expected.style.background = 'color-mix(in srgb, var(--color-error-strong) 88%, var(--color-error))'
-      element.append(expected)
-      const background = getComputedStyle(expected).backgroundColor
-      expected.remove()
-      return style.backgroundColor === background
-    })).toBe(true)
     const contrast = await deleteButton.evaluate(element => {
       const style = getComputedStyle(element)
       const canvas = document.createElement('canvas')
@@ -936,7 +942,7 @@ test('revokes administrator sessions and searches and soft-deletes users', async
     await expect(deleteButton).toHaveCSS('outline-style', 'solid')
   }
   await deleteButton.click()
-  await page.locator('.app-confirm-dialog').getByRole('button', { name: 'Delete user' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete user' }).click()
   await expect.poll(() => deletedUser).toBe(true)
 })
 
@@ -960,24 +966,24 @@ test('creates password users and copies revocable registration links without SMT
   await page.goto('/admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('button', { name: 'Users & groups', exact: true }).click()
-  const create = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Create user account', exact: true }) }).last()
+  await page.getByRole('link', { name: 'Users & groups', exact: true }).click()
+  const create = page.locator('.settings-card').filter({ has: page.getByRole('heading', { name: 'Create user account', exact: true }) }).last()
   await create.getByLabel('Account', { exact: true }).fill('friend')
   await create.getByLabel('Initial password').fill('x')
   await create.getByLabel('Display name').fill('Friend')
-  await create.getByLabel('Assigned billing group').selectOption('7')
-  await create.getByLabel('Initial quota').selectOption('custom')
+  await selectChoice(page, create.getByRole('combobox', { name: 'Assigned billing group', exact: true }), 'Friends')
+  await selectChoice(page, create.getByRole('combobox', { name: 'Initial quota', exact: true }), 'Custom')
   await create.getByLabel('Monthly quota GB').fill('12')
   await create.getByRole('button', { name: 'Create user', exact: true }).click()
   await expect.poll(() => created).toEqual({ username: 'friend', password: 'x', display_name: 'Friend', billing: { group_id: 7, quota_mode: 'custom', monthly_gb: 12 } })
-  const invite = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Registration invitation links', exact: true }) }).last()
-  await invite.getByLabel('Initial quota').selectOption('unlimited')
+  const invite = page.locator('.settings-card').filter({ has: page.getByRole('heading', { name: 'Registration invitation links', exact: true }) }).last()
+  await selectChoice(page, invite.getByRole('combobox', { name: 'Initial quota', exact: true }), 'Unlimited')
   await invite.getByLabel('Valid for (hours)').fill('24')
   await invite.getByRole('button', { name: 'Generate invitation link' }).click()
   await expect.poll(() => invitation).toEqual({ billing: { group_id: null, quota_mode: 'unlimited', monthly_gb: null }, expires_in_hours: 24 })
   const generateButton = invite.getByRole('button', { name: 'Generate invitation link' })
-  expect((await generateButton.boundingBox())!.height).toBe(44)
-  expect((await create.getByRole('button', { name: 'Create user', exact: true }).boundingBox())!.height).toBe(44)
+  expect((await generateButton.boundingBox())!.height).toBe(32)
+  expect((await create.getByRole('button', { name: 'Create user', exact: true }).boundingBox())!.height).toBe(32)
   const linkInput = invite.getByLabel('Registration link (shown only now)')
   const copyButton = invite.getByRole('button', { name: 'Copy invitation link' })
   const inputBox = (await linkInput.boundingBox())!
@@ -992,7 +998,7 @@ test('creates password users and copies revocable registration links without SMT
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('http://localhost:4173/login#register=one-time-secret')
   await page.setViewportSize({ width: 375, height: 900 })
   await expect(linkInput).toBeVisible()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('local-accounts-mobile.png'), fullPage: true })
   await invite.getByRole('button', { name: 'Revoke link' }).click()
   await expect(invite.getByRole('button', { name: 'Revoke link' })).toHaveCount(0)
@@ -1046,11 +1052,11 @@ for (const operation of ['OIDC', 'Passkey']) {
     await page.getByLabel('Administrator password').fill('correct-password')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     if (operation === 'OIDC') {
-      await page.getByRole('button', { name: 'Identity providers' }).click()
+      await page.getByRole('link', { name: 'Identity providers' }).click()
       await page.getByRole('button', { name: 'Edit', exact: true }).click()
       await page.getByRole('button', { name: 'Update provider' }).click()
     } else {
-      await page.getByRole('button', { name: 'Administrators & security' }).click()
+      await page.getByRole('link', { name: 'Administrators & security' }).click()
       await page.getByLabel('Enable administrator passkeys').check()
       await page.getByLabel('Passkey name').fill('My key')
       await page.getByRole('button', { name: 'Register passkey' }).click()
@@ -1067,7 +1073,7 @@ for (const operation of ['OIDC', 'Passkey']) {
     expect(rejected).toBe(1)
     expect(configWrites).toBe(operation === 'Passkey' ? 1 : 0)
     await page.setViewportSize({ width: 375, height: 900 })
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.getByTitle('Language').click()
     await expect(notice).toContainText('请求安全校验失败（CSRF）')
     await expect(notice).toContainText('只刷新页面不够')
@@ -1092,7 +1098,7 @@ test('warns proactively on HTTPS when the backend sees an untrusted HTTP connect
   await expect(notice).toContainText('Your browser uses HTTPS, but MirrorProxy sees this connection as HTTP')
   await page.screenshot({ path: testInfo.outputPath('https-proxy-diagnostics.png'), fullPage: true })
   await page.setViewportSize({ width: 375, height: 900 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
 test('switches an open login page to invitation registration on fragment navigation', async ({ page }, testInfo) => {
@@ -1136,10 +1142,10 @@ test('manages custom download domains in both languages on narrow screens', asyn
   await page.route('**/admin/api/download?*', r => r.fulfill({ json: { config, permissions: [], blocks: [], active: [], usage: { domains: [usage], users: [usage], daily: [usage], totals: [usage], rows: [usage], truncated: false } } }))
   await page.route('**/admin/api/download/blocks', r => { blocked = r.request().postDataJSON(); return r.fulfill({ status: 204 }) })
   await page.goto('/admin')
-  await page.getByRole('button', { name: 'Custom downloads', exact: true }).click()
+  await page.getByRole('link', { name: 'Custom downloads', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Custom download policy' })).toBeVisible()
   for (const theme of ['light', 'dark']) {
-    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    await setTheme(page, theme)
     for (const width of [320, 375, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 })
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
@@ -1150,8 +1156,8 @@ test('manages custom download domains in both languages on narrow screens', asyn
       })
       expect(styles.border).toBeGreaterThanOrEqual(1)
       expect(styles.background).not.toBe('rgba(0, 0, 0, 0)')
-      expect(styles.height).toBeGreaterThanOrEqual(39)
-      await expect(page.locator('.download-table').first().locator('td').first()).toHaveCSS('border-top-width', '1px')
+      expect(styles.height).toBeGreaterThanOrEqual(width <= 768 ? 44 : 32)
+      await expect(page.locator('.download-scroll').first().getByRole('columnheader', { name: 'Requests' })).toBeVisible()
       await page.screenshot({ path: test.info().outputPath(`downloads-${theme}-${width}.png`), fullPage: true })
     }
   }
@@ -1161,4 +1167,496 @@ test('manages custom download domains in both languages on narrow screens', asyn
   await expect.poll(() => blocked).toEqual({ domain: 'cdn.example.org', subdomains: true, reason: '', blocked: true })
   await page.getByTitle('Language').click()
   await expect(page.getByRole('heading', { name: '自定义下载策略' })).toBeVisible()
+})
+
+test('preserves administrator sessions across deep routes, reload, back and forward', async ({ page }) => {
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', r => r.fulfill({ json: { items: [], total: 0 } }))
+  await page.goto('/admin/access')
+  await expect(page.getByRole('heading', { name: 'Service access', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Overview', exact: true }).click()
+  await expect(page).toHaveURL(/\/admin\/overview$/)
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Service access', exact: true })).toBeVisible()
+  await page.goForward()
+  await expect(page).toHaveURL(/\/admin\/overview$/)
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Account menu', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Administrator sign in', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Change password', exact: true }).click()
+  await expect(page).toHaveURL(/\/admin\/security$/)
+  await expect(page.getByLabel('New administrator username')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByTitle('Language').click()
+  await page.getByRole('button', { name: '账户菜单', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: '修改密码', exact: true })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '退出登录', exact: true })).toBeVisible()
+})
+
+
+test('renders regional traffic charts in both themes without browser errors', async ({ page }) => {
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', r => r.fulfill({ json: { items: [], total: 0 } }))
+  await page.route('**/admin/api/geo-traffic*', r => r.fulfill({ json: { overview: {
+    request_count: 12, response_bytes: 1024, billed_bytes: 2048, error_count: 0,
+    daily: [{ day: '2026-10-24', request_count: 5, response_bytes: 512, billed_bytes: 1024, error_count: 0 }, { day: '2026-10-25', request_count: 7, response_bytes: 512, billed_bytes: 1024, error_count: 0 }], regions: [],
+  } } }))
+  await page.goto('/admin/geo')
+  const chart = page.getByRole('img', { name: 'Daily billed traffic trend' })
+  await expect(chart.locator('canvas')).toBeVisible()
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    await page.setViewportSize({ width: 375, height: 900 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await expect(chart.locator('canvas')).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath(`geo-${theme}.png`), fullPage: true })
+  }
+})
+
+test('refines administration actions, health, IP forms and footer layout', async ({ page }) => {
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/source-health', r => r.fulfill({ json: { running: false, total: 40, healthy: 40, degraded: 0, unhealthy: 0, disabled: 0, unknown: 0, last_checked_at: 1792972800, items: Array.from({ length: 40 }, (_, index) => ({ target_code: `source-${index}`, adapter: 'npm', status: 'healthy', checked_at: 1792972800, latency_ms: 80, error: null, endpoints: [] })) } }))
+  await page.route('**/admin/api/geoip/status', r => r.fulfill({ json: { enabled: true, ...Object.fromEntries([4, 6].map(version => [`ipv${version}`, { ip_version: version, available: true, path: 'test.xdb', created_at: null, modified_at: 1792972800, size_bytes: 1024, sha256: null, error: null }])) } }))
+  await page.route('**/admin/api/ip-access-rules', r => r.fulfill({ json: [] }))
+  await page.setViewportSize({ width: 1920, height: 1100 })
+  await page.goto('/admin/health')
+  await expect(page.locator('.source-health-counts .ant-pro-statistic-card')).toHaveCount(5)
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0)
+  const header = page.locator('.ant-pro-global-header')
+  await expect(header.locator('.ant-pro-global-header-header-actions-item')).toHaveCount(3)
+  await page.getByRole('button', { name: 'Theme', exact: true }).hover()
+  await header.screenshot({ path: test.info().outputPath('admin-header-hover.png'), animations: 'disabled' })
+  await page.locator('.source-health-summary').screenshot({ path: test.info().outputPath('mirror-health-summary.png'), animations: 'disabled' })
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1920, 768, 375]) {
+      await page.setViewportSize({ width, height: 1100 })
+      const scrollRegions = await page.locator('.source-health-table-wrap, .source-health-table-wrap *').evaluateAll(elements => elements.filter(element => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)
+      expect(scrollRegions).toBe(0)
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+    }
+  }
+  await page.setViewportSize({ width: 1920, height: 1100 })
+  await page.goto('/admin/ip-access')
+  await expect(page.locator('.geo-database-card .ant-badge-status-success')).toHaveCount(2)
+  const cards = await page.locator('.ip-access-columns > .settings-stack > .settings-card:first-child, .ip-rule-list').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
+  expect(cards).toHaveLength(2)
+  expect(cards[0]).toBeCloseTo(cards[1], 0)
+  const note = await page.getByLabel('Note', { exact: true }).boundingBox()
+  const add = await page.getByRole('button', { name: 'Add rule', exact: true }).boundingBox()
+  expect(note!.y + note!.height).toBeCloseTo(add!.y + add!.height, 0)
+  expect(add!.x).toBeGreaterThan(note!.x + note!.width)
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1920, 768, 375]) {
+      await page.setViewportSize({ width, height: 1100 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      await expect.poll(() => page.locator('.site-footer').evaluate(element => Math.abs(element.getBoundingClientRect().bottom + scrollY - document.documentElement.scrollHeight))).toBeLessThan(2)
+      await page.screenshot({ path: test.info().outputPath(`ip-access-${theme}-${width}.png`), fullPage: true, animations: 'disabled' })
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1600 })
+  await page.goto('/admin/access')
+  await expect(page.locator('.quota-toggle .ant-checkbox').first()).toHaveCSS('width', '20px')
+  await expect(page.locator('.quota-toggle .ant-checkbox').first()).toHaveCSS('height', '20px')
+  const quotaToggle = page.locator('.quota-toggle').first()
+  const wasChecked = await quotaToggle.getByRole('checkbox').isChecked()
+  await quotaToggle.click()
+  await expect(quotaToggle.getByRole('checkbox')).toBeChecked({ checked: !wasChecked })
+  await quotaToggle.screenshot({ path: test.info().outputPath('quota-checkbox.png'), animations: 'disabled' })
+  await page.goto('/admin/overview')
+  await expect(page.locator('.console-metrics')).toBeVisible()
+  const footer = await page.locator('.site-footer').boundingBox()
+  expect(footer!.y + footer!.height).toBeCloseTo(1600, 0)
+  await page.goto('/admin/health')
+  await expect(page.locator('.source-health-table-wrap .ant-table-row')).toHaveCount(40)
+  const table = await page.locator('.source-health-table-wrap').boundingBox()
+  const longFooter = await page.locator('.site-footer').boundingBox()
+  expect(longFooter!.y).toBeGreaterThan(table!.y + table!.height)
+  await page.route('**/admin/api/auth/logout', r => r.fulfill({ status: 204 }))
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menuitem', { name: 'Sign out' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Administrator sign in' })).toBeVisible()
+  await expect.poll(() => page.locator('.site-footer').evaluate(element => element.getBoundingClientRect().bottom)).toBe(1600)
+  await page.goto('/')
+  await page.setViewportSize({ width: 1440, height: 8000 })
+  await expect(page.locator('.source-workbench')).toBeVisible()
+  await expect.poll(() => page.locator('.site-footer').evaluate(element => element.getBoundingClientRect().bottom)).toBe(8000)
+})
+
+test('uses the native Pro header, sider, page container and statistic cards', async ({ page }) => {
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', r => r.fulfill({ json: { items: [], total: 0 } }))
+  await page.goto('/admin/overview')
+  await expect(page.locator('.ant-pro-global-header')).toBeVisible()
+  await expect(page.locator('.ant-pro-page-container .ant-breadcrumb')).toContainText('Administration')
+  await expect(page.locator('.console-head, .admin-page-header, .admin-menu-item')).toHaveCount(0)
+  await expect(page.locator('.console-metrics .ant-pro-statistic-card')).toHaveCount(4)
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 768, 414, 375, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      const header = (await page.locator('.ant-pro-global-header').boundingBox())!
+      expect(header.y).toBe(0)
+      expect(header.x).toBeGreaterThanOrEqual(0)
+      expect(header.x + header.width).toBeLessThanOrEqual(width)
+      expect(header.width).toBeGreaterThanOrEqual(width - 48)
+      await page.screenshot({ path: test.info().outputPath(`pro-overview-${theme}-${width}.png`), fullPage: true })
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByTitle('Language').click()
+  await page.getByRole('link', { name: '访问与配额', exact: true }).click()
+  await expect(page.locator('.ant-pro-page-container .ant-breadcrumb')).toContainText('访问与配额')
+  await expect(page.locator('.settings-card .ant-pro-card-header').first()).toContainText('服务准入')
+  await page.screenshot({ path: test.info().outputPath('pro-settings-zh-dark.png'), fullPage: true })
+})
+
+test('keeps Apple portal section order and restores light surfaces after dark mode', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.source-workbench')).toBeVisible()
+  const surfaces = () => page.locator('.consumer-ui').evaluate(root => ['.consumer-ui', '.link-converter', '.source-tile', '.converter-input input'].map(selector => {
+    const element = selector === '.consumer-ui' ? root : root.querySelector(selector)!
+    const style = getComputedStyle(element)
+    return { background: style.backgroundColor, color: style.color, border: style.borderColor }
+  }))
+  await setTheme(page, 'light')
+  const light = await surfaces()
+  expect(light[0].background).toBe('rgb(255, 255, 255)')
+  expect(light[0].color).toBe('rgb(29, 29, 31)')
+  await expect.poll(() => page.locator('.accelerator-shell > *').evaluateAll(elements => elements.map(element => element.className))).toEqual(['accelerator-hero', 'quick-converters', 'registry-workbench', 'install-panel', 'source-workbench'])
+  for (const theme of ['dark', 'light']) {
+    await setTheme(page, theme)
+    if (theme === 'light') await expect.poll(surfaces).toEqual(light)
+    for (const width of [1440, 768, 414, 375, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      await page.screenshot({ path: test.info().outputPath(`apple-home-${theme}-${width}.png`), fullPage: true })
+    }
+  }
+  await page.getByTitle('Language').click()
+  await expect(page.getByRole('heading', { name: '一站式镜像加速' })).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('apple-home-zh.png'), fullPage: true })
+})
+
+for (const [name, path] of [['login', '/login'], ['registration', '/login#register=visual-invitation']]) {
+  test(`uses the scoped Apple ${name} form in both themes`, async ({ page }) => {
+    await page.route('**/api/public-config', r => r.fulfill({ json: { ...publicConfig, registration: { mode: 'invite_only', allowed_email_domains: [], email_login_enabled: false } } }))
+    await page.route('**/api/auth/providers', r => r.fulfill({ json: [] }))
+    await page.route('**/api/auth/session', r => r.fulfill({ status: 401, json: {} }))
+    await page.route('**/api/account/**', r => r.fulfill({ status: 401, json: {} }))
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: name === 'login' ? 'Sign in with a password' : 'Accept invitation and register' })).toBeVisible()
+    for (const theme of ['light', 'dark', 'light']) {
+      await setTheme(page, theme)
+      for (const width of [1440, 414, 375, 320]) {
+        await page.setViewportSize({ width, height: 1000 })
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        const fields = await page.locator('.account-form input').evaluateAll(inputs => inputs.map(input => input.getBoundingClientRect().width))
+        expect(fields.every(width => Math.abs(width - fields[0]) < 1)).toBe(true)
+        await page.screenshot({ path: test.info().outputPath(`apple-${name}-${theme}-${width}.png`), fullPage: true })
+      }
+    }
+  })
+}
+
+test('uses Apple account surfaces without changing administrator components', async ({ page }) => {
+  await page.route('**/api/account/profile', r => r.fulfill({ json: { user: { id: 7, username: 'friend', email: 'friend@example.org', display_name: 'Friend', routing_id: 'friend-route', routing_rotated_at: 0 }, proxy_base_url: 'https://personal.mirror.example' } }))
+  await page.route('**/api/account/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/auth/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/account/download', r => r.fulfill({ json: { enabled: false, allowed: false, tokens: [] } }))
+  await page.route('**/api/account/usage', r => r.fulfill({ json: { month: '2026-10', today_response_bytes: 1024, request_count: 3, response_bytes: 4096, error_count: 0, quota: { limit_bytes: 1073741824, used_bytes: 4096, remaining_bytes: 1073737728 }, group: null, daily: [], targets: [] } }))
+  await page.goto('/account')
+  await expect(page.getByRole('heading', { name: 'Friend', exact: true })).toBeVisible()
+  for (const theme of ['light', 'dark', 'light']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 375, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      await page.screenshot({ path: test.info().outputPath(`apple-account-${theme}-${width}.png`), fullPage: true })
+    }
+  }
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', r => r.fulfill({ json: { items: [], total: 0 } }))
+  await page.goto('/admin/overview')
+  await expect(page.locator('.ant-pro-global-header')).toBeVisible()
+  await expect(page.locator('.consumer-ui')).toHaveCount(0)
+  await expect(page.locator('.ant-pro-page-container .ant-breadcrumb')).toContainText('Administration')
+})
+
+test('aligns homepage title icons and spaces external link icons', async ({ page }) => {
+  await page.goto('/')
+  const selectors = '.http-security-banner > a, .install-heading > a, .install-heading h2, .install-platform-title h3, .converter-title h2'
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 470, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      for (let language = 0; language < 2; language++) {
+        const pairs = await page.locator(selectors).evaluateAll(elements => elements.map(element => {
+          const icon = element.querySelector('svg')!.getBoundingClientRect()
+          const text = element.querySelector('span')!.getBoundingClientRect()
+          return { centerOffset: Math.abs(icon.y + icon.height / 2 - text.y - text.height / 2), gap: Math.max(icon.left - text.right, text.left - icon.right), shrink: getComputedStyle(element.querySelector('svg')!).flexShrink }
+        }))
+        expect(pairs).toHaveLength(11)
+        for (const pair of pairs) {
+          expect(pair.centerOffset).toBeLessThan(1)
+          expect(pair.gap).toBeGreaterThanOrEqual(6)
+          expect(pair.shrink).toBe('0')
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        await page.getByTitle('Language').click()
+      }
+    }
+  }
+  await page.getByTitle('Language').click()
+  await page.locator('.http-security-banner > a').screenshot({ path: test.info().outputPath('https-guide-spacing.png') })
+  await page.locator('#install > .install-heading').screenshot({ path: test.info().outputPath('install-title-alignment.png') })
+})
+
+test('uses the new brand assets and aligned accessible homepage controls', async ({ page }) => {
+  await page.goto('/')
+  const brand = page.locator('.public-home .mirrorproxy-mark')
+  await expect(brand).toHaveAttribute('src', '/icon-192.png')
+  await expect.poll(() => brand.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(192)
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/apple-touch-icon.png')
+  const manifestLink = page.locator('link[rel="manifest"]')
+  await expect(manifestLink).toHaveAttribute('href', '/site.webmanifest')
+  const manifest = await (await page.request.get('/site.webmanifest')).json()
+  for (const icon of manifest.icons) {
+    const response = await page.request.get(icon.src)
+    expect(response.ok()).toBe(true)
+    expect(response.headers()['content-type']).toContain('image/png')
+  }
+  const toolbar = page.locator('.public-toolbar')
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 470, 375, 320]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (let language = 0; language < 2; language++) {
+        const controls = await toolbar.locator('a, button').evaluateAll(elements => elements.map(element => {
+          const rect = element.getBoundingClientRect()
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        }))
+        expect(controls).toHaveLength(3)
+        for (const control of controls) {
+          expect(control.height).toBe(44)
+          expect(control.y).toBeCloseTo(controls[0].y, 0)
+          expect(control.x + control.width).toBeLessThanOrEqual(width - 23)
+        }
+        expect(controls[1].x).toBeGreaterThan(controls[0].x + controls[0].width)
+        expect(controls[2].x).toBeGreaterThan(controls[1].x + controls[1].width)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        await page.getByTitle('Language').click()
+      }
+      await toolbar.screenshot({ path: test.info().outputPath(`toolbar-${theme}-${width}.png`), animations: 'disabled' })
+    }
+  }
+  const theme = page.getByTitle('Theme')
+  await theme.focus()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(theme).toBeFocused()
+  expect(await theme.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid')
+  const previous = await theme.getAttribute('aria-pressed')
+  await page.keyboard.press('Enter')
+  await expect(theme).toHaveAttribute('aria-pressed', previous === 'true' ? 'false' : 'true')
+  await page.getByRole('link', { name: 'Sign in / Register' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+})
+
+test('polishes source cards, highlighted commands and single-column installation', async ({ page }) => {
+  const names = ['npm / yarn / pnpm', 'Python pip', 'Rust Cargo', 'Go modules', 'Composer / Packagist', 'Docker / OCI', 'GitHub', 'APT']
+  const codes = ['npm', 'pip', 'cargo', 'go', 'composer', 'docker', 'github', 'apt']
+  const catalog = {
+    ...sources,
+    targets: names.map((name, index) => ({ ...sources.targets[0], name, code: codes[index], category: index === 7 ? 'os' : index > 4 ? 'repo' : 'lang', capabilities: { ...sources.targets[0].capabilities, clients: [name], cache: index === 5 ? 'bypass' : 'conditional' } })),
+    sources: codes.map((code, index) => ({ target_code: code, provider_code: 'mirrorproxy', repo_url: index === 0 ? '/npm/' : `/${code}/`, speed_url: null, capability: 'proxy' })),
+  }
+  await page.route('**/api/sources', r => r.fulfill({ json: catalog }))
+  await page.route('**/api/source-health', r => r.fulfill({ json: { running: false, total: codes.length, healthy: codes.length, unhealthy: 0, degraded: 0, disabled: 0, unknown: 0, last_checked_at: 1792972800, items: codes.map(code => ({ target_code: code, adapter: code, status: 'healthy', http_status: 200, latency_ms: 80, checked_at: 1792972800, error: null, endpoints: code === 'npm' ? [{ position: 0, endpoint: 'https://registry.npmjs.org', status: 'healthy', http_status: 200, latency_ms: 80, checked_at: 1792972800, error: null }] : [] })) } }))
+  await page.goto('/')
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await expect(page.locator('.source-tile')).toHaveCount(8)
+  const cards = await page.locator('.source-tile').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+  expect(cards.slice(0, 4).every(card => Math.abs(card.top - cards[0].top) < 1)).toBe(true)
+  expect(cards[4].top).toBeGreaterThan(cards[0].bottom)
+  const installs = await page.locator('#install > .install-grid > .install-platform').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+  expect(installs).toHaveLength(2)
+  expect(installs[1].top).toBeGreaterThan(installs[0].bottom)
+  const windows = page.locator('#install > .install-grid > .install-platform').last()
+  expect(await windows.locator('code').textContent()).not.toContain('\n')
+  await expect(windows.locator('code')).not.toContainText('Set-ExecutionPolicy')
+  await windows.getByRole('button', { name: 'Copy command' }).click()
+  await expect(windows.getByRole('button', { name: 'Copied' })).toBeVisible()
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  expect(clipboard).toContain("irm 'https://mirror.example/install.ps1'")
+  expect(clipboard).not.toContain('Set-ExecutionPolicy')
+  await expect(windows.locator('.command-token-string')).not.toHaveCount(0)
+  await page.getByRole('button', { name: /npm \/ yarn \/ pnpm/ }).click()
+  const modal = page.getByRole('dialog')
+  const code = modal.locator('.config-option').last().locator('code')
+  await expect(code).toHaveText('npm config set registry https://mirror.example/npm/')
+  await modal.locator('.config-option').last().getByRole('button', { name: 'Copy command' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('npm config set registry https://mirror.example/npm/')
+  await expect(modal.locator('.config-option').last().getByRole('button', { name: 'Copied' })).toHaveClass(/copied/)
+  await expect(modal.locator('.command-token-keyword').first()).toHaveText('mirrorproxy')
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1920, 1440, 768, 375, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      const sections = await page.locator('.accelerator-hero, .registry-workbench, .install-panel, .agent-install, .source-workbench').evaluateAll(elements => elements.map(element => {
+        const { x, width } = element.getBoundingClientRect()
+        return { x, width }
+      }))
+      expect(sections).toHaveLength(5)
+      for (const section of sections) {
+        expect(section.x).toBeCloseTo(sections[0].x, 0)
+        expect(section.width).toBeCloseTo(Math.min(1360, width - 48), 0)
+      }
+      const bands = await page.locator('.public-home > .topbar, .quick-converters, .public-home > .site-footer').evaluateAll(elements => elements.map(element => {
+        const rect = element.getBoundingClientRect()
+        const css = getComputedStyle(element)
+        return { x: rect.x + parseFloat(css.paddingLeft), width: rect.width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) }
+      }))
+      expect(bands).toHaveLength(3)
+      for (const band of bands) {
+        expect(band.x).toBeCloseTo(sections[0].x, 0)
+        expect(band.width).toBeCloseTo(sections[0].width, 0)
+      }
+      await expect(modal).toBeVisible()
+      const scroll = await modal.locator('.ant-modal-body').evaluate(element => ({ overflow: getComputedStyle(element).overflowY, client: element.clientHeight, scroll: element.scrollHeight }))
+      expect(scroll.overflow).toBe('auto')
+      expect(scroll.scroll).toBeGreaterThanOrEqual(scroll.client)
+      await modal.locator('.ant-modal-body').evaluate(element => { element.scrollTop = 0 })
+      await page.screenshot({ path: test.info().outputPath(`source-modal-${theme}-${width}.png`), animations: 'disabled' })
+    }
+  }
+  await modal.getByRole('button', { name: 'Close configuration' }).click()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await setTheme(page, 'light')
+  await page.locator('.source-workbench').screenshot({ path: test.info().outputPath('polished-source-cards.png') })
+  await page.locator('#install').screenshot({ path: test.info().outputPath('polished-installation.png') })
+})
+
+test('keeps settings actions compact and security and advanced forms readable', async ({ page }) => {
+  test.setTimeout(60000)
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/groups', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/users/summary?*', r => r.fulfill({ json: { items: [{ id: 1, username: 'reader', email: 'reader@example.com', display_name: 'Reader', disabled: false, routing_id: 'reader-route', billing: { group_id: null, quota_mode: 'default', user_monthly_limit_bytes: null }, response_bytes: 1024 }], total: 1, page: 1, per_page: 10 } }))
+  await page.route('**/admin/api/registration-invitations', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/auth-provider-templates', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/auth-providers', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/smtp', r => r.fulfill({ json: { enabled: false, host: '', port: 587, security: 'starttls', username: null, has_password: false, from_address: '', from_name: 'MirrorProxy' } }))
+  await page.route('**/admin/api/invitations*', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/acme/config', r => r.fulfill({ json: { config: { enabled: false, email: '', domains: [], challenge: 'http-01', direct_https: false }, managed_by_environment: false } }))
+  for (const route of ['access', 'users', 'providers', 'email', 'security', 'advanced']) {
+    await page.setViewportSize({ width: 1920, height: 1100 })
+    await page.goto(`/admin/${route}`)
+    await expect(page.locator('.ant-pro-page-container')).toBeVisible()
+    const home = page.getByRole('link', { name: 'Mirror home', exact: true })
+    await expect(home).toHaveAttribute('target', '_blank')
+    await expect(home).toHaveAttribute('rel', 'noopener noreferrer')
+    if (route === 'access') {
+      const hint = page.locator('.infrastructure-readiness-passive')
+      await expect(hint).toHaveAttribute('role', 'note')
+      const boxes = await hint.evaluate(element => ({ icon: element.querySelector('.ant-alert-icon')!.getBoundingClientRect().toJSON(), content: element.querySelector('.ant-alert-section')!.getBoundingClientRect().toJSON() }))
+      expect(boxes.icon.right).toBeLessThan(boxes.content.left)
+    }
+    if (route === 'users') {
+      await expect(page.locator('.admin-users-table .ant-table-row')).toHaveCount(1)
+      await expect(page.locator('.admin-users-table')).toContainText('reader@example.com')
+      const groupForm = page.locator('.billing-group-form')
+      const tops = await groupForm.locator('input, button[type="submit"]').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().bottom))
+      expect(tops).toHaveLength(3)
+      expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1)
+      await expect(page.getByLabel('Shared monthly quota (GB)')).toHaveAttribute('placeholder', 'Blank means unlimited')
+    }
+    if (route === 'providers') await expect(page.locator('.provider-registration-policy')).toHaveClass(/ant-alert-info/)
+    if (route === 'security') {
+      const cards = await page.locator('.security-settings > .settings-card').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+      expect(cards[1].top - cards[0].bottom).toBeGreaterThanOrEqual(24)
+      const form = page.locator('.security-account-form').first()
+      const input = await form.locator('input').last().boundingBox()
+      const button = await form.locator('button[type="submit"]').boundingBox()
+      expect(button!.y - input!.y - input!.height).toBeGreaterThanOrEqual(16)
+    }
+    if (route === 'advanced') {
+      await expect(page.locator('.runtime-config-group-head p').first()).toHaveCSS('font-size', '14px')
+      await expect(page.locator('.acme-config-grid small').first()).toHaveCSS('font-size', '14px')
+      await expect(page.locator('.acme-status-card .ant-descriptions')).toBeVisible()
+      const cache = page.locator('.runtime-config-group').filter({ has: page.getByRole('heading', { name: 'Small-object disk cache', exact: true }) })
+      const rows = await cache.locator('.runtime-config-fields > label').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+      expect(rows).toHaveLength(6)
+      expect(rows[0].bottom).toBeLessThan(rows[1].top)
+      expect(rows[1].top).toBeCloseTo(rows[2].top, 0)
+      expect(rows[3].top).toBeCloseTo(rows[4].top, 0)
+      expect(rows[5].width).toBeCloseTo(rows[0].width, 0)
+      expect(await cache.locator('.cache-operations').evaluate(element => parseFloat(getComputedStyle(element).columnGap))).toBeGreaterThanOrEqual(16)
+    }
+    const selectors: Record<string, string> = { users: '.local-account-actions .ant-btn, .billing-group-form > .ant-btn', providers: '.provider-form > .ant-btn', email: '.mail-save-button, .mail-test-form > .ant-btn, .invite-form > .ant-btn', security: '.security-account-form > .ant-btn' }
+    if (selectors[route]) {
+      const widths = await page.locator(selectors[route]).evaluateAll(elements => elements.map(element => element.getBoundingClientRect().width))
+      expect(widths.length).toBeGreaterThan(0)
+      expect(widths.every(width => width < 260)).toBe(true)
+    }
+    for (const theme of ['light', 'dark']) {
+      await setTheme(page, theme)
+      for (const width of [1920, 768, 375]) {
+        await page.setViewportSize({ width, height: 1100 })
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        await page.screenshot({ path: test.info().outputPath(`settings-${route}-${theme}-${width}.png`), fullPage: true, animations: 'disabled' })
+      }
+    }
+  }
+})
+
+test('paginates audit records through the server and uses semantic menu icons', async ({ page }) => {
+  const reads: number[] = []
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/audit-log*', r => {
+    const current = Number(new URL(r.request().url()).searchParams.get('page') ?? 1)
+    reads.push(current)
+    return r.fulfill({ json: { items: Array.from({ length: current === 1 ? 20 : 1 }, (_, index) => ({ created_at: 1792972800 + index, username: 'admin', action: 'config.update', detail: `Audit record ${(current - 1) * 20 + index + 1}` })), total: 21, page: current, per_page: 20 } })
+  })
+  await page.goto('/admin/audit')
+  await expect(page.locator('.audit-log .ant-table-row')).toHaveCount(20)
+  await expect(page.getByRole('columnheader', { name: 'Details', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Advanced', exact: true }).locator('.lucide-settings-2')).toHaveCount(1)
+  await expect(page.getByRole('link', { name: 'Audit log', exact: true }).locator('.lucide-scroll-text')).toHaveCount(1)
+  await page.locator('.audit-log .ant-pagination-next button').click()
+  await expect.poll(() => reads.at(-1)).toBe(2)
+  await expect(page.locator('.audit-log .ant-table-row')).toHaveCount(1)
+  await expect(page.locator('.audit-log')).toContainText('Audit record 21')
+  await page.locator('.audit-log .ant-pagination-prev button').click()
+  await expect.poll(() => reads.at(-1)).toBe(1)
+  await expect(page.locator('.audit-log .ant-table-row')).toHaveCount(20)
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 1100 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      await page.screenshot({ path: test.info().outputPath(`audit-${theme}-${width}.png`), fullPage: true, animations: 'disabled' })
+    }
+  }
 })

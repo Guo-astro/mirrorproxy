@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { choose } from './test/select'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AdminLocalAccounts, PasswordAccess } from './local-accounts'
 
@@ -47,8 +48,8 @@ it('generates and copies links with administrator-selected quota', async () => {
   vi.stubGlobal('fetch', fetcher)
   render(<AdminLocalAccounts locale="en" groups={[{ id: 7, name: 'Friends' }]} reload={async () => {}} />)
   const inviteForm = screen.getByRole('button', { name: 'Generate invitation link' }).closest('form')!
-  fireEvent.change(inviteForm.querySelector('select')!, { target: { value: '7' } })
-  fireEvent.change(inviteForm.querySelectorAll('select')[1], { target: { value: 'custom' } })
+  await choose(within(inviteForm).getByRole('combobox', { name: 'Assigned billing group' }), 'Friends')
+  await choose(within(inviteForm).getByRole('combobox', { name: 'Initial quota' }), 'Custom')
   fireEvent.change(screen.getByLabelText('Monthly quota GB'), { target: { value: '25' } })
   fireEvent.submit(inviteForm)
   await screen.findByLabelText('Registration link (shown only now)')

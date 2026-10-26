@@ -42,17 +42,32 @@ def request(who, path, body=None, method=None, expected=200, csrf=True, origin=N
         return payload.decode()
 
 
-# Validate that the running binary embeds the console built for this checkout.
-html = request(client(), "/admin")
-asset = re.search(r'<script[^>]+src="([^"]+)"', html).group(1)
-bundle = request(client(), asset)
-assert "Manual troubleshooting and recovery steps" in bundle
-expected_asset = Path(__file__).resolve().parent.parent / "web" / "dist" / asset.lstrip("/")
-assert hashlib.sha256(bundle.encode()).digest() == hashlib.sha256(expected_asset.read_bytes()).digest()
-lazy_asset = "/assets/" + re.search(r"admin-billing-[\w-]+\.js", bundle).group(0)
-lazy_bundle = request(client(), lazy_asset)
-expected_lazy = expected_asset.parent / Path(lazy_asset).name
-assert hashlib.sha256(lazy_bundle.encode()).digest() == hashlib.sha256(expected_lazy.read_bytes()).digest()
+# Validate every production chunk, including Umi's lazy route and vendor chunks.
+html = request(client(), "/admin/downloads")
+assert re.search(r'<script[^>]+src="([^"]+)"', html)
+dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+assets = sorted(path for path in dist.rglob("*") if path.suffix in (".js", ".css"))
+assert assets and any(path.name.endswith(".async.js") for path in assets)
+bundles = []
+for expected_asset in assets:
+    asset = "/" + expected_asset.relative_to(dist).as_posix()
+    bundle = request(client(), asset)
+    assert hashlib.sha256(bundle.encode()).digest() == hashlib.sha256(expected_asset.read_bytes()).digest(), asset
+    if expected_asset.suffix == ".js":
+        bundles.append(bundle)
+assert any("Manual troubleshooting and recovery steps" in bundle for bundle in bundles)
+request(client(), "/missing-ui-chunk.123456.js", expected=404)
+for installer in ("install.sh", "install.ps1"):
+    script = request(client(), "/" + installer)
+    assert script == (dist.parent.parent / "scripts" / installer).read_text()
+for icon in ("favicon.svg", "favicon.ico", "favicon-32x32.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "site.webmanifest"):
+    opener, _ = client()
+    with opener.open(base + "/" + icon) as response:
+        assert response.headers["Cache-Control"] == "no-cache", icon
+        assert response.read() == (dist / icon).read_bytes(), icon
+assert 'rel="manifest"' in html and 'href="/site.webmanifest"' in html
+assert 'href="/apple-touch-icon.png"' in html
+
 
 admin = client()
 request(admin, "/admin/api/auth/login", {"username": "admin", "password": "MirrorProxy-Smoke-Password-1!"})

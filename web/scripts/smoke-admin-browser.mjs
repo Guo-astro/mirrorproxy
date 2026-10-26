@@ -82,7 +82,7 @@ ipv6_path = "missing.xdb"
   await expect(page.getByRole('note', { name: 'Connection security notice' })).toBeVisible()
   await page.reload()
   await expect(page.locator('.console-workspace')).toBeVisible()
-  await page.getByRole('button', { name: 'Users & groups', exact: true }).click()
+  await page.getByRole('link', { name: 'Users & groups', exact: true }).click()
   await page.getByLabel('Account', { exact: true }).fill('browser-friend')
   await page.getByLabel('Initial password').fill('x')
   await page.getByLabel('Display name', { exact: true }).fill('Browser Friend')
@@ -120,7 +120,7 @@ ipv6_path = "missing.xdb"
   }
   for (const width of [375, 1280]) {
     await page.setViewportSize({ width, height: 900 })
-    assert(await page.getByRole('note').evaluate(element => element.scrollWidth <= element.clientWidth))
+    await expect.poll(() => page.getByRole('note').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
   await page.getByRole('button', { name: 'Language', exact: true }).click()
   await expect(page.getByRole('note')).toContainText('当前使用 HTTP，连接不安全')

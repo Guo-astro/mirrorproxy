@@ -26,6 +26,10 @@ Open **`https://your-host/admin`**. The first account is `admin`; use the config
 
 ## Users, quotas, and alerts
 
+In billing-group forms, leave the shared monthly quota blank for unlimited
+traffic (`monthly_gb: null`). Entering `0` creates a zero-byte allowance; it does
+not mean unlimited. Expand a user table row to edit billing or manage the account.
+
 Enable registration or invitations as needed, then configure billing groups and user quotas. Monthly limits can apply globally, per group, and per user;
 the selected policy controls overages. Delivered bytes and billable bytes can differ when bidirectional accounting includes uploads.
 

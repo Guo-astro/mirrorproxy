@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, CircleAlert, X } from 'lucide-react'
+import { X } from 'lucide-react'
+import { Alert, Button } from 'antd'
 
 type Locale = 'en' | 'zh'
 export type OperationNotice = { tone: 'success' | 'error'; message: string; title?: string; action?: { label: string; run: () => void } }
@@ -16,13 +17,11 @@ function ToastCard({ entry, onClose }: { entry: ToastEntry; onClose: () => void 
     const timer = window.setTimeout(onClose, success ? 4500 : 9000)
     return () => window.clearTimeout(timer)
   }, [entry, onClose, paused, success, notice.action])
-  return <div className={`admin-toast admin-toast-${notice.tone}`} role={success ? 'status' : 'alert'}
+  return <div onFocus={() => setPaused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false) }}><Alert className={`admin-toast admin-toast-${notice.tone}`} role={success ? 'status' : 'alert'} type={notice.tone} showIcon
     onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
-    onFocus={() => setPaused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false) }}>
-    <span className="admin-toast-icon">{success ? <CheckCircle2 size={19} aria-hidden="true" /> : <CircleAlert size={19} aria-hidden="true" />}</span>
-    <span className="admin-toast-copy"><strong>{notice.title || (locale === 'zh' ? (success ? '操作成功' : '操作失败') : (success ? 'Success' : 'Unable to complete operation'))}</strong><span>{notice.message}</span>{notice.action ? <button className="toast-action" type="button" onClick={() => { notice.action!.run(); onClose() }}>{notice.action.label}</button> : null}</span>
-    <button type="button" onClick={onClose} aria-label={locale === 'zh' ? '关闭提示' : 'Dismiss notification'}><X size={16} aria-hidden="true" /></button>
-  </div>
+    title={notice.title || (locale === 'zh' ? (success ? '操作成功' : '操作失败') : (success ? 'Success' : 'Unable to complete operation'))}
+    description={<span className="admin-toast-copy"><span>{notice.message}</span>{notice.action ? <Button type="link" className="toast-action" onClick={() => { notice.action!.run(); onClose() }}>{notice.action.label}</Button> : null}</span>}
+    action={<Button type="text" onClick={onClose} aria-label={locale === 'zh' ? '关闭提示' : 'Dismiss notification'} icon={<X size={16} />} />} /></div>
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

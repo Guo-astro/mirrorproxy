@@ -268,11 +268,11 @@ break_glass_username = "admin"
 # shared cache, upstream credentials, configurable proxy or insecure TLS.
 [download]
 enabled = false
-max_file_bytes = 2147483648
+max_file_bytes = 10737418240
 # UTC daily budget; existing global/user/group monthly quotas also apply.
-daily_user_bytes = 5368709120
+daily_user_bytes = 21474836480
 max_concurrent = 16
-max_user_concurrent = 2
-requests_per_minute = 30
+max_user_concurrent = 5
+requests_per_minute = 300
 max_duration_secs = 1800
-bandwidth_bytes_per_sec = 20971520
+bandwidth_bytes_per_sec = 104857600

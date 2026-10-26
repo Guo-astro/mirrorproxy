@@ -1,0 +1,380 @@
+/* Apple-design-analysis: user-facing routes only, based on DESIGN.md. */
+.consumer-ui, .consumer-modal {
+  --apple-blue: #0066cc;
+  --apple-focus: #0071e3;
+  --apple-ink: #1d1d1f;
+  --apple-muted: #6e6e73;
+  --apple-canvas: #fff;
+  --apple-parchment: #f5f5f7;
+  --apple-pearl: #fafafc;
+  --apple-hairline: #d2d2d7;
+  --apple-nav: #1d1d1f;
+  --apple-nav-ink: #f5f5f7;
+  --apple-nav-hover: #333336;
+  --apple-success: #237804;
+  --apple-warning: #8a5700;
+  --apple-error: #b42318;
+  --apple-code: #f5f5f7;
+  --apple-radius: 18px;
+  --apple-font: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --apple-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --accent: var(--apple-blue);
+  --accent-strong: var(--apple-blue);
+  --text: var(--apple-ink);
+  --muted: var(--apple-muted);
+  --panel: var(--apple-parchment);
+  --panel-strong: var(--apple-canvas);
+  --line: var(--apple-hairline);
+  --code: var(--apple-ink);
+  --code-bg: var(--apple-code);
+  color-scheme: light;
+  color: var(--apple-ink);
+  font-family: var(--apple-font);
+}
+:root[data-theme='dark'] .consumer-ui, :root[data-theme='dark'] .consumer-modal {
+  --apple-blue: #2997ff;
+  --apple-focus: #2997ff;
+  --apple-ink: #f5f5f7;
+  --apple-muted: #b6b6bd;
+  --apple-canvas: #000;
+  --apple-parchment: #161617;
+  --apple-pearl: #1d1d1f;
+  --apple-hairline: #424245;
+  --apple-code: #272729;
+  --apple-success: #8cda71;
+  --apple-warning: #ffd16b;
+  --apple-error: #ff9a90;
+  color-scheme: dark;
+}
+.consumer-ui { min-height: 100vh; background: var(--apple-canvas); font-size: 17px; line-height: 1.47; letter-spacing: -.02em; }
+.consumer-ui a { color: var(--apple-blue); }
+.consumer-ui h1, .consumer-ui h2, .consumer-ui h3 { color: var(--apple-ink); font-family: var(--apple-display); font-style: normal; font-weight: 600; letter-spacing: -.025em; }
+.consumer-ui .shell { width: 100%; padding: 0; }
+.consumer-ui .public-home { --consumer-content-width: 1360px; }
+.consumer-ui .topbar, .consumer-ui .account-topbar { min-height: 56px; margin: 0; padding: 6px max(24px, calc((100% - 1120px) / 2)); border: 0; background: var(--apple-nav); color: var(--apple-nav-ink); gap: 16px; }
+.consumer-ui .topbar .brand-mark, .consumer-ui .account-topbar .brand-mark, .consumer-ui .topbar a, .consumer-ui .account-topbar a { color: var(--apple-nav-ink); font-size: 14px; font-weight: 400; letter-spacing: -.01em; }
+.consumer-ui .brand-mark svg { color: currentColor; }
+.consumer-ui .topbar .toolbar, .consumer-ui .account-topbar .toolbar { flex-wrap: nowrap; gap: 8px; }
+.consumer-ui .topbar .ant-btn, .consumer-ui .account-topbar .ant-btn { width: 40px; min-height: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--apple-nav-ink); box-shadow: none; }
+.consumer-ui .topbar .ant-btn:hover, .consumer-ui .account-topbar .ant-btn:hover { color: var(--apple-nav-ink); background: var(--apple-nav-hover); }
+.consumer-ui .account-entry { white-space: nowrap; font-size: 12px; }
+.consumer-ui .public-account-avatar { width: 28px; height: 28px; }
+.consumer-ui .http-security-banner { width: min(980px, calc(100% - 48px)); margin: 24px auto 0; padding: 14px 18px; border-radius: 12px; font-size: 13px; letter-spacing: 0; }
+.consumer-ui .accelerator-shell { gap: 0; }
+.consumer-ui .accelerator-hero { display: flex; flex-direction: column; text-align: center; align-items: center; gap: 32px; padding: 80px 24px 64px; border: 0; border-radius: 0; background: var(--apple-canvas); }
+.consumer-ui .accelerator-hero > div:first-child { width: min(800px, 100%); }
+.consumer-ui .accelerator-hero .eyebrow { font: 600 17px/1.4 var(--apple-font); color: var(--apple-muted); letter-spacing: 0; margin-bottom: 16px; }
+.consumer-ui .accelerator-hero h1 { max-width: 800px; margin: 0 auto 24px; font-size: clamp(36px, 5vw, 56px); line-height: 1.07; letter-spacing: -.035em; text-wrap: balance; }
+.consumer-ui .accelerator-hero p { margin: auto; max-width: 680px; font-size: 21px; line-height: 1.4; letter-spacing: -.02em; }
+.consumer-ui .hero-stats { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px 40px; }
+.consumer-ui .hero-stats .metric { display: flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; }
+.consumer-ui .hero-stats .metric > span:last-child { display: flex; align-items: baseline; gap: 8px; }
+.consumer-ui .hero-stats .metric strong { font-size: 17px; font-weight: 600; }
+.consumer-ui .hero-stats .metric small { font-size: 13px; }
+.consumer-ui .quick-converters { padding: 48px max(24px, calc((100% - var(--consumer-content-width, 1120px)) / 2)); gap: 24px; background: var(--apple-parchment); }
+.consumer-ui .link-converter { padding: 32px; border: 0; border-radius: var(--apple-radius); background: var(--apple-canvas); }
+.consumer-ui .converter-title { gap: 14px; margin-bottom: 32px; }
+.consumer-ui .converter-title h2 { font-size: 24px; line-height: 1.2; }
+.consumer-ui .converter-title p { font-size: 14px; line-height: 1.5; }
+.consumer-ui .converter-title > svg { width: 24px; height: 24px; }
+.consumer-ui .converter-input { flex-wrap: wrap; }
+.consumer-ui .converter-input .ant-input { flex: 1 1 180px; width: 0; }
+.consumer-ui .converter-output { margin-top: 20px; }
+.consumer-ui .registry-workbench, .consumer-ui .install-panel, .consumer-ui .source-workbench { width: min(var(--consumer-content-width, 1360px), calc(100% - 48px)); margin: 0 auto; padding: 64px 0; border: 0; border-radius: 0; background: var(--apple-canvas); }
+.consumer-ui .registry-workbench-head, .consumer-ui .install-heading, .consumer-ui .source-workbench-head { align-items: start; margin-bottom: 32px; }
+.consumer-ui .registry-workbench h2, .consumer-ui .install-heading h2, .consumer-ui .source-workbench h2 { font-size: 34px; line-height: 1.2; }
+.consumer-ui .eyebrow { font-family: var(--apple-font); font-size: 12px; letter-spacing: .08em; }
+.consumer-ui .registry-count { color: var(--apple-muted); font-size: 12px; letter-spacing: .06em; }
+.consumer-ui .registry-rail { gap: 8px; margin: 24px 0; }
+.consumer-ui .registry-chip.ant-btn { border-radius: 12px; padding: 10px 16px; background: var(--apple-pearl); }
+.consumer-ui .registry-modes .ant-btn { min-height: 40px; height: auto; font-size: 13px; }
+.consumer-ui .registry-modes .active { border-color: var(--apple-blue); color: var(--apple-blue); }
+.consumer-ui .install-panel { border-top: 1px solid var(--apple-hairline); }
+.consumer-ui .install-grid { gap: 32px; }
+.consumer-ui .install-platform { min-width: 0; }
+.consumer-ui .install-platform-title h3 { font-size: 21px; }
+.consumer-ui .install-platform-title p { font-size: 14px; line-height: 1.5; }
+.consumer-ui .install-command, .consumer-ui .generator-command { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.consumer-ui .install-command .ant-btn { justify-self: start; min-height: 44px; }
+.consumer-ui .agent-install { padding: 40px; margin-top: 48px; border: 0; border-radius: var(--apple-radius); background: var(--apple-parchment); }
+.consumer-ui .source-workbench { border-top: 1px solid var(--apple-hairline); }
+.consumer-ui .source-toolbar { gap: 20px; margin-bottom: 24px; }
+.consumer-ui .source-filters { gap: 8px; }
+.consumer-ui .source-filter { min-height: 44px; border-radius: 999px; padding: 8px 16px; font-size: 14px; color: var(--apple-muted); }
+.consumer-ui .source-filter.active { background: var(--apple-parchment); color: var(--apple-ink); border-color: var(--apple-blue); }
+.consumer-ui .source-search { min-height: 48px; border-radius: 24px; padding: 0 16px; background: var(--apple-pearl); }
+.consumer-ui .source-search:focus-within { box-shadow: 0 0 0 2px var(--apple-focus); }
+.consumer-ui .source-search .ant-input { min-height: 44px; padding-inline: 0; }
+.consumer-ui .source-card-grid { gap: 20px; }
+.consumer-ui .source-tile.ant-btn { min-height: 152px; border-radius: var(--apple-radius); padding: 24px; border-color: var(--apple-hairline); background: var(--apple-pearl); color: var(--apple-ink); }
+.consumer-ui .source-tile.ant-btn:hover { border-color: var(--apple-blue); background: var(--apple-parchment); }
+.consumer-ui .source-tile strong { font-size: 21px; font-weight: 600; }
+.consumer-ui .source-tile small { color: var(--apple-muted); }
+.consumer-ui .source-capabilities { gap: 6px; }
+.consumer-ui .source-capabilities span { font-size: 11px; border-radius: 5px; padding: 2px 6px; background: var(--apple-canvas); }
+.consumer-ui .site-footer { width: 100%; padding: 32px max(24px, calc((100% - 1120px) / 2)); margin: 0; border: 0; background: var(--apple-parchment); color: var(--apple-muted); font-size: 12px; }
+.consumer-ui .account-page { min-height: 100vh; padding: 0 0 64px; }
+.consumer-ui .account-topbar .brand-mark { max-width: 45%; white-space: normal; line-height: 1.3; }
+.consumer-ui .account-topbar .account-back { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.consumer-ui .account-shell { width: min(980px, calc(100% - 48px)); padding: 0; margin: 0 auto; }
+.consumer-ui .account-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 64px 0 40px; }
+.consumer-ui .account-heading h1 { font-size: clamp(32px, 4vw, 44px); line-height: 1.15; margin-bottom: 0; }
+.consumer-ui .account-heading .console-kicker { font: 400 14px/1.5 var(--apple-font); letter-spacing: 0; color: var(--apple-muted); }
+.consumer-ui .consumer-auth .account-heading { display: block; text-align: center; max-width: 680px; margin: auto; }
+.consumer-ui .account-auth-layout { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; gap: 24px; }
+.consumer-ui .registration-policy { padding: 24px; background: var(--apple-parchment); border-radius: var(--apple-radius); color: var(--apple-muted); font-size: 14px; }
+.consumer-ui .registration-policy-icon { display: none; }
+.consumer-ui .registration-policy h2 { font-size: 21px; margin-bottom: 12px; }
+.consumer-ui .registration-policy p { margin-bottom: 0; }
+.consumer-ui .registration-policy .eyebrow { display: none; }
+.consumer-ui .allowed-domain-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.consumer-ui .auth-methods { display: grid; gap: 24px; }
+.consumer-ui .auth-method-card { border: 1px solid var(--apple-hairline); background: var(--apple-canvas); border-radius: var(--apple-radius); padding: 32px; }
+.consumer-ui .auth-method-head { display: flex; gap: 12px; margin-bottom: 24px; }
+.consumer-ui .auth-method-head > span { color: var(--apple-blue); }
+.consumer-ui .auth-method-head h2 { font-size: 24px; margin-bottom: 12px; }
+.consumer-ui .auth-method-head p { color: var(--apple-muted); font-size: 14px; margin-bottom: 0; line-height: 1.5; }
+.consumer-ui .account-form { grid-template-columns: minmax(0, 1fr); gap: 20px; margin: 24px 0 0; }
+.consumer-ui .account-form label { font-size: 14px; color: var(--apple-ink); gap: 8px; }
+.consumer-ui .account-form .ant-btn { justify-self: start; margin-top: 4px; min-height: 44px; }
+.consumer-ui .account-form .ant-input { min-height: 48px; }
+.consumer-ui .auth-divider { margin: 32px 0; display: flex; align-items: center; gap: 12px; color: var(--apple-muted); font-size: 12px; }
+.consumer-ui .auth-divider::before, .consumer-ui .auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--apple-hairline); }
+.consumer-ui .provider-button { border-radius: 12px; color: var(--apple-ink); min-height: 48px; }
+.consumer-ui .provider-button span { display: inline-flex; align-items: center; gap: 8px; }
+.consumer-ui .provider-button small { margin-left: auto; color: var(--apple-muted); font-size: 12px; }
+.consumer-ui .provider-actions-stacked { display: grid; grid-template-columns: minmax(0, 1fr); }
+.consumer-ui .account-dashboard { gap: 32px; }
+.consumer-ui .account-profile-card, .consumer-ui .account-usage { border-radius: var(--apple-radius); border-color: var(--apple-hairline); background: var(--apple-pearl); padding: 32px; }
+.consumer-ui .account-profile-card { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 20px; }
+.consumer-ui .account-avatar { width: 64px; height: 64px; }
+.consumer-ui .account-profile-card > .identity-panel, .consumer-ui .account-routing-address { grid-column: 1 / -1; width: 100%; }
+.consumer-ui .account-profile-card h2 { font-size: 28px; margin-bottom: 8px; }
+.consumer-ui .account-profile-card p { margin-bottom: 0; }
+.consumer-ui .account-routing-address { gap: 16px; padding-top: 24px; margin-top: 0; border-top: 1px solid var(--apple-hairline); }
+.consumer-ui .account-routing-address .ant-btn { justify-self: start; }
+.consumer-ui .identity-panel { padding: 24px 0 0; margin-top: 16px; border: 0; border-top: 1px solid var(--apple-hairline); border-radius: 0; background: transparent; }
+.consumer-ui .identity-panel h3 { font-size: 21px; }
+.consumer-ui .identity-panel .account-help { margin: 12px 0 24px; }
+.consumer-ui .identity-row { padding: 16px 0; gap: 12px; }
+.consumer-ui .identity-row > span:first-child { min-width: 0; }
+.consumer-ui .account-help { color: var(--apple-muted); line-height: 1.5; font-size: 14px; }
+.consumer-ui .account-usage h2 { font-size: 28px; }
+.consumer-ui .console-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
+.consumer-ui .console-metric.ant-pro-card { border: 1px solid var(--apple-hairline); border-radius: 12px; background: var(--apple-canvas); }
+.consumer-ui .stats-columns { gap: 32px; margin-top: 32px; }
+.consumer-ui .stats-columns h3 { font-size: 21px; }
+.consumer-ui .stat-row { gap: 8px; font-size: 14px; }
+.consumer-modal .ant-modal-title { font: 600 28px/1.2 var(--apple-display); color: var(--apple-ink); }
+.consumer-modal .ant-modal-close { border-radius: 50%; }
+.consumer-modal .config-option { padding: 20px; background: var(--apple-parchment); border-radius: 12px; }
+.consumer-modal .config-option p { color: var(--apple-muted); }
+.consumer-modal .config-option code { color: var(--apple-ink); }
+@media (max-width: 768px) {
+  .consumer-ui .topbar, .consumer-ui .account-topbar { padding-inline: 20px; }
+  .consumer-ui .accelerator-hero { padding: 56px 24px 48px; }
+  .consumer-ui .quick-converters { padding: 32px 24px; }
+  .consumer-ui .registry-workbench, .consumer-ui .install-panel, .consumer-ui .source-workbench { padding-block: 48px; }
+  .consumer-ui .source-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .consumer-ui .account-topbar .account-back { font-size: 0; gap: 0; }
+  .consumer-ui .account-topbar .account-back svg { width: 18px; height: 18px; }
+  .consumer-ui .account-heading { padding-block: 48px 32px; }
+}
+@media (max-width: 500px) {
+  .consumer-ui .topbar, .consumer-ui .account-topbar { flex-wrap: nowrap; padding: 6px 16px; gap: 8px; }
+  .consumer-ui .topbar .brand-mark, .consumer-ui .account-topbar .brand-mark { font-size: 13px; }
+  .consumer-ui .toolbar { gap: 4px; }
+  .consumer-ui .topbar .ant-btn, .consumer-ui .account-topbar .ant-btn { width: 36px; min-height: 44px; }
+  .consumer-ui .account-entry svg { display: none; }
+  .consumer-ui .hero-stats { gap: 12px 20px; }
+  .consumer-ui .hero-stats .metric small { font-size: 11px; }
+  .consumer-ui .hero-stats .metric strong { font-size: 15px; }
+  .consumer-ui .converter-title { margin-bottom: 24px; }
+  .consumer-ui .link-converter { padding: 24px; }
+  .consumer-ui .converter-input .ant-input { width: 100%; flex-basis: auto; }
+  .consumer-ui .registry-workbench-head, .consumer-ui .install-heading, .consumer-ui .source-workbench-head { flex-direction: column; gap: 16px; }
+  .consumer-ui .registry-workbench h2, .consumer-ui .install-heading h2, .consumer-ui .source-workbench h2 { font-size: 28px; }
+  .consumer-ui .agent-install { padding: 24px; }
+  .consumer-ui .source-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .consumer-ui .source-tile.ant-btn { min-height: 140px; }
+  .consumer-ui .account-heading { align-items: start; }
+  .consumer-ui .account-signout { white-space: normal; height: auto; }
+  .consumer-ui .account-heading h1 { font-size: 32px; }
+  .consumer-ui .auth-method-card, .consumer-ui .account-profile-card, .consumer-ui .account-usage { padding: 24px; }
+  .consumer-ui .consumer-auth .account-shell { width: calc(100% - 32px); }
+  .consumer-ui .account-profile-card { gap: 16px; }
+  .consumer-ui .account-profile-card h2 { font-size: 24px; }
+  .consumer-ui .stats-columns { grid-template-columns: minmax(0, 1fr); }
+  .consumer-ui .site-footer { gap: 16px; padding: 24px; }
+}
+
+.consumer-ui .install-platform-title { justify-content: flex-start; gap: 12px; }
+.consumer-ui .source-health-healthy { color: var(--apple-success); }
+.consumer-ui .source-health-degraded { color: var(--apple-warning); }
+.consumer-ui .source-health-unhealthy { color: var(--apple-error); }
+
+/* Detail pass: compact source cards, a single code/copy treatment and one scroll area. */
+.consumer-ui, .consumer-modal {
+  --command-keyword: #0058b0;
+  --command-string: #864300;
+  --command-flag: #6f42a6;
+  --command-variable: #8a245f;
+  --command-copied: #e8f2ff;
+  --source-success-bg: #f4faef;
+}
+:root[data-theme='dark'] .consumer-ui, :root[data-theme='dark'] .consumer-modal {
+  --command-keyword: #91caff;
+  --command-string: #b8df9b;
+  --command-flag: #d6b4ff;
+  --command-variable: #ffb3d5;
+  --command-copied: #102a43;
+  --source-success-bg: #172916;
+}
+.consumer-ui .install-grid, .consumer-ui .agent-install-commands { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
+.consumer-ui .install-platform + .install-platform { padding-top: 28px; border-top: 1px solid var(--apple-hairline); }
+.consumer-ui .install-platform-title { margin-bottom: 14px; }
+.consumer-ui .install-platform-title p { margin-bottom: 0; }
+.consumer-ui .agent-install .install-platform { margin-top: 24px; }
+.consumer-ui .agent-install .install-platform-title h3 { font-size: 17px; }
+.consumer-ui .agent-release-note { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid var(--apple-hairline); line-height: 1.6; }
+.consumer-ui .consumer-command, .consumer-modal .consumer-command {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; max-width: 100%;
+  margin: 14px 0 0; border: 1px solid var(--apple-hairline); border-radius: 12px; background: var(--apple-pearl); overflow: hidden;
+}
+.consumer-ui .consumer-command-toolbar, .consumer-modal .consumer-command-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 12px 9px 16px; border-bottom: 1px solid var(--apple-hairline); }
+.consumer-ui .consumer-command-toolbar > span, .consumer-modal .consumer-command-toolbar > span { color: var(--apple-muted); font: 500 11px/1.5 var(--font-mono); letter-spacing: .04em; }
+.consumer-ui .consumer-command .command-copy.ant-btn, .consumer-modal .consumer-command .command-copy.ant-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; min-height: 32px; height: 32px; padding: 0 10px; border-radius: 8px; border-color: transparent; background: transparent; color: var(--apple-blue); font-size: 12px; white-space: nowrap; }
+.consumer-ui .consumer-command .command-copy.ant-btn:hover, .consumer-modal .consumer-command .command-copy.ant-btn:hover { border-color: var(--apple-blue); background: var(--command-copied); }
+.consumer-ui .consumer-command .command-copy.copied, .consumer-modal .consumer-command .command-copy.copied { background: var(--command-copied); color: var(--apple-blue); }
+.consumer-ui .consumer-command-scroll, .consumer-modal .consumer-command-scroll { margin: 0; padding: 16px; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; white-space: pre; overflow-wrap: normal; line-height: 1.7; scrollbar-width: thin; scrollbar-color: var(--apple-muted) transparent; }
+.consumer-ui .consumer-command-scroll > code, .consumer-modal .consumer-command-scroll > code { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--apple-ink); font: 13px/1.7 var(--font-mono); white-space: inherit; overflow: visible; }
+.consumer-ui .command-token-keyword, .consumer-modal .command-token-keyword { color: var(--command-keyword); }
+.consumer-ui .command-token-string, .consumer-modal .command-token-string { color: var(--command-string); }
+.consumer-ui .command-token-url, .consumer-modal .command-token-url { color: var(--command-keyword); }
+.consumer-ui .command-token-flag, .consumer-modal .command-token-flag { color: var(--command-flag); }
+.consumer-ui .command-token-variable, .consumer-modal .command-token-variable { color: var(--command-variable); }
+.consumer-ui .command-token-comment, .consumer-modal .command-token-comment { color: var(--apple-muted); }
+.consumer-ui .registry-output .consumer-command-toolbar { margin: 0; }
+.consumer-ui .source-toolbar { padding: 14px; margin-bottom: 20px; align-items: center; border: 1px solid var(--apple-hairline); border-radius: 14px; background: var(--apple-parchment); }
+.consumer-ui .source-filter { border-radius: 9px; padding: 6px 12px; min-height: 40px; font-size: 13px; background: var(--apple-canvas); }
+.consumer-ui .source-filter.active { background: var(--command-copied); }
+.consumer-ui .source-search { background: var(--apple-canvas); min-height: 44px; border-radius: 10px; }
+.consumer-ui .source-search .ant-input { min-height: 40px; }
+.consumer-ui .source-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.consumer-ui .source-tile.ant-btn { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: 14px; align-content: start; min-height: 176px; padding: 20px; border-radius: 14px; background: var(--apple-canvas); }
+.consumer-ui .source-tile.ant-btn:hover { background: var(--apple-pearl); }
+.consumer-ui .source-tile.ant-btn > .source-tile-header { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; }
+.consumer-ui .source-tile-icon { color: var(--apple-blue); display: flex; align-items: center; }
+.consumer-ui .source-tile-title { display: grid; min-width: 0; gap: 5px; }
+.consumer-ui .source-tile-title strong { display: block; font-size: 15px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-ui .source-tile-title small { font-size: 12px; line-height: 1.4; }
+.consumer-ui .source-tile-meta { display: grid; justify-items: end; margin: 0; gap: 7px; font-size: 11px; }
+.consumer-ui .source-tile-meta em { padding: 3px 7px; border-radius: 5px; color: var(--apple-blue); background: var(--command-copied); font-size: 11px; white-space: nowrap; }
+.consumer-ui .source-health-badge { padding: 2px 6px; border: 1px solid var(--apple-hairline); border-radius: 999px; font-size: 11px; white-space: nowrap; background: transparent; }
+.consumer-ui .source-health-healthy { background: var(--source-success-bg); border-color: color-mix(in srgb, var(--apple-success) 35%, var(--apple-hairline)); }
+.consumer-ui .source-tile.ant-btn > .source-capabilities { display: flex; flex-wrap: wrap; align-items: start; gap: 6px; padding-top: 12px; border-top: 1px solid var(--apple-hairline); }
+.consumer-ui .source-capabilities > span:not(.source-clients) { padding: 3px 6px; border-radius: 5px; background: var(--apple-pearl); font-size: 11px; line-height: 1.4; white-space: normal; }
+.consumer-ui .source-capabilities > .source-clients { flex-basis: 100%; padding: 3px 0 0; border: 0; background: none; color: var(--apple-muted); font: 11px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.consumer-modal .ant-modal-header { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--apple-hairline); }
+.consumer-modal .ant-modal-title { padding-right: 44px; font-size: 24px; line-height: 1.3; }
+.consumer-modal .ant-modal-body > p:first-child { margin: 0 0 20px; color: var(--apple-muted); font-size: 14px; line-height: 1.6; }
+.consumer-modal .source-capability-details { display: grid; gap: 14px; margin: 0 0 24px; padding: 18px; border: 1px solid var(--apple-hairline); border-radius: 12px; background: var(--apple-pearl); overflow: visible; max-height: none; }
+.consumer-modal .source-capability-details > div { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 12px; align-items: start; }
+.consumer-modal .source-capability-details dt { color: var(--apple-muted); font-size: 13px; font-weight: 600; line-height: 1.6; }
+.consumer-modal .source-capability-details dd { margin: 0; color: var(--apple-ink); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.consumer-modal .public-upstream-health { margin: 0 0 24px; }
+.consumer-modal .public-upstream-health > div:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+.consumer-modal .public-upstream-row { padding: 12px; border-radius: 10px; font-size: 12px; background: var(--apple-canvas); }
+.consumer-modal .public-upstream-row code { font-size: 12px; }
+.consumer-modal .config-option { padding: 0; margin: 24px 0 0; border: 0; border-radius: 0; background: transparent; }
+.consumer-modal .config-option h3 { margin: 0 0 6px; color: var(--apple-ink); font: 600 15px/1.5 var(--apple-font); }
+.consumer-modal .config-option p { margin: 0; color: var(--apple-muted); font-size: 13px; line-height: 1.6; }
+.consumer-modal .config-option .consumer-command { margin-top: 12px; }
+@media (max-width: 1100px) { .consumer-ui .source-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 850px) { .consumer-ui .source-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 500px) {
+  .consumer-ui .source-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .consumer-ui .source-toolbar { padding: 12px; }
+  .consumer-ui .source-filters { gap: 6px; }
+  .consumer-ui .source-search { border-radius: 10px; }
+  .consumer-ui .source-tile.ant-btn { padding: 18px; min-height: 164px; }
+  .consumer-ui .consumer-command .command-copy.ant-btn, .consumer-modal .consumer-command .command-copy.ant-btn { min-height: 40px; height: 40px; }
+  .consumer-ui .consumer-command-toolbar, .consumer-modal .consumer-command-toolbar { padding: 6px 8px 6px 12px; gap: 8px; }
+  .consumer-ui .consumer-command-scroll, .consumer-modal .consumer-command-scroll { padding: 12px; }
+  .consumer-modal .source-capability-details > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .consumer-modal .ant-modal-title { font-size: 22px; }
+}
+
+.consumer-ui .source-tile-header { min-height: 56px; }
+.consumer-ui .source-tile-title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.consumer-ui .source-tile-meta .source-health-healthy { color: var(--apple-success); }
+.consumer-ui .source-tile-meta .source-health-degraded { color: var(--apple-warning); }
+.consumer-ui .source-tile-meta .source-health-unhealthy { color: var(--apple-error); }
+
+/* Align the entire homepage to one content grid, including full-bleed bands. */
+.consumer-ui .public-home > .topbar,
+.consumer-ui .public-home > .site-footer {
+  padding-inline: max(24px, calc((100% - var(--consumer-content-width)) / 2));
+}
+.consumer-ui .public-home .accelerator-hero,
+.consumer-ui .public-home > .http-security-banner {
+  width: min(var(--consumer-content-width), calc(100% - 48px));
+  margin-inline: auto;
+}
+.consumer-ui .public-home .accelerator-hero { padding-inline: 0; }
+.consumer-ui .public-home .accelerator-hero > div:first-child { width: 100%; }
+
+.consumer-ui .http-security-banner > a,
+.consumer-ui .install-heading > a { display: inline-flex; align-items: center; gap: 6px; }
+.consumer-ui .http-security-banner > a { white-space: nowrap; }
+.consumer-ui .install-heading h2,
+.consumer-ui .install-platform-title h3 { display: flex; align-items: center; gap: 12px; }
+.consumer-ui .install-heading h2 > svg,
+.consumer-ui .install-platform-title h3 > svg,
+.consumer-ui .install-heading > a > svg,
+.consumer-ui .http-security-banner > a > svg { display: block; flex-shrink: 0; margin: 0; }
+.consumer-ui .install-platform-title h3 > svg { color: var(--apple-blue); }
+.consumer-ui .install-platform-title p { margin-left: 30px; }
+.consumer-ui .converter-title h2 { display: flex; align-items: center; gap: 14px; }
+.consumer-ui .converter-title h2 > svg { display: block; flex-shrink: 0; width: 24px; height: 24px; margin: 0; color: var(--apple-blue); }
+.consumer-ui .converter-title p { margin-left: 38px; }
+
+/* A compact, consistently sized set of homepage navigation controls. */
+.consumer-ui .public-home > .topbar { min-height: 64px; }
+.consumer-ui .public-home > .topbar > div:first-child { min-width: 0; }
+.consumer-ui .public-home .brand-mark { min-width: 0; gap: 10px; }
+.consumer-ui .public-home .mirrorproxy-mark { flex: 0 0 auto; display: block; border-radius: 7px; }
+.consumer-ui .public-brand-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-ui .public-home .public-toolbar { flex: 0 0 auto; flex-wrap: nowrap; gap: 8px; }
+.consumer-ui .public-home .public-toolbar .account-entry,
+.consumer-ui .public-home .public-toolbar .ant-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; height: 44px; margin: 0; padding: 0 14px;
+  border: 1px solid transparent; border-radius: 12px;
+  background: rgb(255 255 255 / 6%); color: var(--apple-nav-ink);
+  font: 500 13px/1.2 var(--apple-font); text-decoration: none;
+  box-shadow: none; transition: background .16s ease, border-color .16s ease;
+}
+.consumer-ui .public-home .public-toolbar .ant-btn { width: 44px; min-width: 44px; padding: 0; }
+.consumer-ui .public-home .public-toolbar .account-entry { border-color: rgb(255 255 255 / 12%); }
+.consumer-ui .public-home .public-toolbar svg { display: block; flex-shrink: 0; width: 18px; height: 18px; }
+.consumer-ui .public-home .public-toolbar .account-entry:hover,
+.consumer-ui .public-home .public-toolbar .ant-btn:hover { background: rgb(255 255 255 / 14%); border-color: rgb(255 255 255 / 20%); color: #fff; }
+.consumer-ui .public-home .public-toolbar .account-entry:active,
+.consumer-ui .public-home .public-toolbar .ant-btn:active { background: rgb(255 255 255 / 20%); }
+.consumer-ui .public-home .public-toolbar :is(a, button):focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+@media (max-width: 500px) {
+  .consumer-ui .public-home .public-toolbar { gap: 6px; }
+  .consumer-ui .public-home .public-toolbar .account-entry { padding-inline: 10px; }
+}
+@media (max-width: 380px) {
+  .consumer-ui .public-home .public-toolbar .account-entry { width: 44px; min-width: 44px; padding: 0; }
+  .consumer-ui .public-login-label { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .consumer-ui .public-home .public-toolbar :is(a, button) { transition: none; }
+}
+
+/* Footer stays below long content and reaches the viewport edge on short pages. */
+.consumer-ui .shell { min-height: 100vh; display: flex; flex-direction: column; }
+.consumer-ui .shell > .site-footer { margin-top: auto; }

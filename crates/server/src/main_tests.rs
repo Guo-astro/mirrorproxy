@@ -4496,3 +4496,10 @@ async fn user_summary_requires_super_admin_and_preserves_config_snapshots() {
     assert_eq!(value["per_page"], 100);
     assert_eq!(value["total"], 0);
 }
+
+#[test]
+fn monthly_quota_blank_is_unlimited_but_zero_is_a_zero_allowance() {
+    assert_eq!(quota_gb_to_bytes(None).unwrap(), None);
+    assert_eq!(quota_gb_to_bytes(Some(0)).unwrap(), Some(0));
+    assert_eq!(quota_gb_to_bytes(Some(1)).unwrap(), Some(1 << 30));
+}

@@ -144,6 +144,12 @@ fi
 tar -xzf "$archive_path" -C "$tmp_dir"
 [ -f "${tmp_dir}/mirrorproxy" ] || { echo "archive does not contain mirrorproxy" >&2; exit 1; }
 
+# Refuse old stable clients before touching an existing installation.
+if [ "$setup" = true ] && ! "${tmp_dir}/mirrorproxy" setup --help >/dev/null 2>&1; then
+  echo "This client release does not support setup. Publish a stable release containing setup, or select one with --version. Existing client was not replaced." >&2
+  exit 1
+fi
+
 install_binary() {
   install -d "$install_dir"
   install -m 0755 "${tmp_dir}/mirrorproxy" "${install_dir}/mirrorproxy"

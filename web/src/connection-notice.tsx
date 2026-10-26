@@ -1,3 +1,5 @@
+import { request } from './services/request'
+import { Action } from './components/controls'
 import * as React from 'react'
 import { CircleAlert, ExternalLink } from 'lucide-react'
 import { CSRF_ERROR_EVENT } from './csrf-fetch'
@@ -21,7 +23,7 @@ export function AdminConnectionNotice({ locale, onConfigure, protocol = window.l
 
   React.useEffect(() => {
     let active = true
-    fetch('/admin/api/connection-info').then(async response => {
+    request('/admin/api/connection-info').then(async response => {
       if (!response.ok) return
       const value = await response.json() as ConnectionInfo
       if (active && typeof value.effective_https === 'boolean') setInfo(value)
@@ -52,6 +54,6 @@ export function AdminConnectionNotice({ locale, onConfigure, protocol = window.l
       <li>{zh ? '如果当前 HTTPS 页面无法保存，请在服务端直连管理地址（或通过 SSH 隧道）重新登录并修改运行时设置。数据库已保存设置时，仅修改 TOML 文件可能不生效。' : 'If this HTTPS page cannot save, sign in through a direct management connection on the server or an SSH tunnel and edit the runtime settings. Editing TOML alone may not override settings already saved in the database.'}</li>
       <li>{zh ? '修正后回到 HTTPS 地址重新登录，必要时清除此站点的旧 Cookie；只刷新页面不够。Docker 网关 IP 若发生变化，需要同步更新可信代理。' : 'After correcting the configuration, return to the HTTPS URL and sign in again; clear old site cookies if necessary. A page refresh alone is insufficient. Update the trusted proxy if the Docker gateway IP changes.'}</li>
     </ol></details>
-    <div className="console-actions"><button type="button" className="secondary-button" onClick={onConfigure}>{zh ? '检查可信代理设置' : 'Check trusted proxy settings'}</button><a href={`https://github.com/inbjo/MirrorProxy/wiki/Troubleshooting${zh ? '-zh-CN' : ''}#${zh ? '后台提示-invalid-csrf-proof' : 'the-console-reports-invalid-csrf-proof'}`} target="_blank" rel="noopener noreferrer">{zh ? '排查说明' : 'Troubleshooting'} <ExternalLink size={14} aria-hidden="true" /></a></div>
+    <div className="console-actions"><Action type="button" className="secondary-button" onClick={onConfigure}>{zh ? '检查可信代理设置' : 'Check trusted proxy settings'}</Action><a href={`https://github.com/inbjo/MirrorProxy/wiki/Troubleshooting${zh ? '-zh-CN' : ''}#${zh ? '后台提示-invalid-csrf-proof' : 'the-console-reports-invalid-csrf-proof'}`} target="_blank" rel="noopener noreferrer">{zh ? '排查说明' : 'Troubleshooting'} <ExternalLink size={14} aria-hidden="true" /></a></div>
   </aside>
 }

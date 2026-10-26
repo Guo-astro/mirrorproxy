@@ -5,6 +5,7 @@ ARG BASE_IMAGE_REGISTRY=docker.io/library
 FROM --platform=$BUILDPLATFORM ${BASE_IMAGE_REGISTRY}/node:${NODE_VERSION} AS web-build
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
+COPY web/build/no-node-crypto/ ./build/no-node-crypto/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 COPY web/ ./

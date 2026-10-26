@@ -116,12 +116,12 @@ server and client binaries for `TARGET` (default:
 
 ### Web console
 
-- Use React and TypeScript patterns already present in `web/src/main.tsx`.
-  Avoid introducing a second state-management or styling system without an
-  explicit architectural decision.
-- Use Tailwind v4 design tokens and shared CSS rules in `web/src/styles.css`.
-  Reuse the centralized scrollbar styling instead of adding component-local
-  browser scrollbar rules.
+- Use the Umi route modules in `web/src/pages`, shared Ant Design controls,
+  and the centralized request boundary in `web/src/services`. Avoid a second
+  routing, state-management, or styling system.
+- Use Ant Design 6 / ProComponents themes in `web/src/providers.tsx` and
+  shared CSS tokens in `web/src/styles.css`. Reuse the centralized scrollbar
+  styling instead of adding component-local browser scrollbar rules.
 - Preserve keyboard operation, visible focus, semantic labels, accessible
   pressed/selected state, mobile layouts, dark theme, and Chinese/English UI
   parity.

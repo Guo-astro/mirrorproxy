@@ -27,6 +27,11 @@ jobs:
           npm ci
           npm test
           npm run build
+      - name: Verify local build cache invalidation
+        run: node --test scripts/build-cache.test.mjs
+      - name: PowerShell installer offline contract
+        shell: pwsh
+        run: ./scripts/test-install-powershell.ps1
       - name: Install Chromium for browser tests
         working-directory: web
         run: npx playwright install --with-deps chromium
@@ -73,7 +78,7 @@ jobs:
         working-directory: web
         run: |
           npm ci
-          npm audit --audit-level=high
+          npm audit --audit-level=low
           npm run build
       - name: Generate Rust coverage
         run: |

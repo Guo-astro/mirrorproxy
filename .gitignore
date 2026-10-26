@@ -12,3 +12,10 @@
 mirrorproxy.sqlite3
 mirrorproxy.sqlite3-shm
 mirrorproxy.sqlite3-wal
+
+/web/src/.umi/
+/web/src/.umi-production/
+/web/.umi/
+/web/.umi-production/
+
+/web/build/no-node-crypto/node_modules/

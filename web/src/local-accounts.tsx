@@ -1,3 +1,6 @@
+import { Panel } from './components/controls'
+import { request } from './services/request'
+import { Field, SettingsForm, Action, Choice } from './components/controls'
 import { OperationToast, type OperationNotice } from './operation-toast'
 import * as React from 'react'
 import { Check, Copy, Link2, UserPlus } from 'lucide-react'
@@ -9,7 +12,7 @@ type Invitation = { id: number; status: string; expires_at: number; billing: Bil
 const initialBilling: Billing = { group_id: null, quota_mode: 'default', monthly_gb: null }
 
 async function submit(url: string, body: unknown) {
-  const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const response = await request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   if (!response.ok) {
     const data = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(data.error ?? String(response.status))
@@ -37,10 +40,10 @@ function failure(error: unknown, zh: boolean) {
 
 function AccountFields({ zh, registration }: { zh: boolean; registration: boolean }) {
   return <>
-    <label>{zh ? '账号' : 'Account'}<input name="username" required minLength={3} maxLength={64} pattern="[A-Za-z0-9_.\-]+" placeholder={zh ? '3–64 位字母、数字、点、下划线或连字符' : '3–64 letters, digits, dots, underscores or hyphens'} autoComplete="username" autoCapitalize="none" spellCheck={false} /></label>
-    {registration ? <label>{zh ? '显示名称' : 'Display name'}<input name="display_name" maxLength={100} placeholder={zh ? '选填，留空使用账号' : 'Optional; defaults to your account name'} autoComplete="nickname" /></label> : null}
-    <label>{zh ? '密码' : 'Password'}<input name="password" required type="password" maxLength={1024} placeholder={zh ? '请输入密码' : 'Enter a password'} autoComplete={registration ? 'new-password' : 'current-password'} /></label>
-    {registration ? <label>{zh ? '确认密码' : 'Confirm password'}<input name="confirmation" required type="password" maxLength={1024} placeholder={zh ? '再次输入密码' : 'Enter the password again'} autoComplete="new-password" /></label> : null}
+    <label>{zh ? '账号' : 'Account'}<Field name="username" required minLength={3} maxLength={64} pattern="[A-Za-z0-9_.\-]+" placeholder={zh ? '3–64 位字母、数字、点、下划线或连字符' : '3–64 letters, digits, dots, underscores or hyphens'} autoComplete="username" autoCapitalize="none" spellCheck={false} /></label>
+    {registration ? <label>{zh ? '显示名称' : 'Display name'}<Field name="display_name" maxLength={100} placeholder={zh ? '选填，留空使用账号' : 'Optional; defaults to your account name'} autoComplete="nickname" /></label> : null}
+    <label>{zh ? '密码' : 'Password'}<Field name="password" required type="password" maxLength={1024} placeholder={zh ? '请输入密码' : 'Enter a password'} autoComplete={registration ? 'new-password' : 'current-password'} /></label>
+    {registration ? <label>{zh ? '确认密码' : 'Confirm password'}<Field name="confirmation" required type="password" maxLength={1024} placeholder={zh ? '再次输入密码' : 'Enter the password again'} autoComplete="new-password" /></label> : null}
   </>
 }
 
@@ -63,7 +66,7 @@ export function PasswordAccess({ locale, token, onSignedIn }: { locale: Locale; 
       await onSignedIn()
     } catch (error) { setNotice(failure(error, zh)) } finally { setBusy(false) }
   }
-  return <section className="auth-method-card"><div className="auth-method-head"><div><h2>{register ? (zh ? '接受邀请并注册' : 'Accept invitation and register') : (zh ? '账号密码登录' : 'Sign in with a password')}</h2><p>{register ? (zh ? '填写账号与密码完成注册。链接仅在注册成功后失效，配额由管理员预设。' : 'Choose your account and password. The link is consumed only after successful registration. Your administrator sets the quota.') : (zh ? '使用管理员创建或邀请注册的账号，无需邮件验证码。' : 'Use an account created by your administrator or through an invitation. No email code is needed.')}</p></div></div><form className={register ? 'account-form invitation-registration-form' : 'account-form'} onSubmit={send}><AccountFields zh={zh} registration={register} /><button className="primary-button" disabled={busy} type="submit">{busy ? (zh ? '提交中…' : 'Submitting…') : register ? (zh ? '完成注册' : 'Create account') : (zh ? '登录' : 'Sign in')}</button></form><OperationToast locale={locale} notice={notice ? { tone: 'error', message: notice } : null} onClose={() => setNotice('')} /></section>
+  return <section className="auth-method-card"><div className="auth-method-head"><div><h2>{register ? (zh ? '接受邀请并注册' : 'Accept invitation and register') : (zh ? '账号密码登录' : 'Sign in with a password')}</h2><p>{register ? (zh ? '填写账号与密码完成注册。链接仅在注册成功后失效，配额由管理员预设。' : 'Choose your account and password. The link is consumed only after successful registration. Your administrator sets the quota.') : (zh ? '使用管理员创建或邀请注册的账号，无需邮件验证码。' : 'Use an account created by your administrator or through an invitation. No email code is needed.')}</p></div></div><SettingsForm className={register ? 'account-form invitation-registration-form' : 'account-form'} onSubmit={send}><AccountFields zh={zh} registration={register} /><Action className="primary-button" disabled={busy} type="submit">{busy ? (zh ? '提交中…' : 'Submitting…') : register ? (zh ? '完成注册' : 'Create account') : (zh ? '登录' : 'Sign in')}</Action></SettingsForm><OperationToast locale={locale} notice={notice ? { tone: 'error', message: notice } : null} onClose={() => setNotice('')} /></section>
 }
 
 export function UserPasswordChange({ locale, onChanged }: { locale: Locale; onChanged: () => void }) {
@@ -79,12 +82,12 @@ export function UserPasswordChange({ locale, onChanged }: { locale: Locale; onCh
     try { await submit('/api/account/password', { current_password: values.current_password, new_password: values.new_password }); form.reset(); onChanged() }
     catch (error) { setNotice(failure(error, zh)) } finally { setBusy(false) }
   }
-  return <div className="identity-panel"><h3>{zh ? '修改密码' : 'Change password'}</h3><p className="account-help">{zh ? '修改后所有设备会退出登录，请使用新密码重新登录。' : 'Changing your password signs out all devices. Sign in again with the new password.'}</p><form className="account-form" onSubmit={send}><label>{zh ? '当前密码' : 'Current password'}<input name="current_password" type="password" required maxLength={1024} autoComplete="current-password" /></label><label>{zh ? '新密码' : 'New password'}<input name="new_password" type="password" required placeholder={zh ? '请输入新密码' : 'Enter a new password'} maxLength={1024} autoComplete="new-password" /></label><label>{zh ? '确认新密码' : 'Confirm new password'}<input name="confirmation" type="password" required maxLength={1024} autoComplete="new-password" /></label><button className="secondary-button" disabled={busy} type="submit">{zh ? '修改密码' : 'Change password'}</button></form><OperationToast locale={locale} notice={notice ? { tone: 'error', message: notice } : null} onClose={() => setNotice('')} /></div>
+  return <div className="identity-panel"><h3>{zh ? '修改密码' : 'Change password'}</h3><p className="account-help">{zh ? '修改后所有设备会退出登录，请使用新密码重新登录。' : 'Changing your password signs out all devices. Sign in again with the new password.'}</p><SettingsForm className="account-form" onSubmit={send}><label>{zh ? '当前密码' : 'Current password'}<Field name="current_password" type="password" required maxLength={1024} autoComplete="current-password" /></label><label>{zh ? '新密码' : 'New password'}<Field name="new_password" type="password" required placeholder={zh ? '请输入新密码' : 'Enter a new password'} maxLength={1024} autoComplete="new-password" /></label><label>{zh ? '确认新密码' : 'Confirm new password'}<Field name="confirmation" type="password" required maxLength={1024} autoComplete="new-password" /></label><Action className="secondary-button" disabled={busy} type="submit">{zh ? '修改密码' : 'Change password'}</Action></SettingsForm><OperationToast locale={locale} notice={notice ? { tone: 'error', message: notice } : null} onClose={() => setNotice('')} /></div>
 }
 
 function BillingFields({ locale, groups, billing, onChange }: { locale: Locale; groups: BillingGroup[]; billing: Billing; onChange: (billing: Billing) => void }) {
   const zh = locale === 'zh'
-  return <><label>{zh ? '所属计费组' : 'Assigned billing group'}<select value={billing.group_id ?? ''} onChange={e => onChange({ ...billing, group_id: e.target.value ? Number(e.target.value) : null })}><option value="">{zh ? '无计费组' : 'No billing group'}</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label>{zh ? '初始配额' : 'Initial quota'}<select value={billing.quota_mode} onChange={e => onChange({ ...billing, quota_mode: e.target.value, monthly_gb: e.target.value === 'custom' ? 0 : null })}><option value="default">{zh ? '默认配额' : 'Default quota'}</option><option value="unlimited">{zh ? '不限量' : 'Unlimited'}</option><option value="custom">{zh ? '自定义' : 'Custom'}</option></select></label>{billing.quota_mode === 'custom' ? <label>{zh ? '每月配额 GB' : 'Monthly quota GB'}<input type="number" required min="0" max="8589934591" step="1" value={billing.monthly_gb ?? ''} onChange={e => onChange({ ...billing, monthly_gb: e.target.value === '' ? null : Number(e.target.value) })} /></label> : null}</>
+  return <><label>{zh ? '所属计费组' : 'Assigned billing group'}<Choice value={billing.group_id ?? ''} onChange={e => onChange({ ...billing, group_id: e.target.value ? Number(e.target.value) : null })}><option value="">{zh ? '无计费组' : 'No billing group'}</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</Choice></label><label>{zh ? '初始配额' : 'Initial quota'}<Choice value={billing.quota_mode} onChange={e => onChange({ ...billing, quota_mode: e.target.value, monthly_gb: e.target.value === 'custom' ? 0 : null })}><option value="default">{zh ? '默认配额' : 'Default quota'}</option><option value="unlimited">{zh ? '不限量' : 'Unlimited'}</option><option value="custom">{zh ? '自定义' : 'Custom'}</option></Choice></label>{billing.quota_mode === 'custom' ? <label>{zh ? '每月配额 GB' : 'Monthly quota GB'}<Field type="number" required min="0" max="8589934591" step="1" value={billing.monthly_gb ?? ''} onChange={e => onChange({ ...billing, monthly_gb: e.target.value === '' ? null : Number(e.target.value) })} /></label> : null}</>
 }
 
 export function AdminLocalAccounts({ locale, groups, reload }: { locale: Locale; groups: BillingGroup[]; reload: () => Promise<void> }) {
@@ -96,7 +99,7 @@ export function AdminLocalAccounts({ locale, groups, reload }: { locale: Locale;
   const [notice, setNotice] = React.useState<OperationNotice | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [copied, setCopied] = React.useState(false)
-  const load = React.useCallback(async () => { const response = await fetch('/admin/api/registration-invitations'); if (response.ok) { const data: unknown = await response.json(); if (Array.isArray(data)) setInvitations(data as Invitation[]) } }, [])
+  const load = React.useCallback(async () => { const response = await request('/admin/api/registration-invitations'); if (response.ok) { const data: unknown = await response.json(); if (Array.isArray(data)) setInvitations(data as Invitation[]) } }, [])
   React.useEffect(() => { load().catch(() => undefined) }, [load])
   const create = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form))
@@ -113,33 +116,33 @@ export function AdminLocalAccounts({ locale, groups, reload }: { locale: Locale;
   const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setNotice({ tone: 'success', message: zh ? '邀请链接已复制。' : 'Invitation link copied.' }) } catch { setNotice({ tone: 'error', message: zh ? '复制失败，请选中链接手动复制。' : 'Copy failed. Select the link and copy it manually.' }) } }
   const revoke = async (id: number) => {
     setBusy(true); setNotice(null)
-    try { const response = await fetch(`/admin/api/registration-invitations/${id}`, { method: 'DELETE' }); if (!response.ok) throw new Error(String(response.status)); setLink(''); setNotice({ tone: 'success', message: zh ? '邀请链接已撤销。' : 'Invitation link revoked.' }); await load() }
+    try { const response = await request(`/admin/api/registration-invitations/${id}`, { method: 'DELETE' }); if (!response.ok) throw new Error(String(response.status)); setLink(''); setNotice({ tone: 'success', message: zh ? '邀请链接已撤销。' : 'Invitation link revoked.' }); await load() }
     catch (error) { setNotice({ tone: 'error', message: failure(error, zh) }) } finally { setBusy(false) }
   }
   return <div className="settings-stack local-account-management">
-    <section className="settings-card local-account-card">
+    <Panel className="settings-card local-account-card">
       <div className="settings-card-head"><h4>{zh ? '创建用户账号' : 'Create user account'}</h4><p>{zh ? '设置登录信息与配额，用户创建后即可登录。' : 'Set sign-in details and quota. The user can sign in immediately.'}</p></div>
-      <form className="config-fields local-account-form" onSubmit={create}>
-        <label>{zh ? '账号' : 'Account'}<input name="username" required minLength={3} maxLength={64} pattern="[A-Za-z0-9_.\-]+" placeholder={zh ? '3–64 位字母、数字、点、下划线或连字符' : '3–64 letters, digits, dots, underscores or hyphens'} autoComplete="off" /></label>
-        <label>{zh ? '初始密码' : 'Initial password'}<input name="password" type="password" required maxLength={1024} placeholder={zh ? '请输入密码，用户登录后可自行修改' : 'Enter a password; the user can change it after sign-in'} autoComplete="new-password" /></label>
-        <label>{zh ? '显示名称' : 'Display name'}<input name="display_name" required maxLength={100} placeholder={zh ? '用户显示名称' : 'User display name'} /></label>
+      <SettingsForm className="config-fields local-account-form" onSubmit={create}>
+        <label>{zh ? '账号' : 'Account'}<Field name="username" required minLength={3} maxLength={64} pattern="[A-Za-z0-9_.\-]+" placeholder={zh ? '3–64 位字母、数字、点、下划线或连字符' : '3–64 letters, digits, dots, underscores or hyphens'} autoComplete="off" /></label>
+        <label>{zh ? '初始密码' : 'Initial password'}<Field name="password" type="password" required maxLength={1024} placeholder={zh ? '请输入密码，用户登录后可自行修改' : 'Enter a password; the user can change it after sign-in'} autoComplete="new-password" /></label>
+        <label>{zh ? '显示名称' : 'Display name'}<Field name="display_name" required maxLength={100} placeholder={zh ? '用户显示名称' : 'User display name'} /></label>
         <BillingFields locale={locale} groups={groups} billing={billing} onChange={setBilling} />
-        <div className="local-account-actions"><button className="primary-button" disabled={busy} type="submit"><UserPlus size={16} aria-hidden="true" />{zh ? '创建用户' : 'Create user'}</button></div>
-      </form>
-    </section>
-    <section className="settings-card local-account-card">
+        <div className="local-account-actions"><Action className="primary-button" disabled={busy} type="submit"><UserPlus size={16} aria-hidden="true" />{zh ? '创建用户' : 'Create user'}</Action></div>
+      </SettingsForm>
+    </Panel>
+    <Panel className="settings-card local-account-card">
       <div className="settings-card-head"><h4>{zh ? '注册邀请链接' : 'Registration invitation links'}</h4><p>{zh ? '预设配额后生成链接，朋友自行填写账号密码。每条链接仅能成功注册一次。' : 'Set the quota and share a link. Your friend chooses their credentials. Each link permits one successful registration.'}</p></div>
-      <form className="config-fields local-account-form" onSubmit={invite}>
+      <SettingsForm className="config-fields local-account-form" onSubmit={invite}>
         <BillingFields locale={locale} groups={groups} billing={inviteBilling} onChange={setInviteBilling} />
-        <label>{zh ? '有效期（小时）' : 'Valid for (hours)'}<input name="hours" type="number" min="1" max="720" step="1" required defaultValue="72" /></label>
-        <div className="local-account-actions"><button className="primary-button" disabled={busy} type="submit"><Link2 size={16} aria-hidden="true" />{zh ? '生成邀请链接' : 'Generate invitation link'}</button></div>
-      </form>
+        <label>{zh ? '有效期（小时）' : 'Valid for (hours)'}<Field name="hours" type="number" min="1" max="720" step="1" required defaultValue="72" /></label>
+        <div className="local-account-actions"><Action className="primary-button" disabled={busy} type="submit"><Link2 size={16} aria-hidden="true" />{zh ? '生成邀请链接' : 'Generate invitation link'}</Action></div>
+      </SettingsForm>
       {link ? <div className="invitation-link-result">
         <label htmlFor="registration-invitation-link">{zh ? '邀请注册链接（仅显示本次）' : 'Registration link (shown only now)'}</label>
-        <div className="invitation-link-row"><input id="registration-invitation-link" readOnly value={link} onFocus={e => e.target.select()} /><button className="secondary-button" type="button" onClick={copy}>{copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}{copied ? (zh ? '已复制' : 'Copied') : (zh ? '复制邀请链接' : 'Copy invitation link')}</button></div>
+        <div className="invitation-link-row"><Field id="registration-invitation-link" readOnly value={link} onFocus={e => e.target.select()} /><Action className="secondary-button" type="button" onClick={copy}>{copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}{copied ? (zh ? '已复制' : 'Copied') : (zh ? '复制邀请链接' : 'Copy invitation link')}</Action></div>
       </div> : null}
-      <div className="admin-account-list registration-invitation-list">{invitations.map(item => <div className="admin-account-row" key={item.id}><span><strong>#{item.id} · {zh ? ({ pending: '待使用', accepted: '已使用', revoked: '已撤销', expired: '已过期' }[item.status] ?? item.status) : item.status}</strong><small>{zh ? '到期时间：' : 'Expires: '}{new Date(item.expires_at * 1000).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')}</small><small>{item.billing ? `${groups.find(group => group.id === item.billing.group_id)?.name ?? (zh ? '无计费组' : 'No billing group')} · ${item.billing.quota_mode === 'custom' ? `${item.billing.monthly_gb} GB` : item.billing.quota_mode === 'unlimited' ? (zh ? '不限量' : 'Unlimited') : (zh ? '默认配额' : 'Default quota')}` : ''}</small></span>{item.status === 'pending' ? <button disabled={busy} onClick={() => revoke(item.id)}>{zh ? '撤销链接' : 'Revoke link'}</button> : null}</div>)}</div>
-    </section>
+      <div className="admin-account-list registration-invitation-list">{invitations.map(item => <div className="admin-account-row" key={item.id}><span><strong>#{item.id} · {zh ? ({ pending: '待使用', accepted: '已使用', revoked: '已撤销', expired: '已过期' }[item.status] ?? item.status) : item.status}</strong><small>{zh ? '到期时间：' : 'Expires: '}{new Date(item.expires_at * 1000).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')}</small><small>{item.billing ? `${groups.find(group => group.id === item.billing.group_id)?.name ?? (zh ? '无计费组' : 'No billing group')} · ${item.billing.quota_mode === 'custom' ? `${item.billing.monthly_gb} GB` : item.billing.quota_mode === 'unlimited' ? (zh ? '不限量' : 'Unlimited') : (zh ? '默认配额' : 'Default quota')}` : ''}</small></span>{item.status === 'pending' ? <Action disabled={busy} onClick={() => revoke(item.id)}>{zh ? '撤销链接' : 'Revoke link'}</Action> : null}</div>)}</div>
+    </Panel>
     <OperationToast notice={notice} locale={locale} onClose={() => setNotice(null)} />
   </div>
 }

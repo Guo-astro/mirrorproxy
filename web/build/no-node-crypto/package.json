@@ -1,0 +1,8 @@
+{
+  "name": "@mirrorproxy/no-node-crypto",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fail-closed guard for Node crypto, which this browser-only application does not use",
+  "main": "index.cjs",
+  "license": "MIT"
+}

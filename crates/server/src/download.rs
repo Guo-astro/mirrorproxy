@@ -21,13 +21,13 @@ impl Default for DownloadConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            max_file_bytes: 2 << 30,
-            daily_user_bytes: 5 << 30,
+            max_file_bytes: 10 << 30,
+            daily_user_bytes: 20 << 30,
             max_concurrent: 16,
-            max_user_concurrent: 2,
-            requests_per_minute: 30,
+            max_user_concurrent: 5,
+            requests_per_minute: 300,
             max_duration_secs: 1800,
-            bandwidth_bytes_per_sec: 20 << 20,
+            bandwidth_bytes_per_sec: 100 << 20,
         }
     }
 }

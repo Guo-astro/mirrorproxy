@@ -95,7 +95,10 @@ fn ranges_are_single_bounded_or_open_ended_byte_intervals() {
 #[test]
 fn runtime_bounds_concurrency_cancels_matching_domain_and_releases_permits() {
     let runtime = Arc::new(Runtime::default());
-    let c = DownloadConfig::default();
+    let c = DownloadConfig {
+        max_user_concurrent: 2,
+        ..DownloadConfig::default()
+    };
     let (one, mut cancelled) = runtime.acquire(1, &c).unwrap();
     let (two, _) = runtime.acquire(1, &c).unwrap();
     assert!(runtime.acquire(1, &c).is_none());
@@ -461,4 +464,33 @@ fn download_config_defaults_validate_and_cli_keys_preserve_bounds() {
         assert!(plan_config_set(&config, key, value).is_err());
     }
     assert_eq!(route_group_for_path("/api/download"), "/api/download");
+}
+
+#[test]
+fn new_download_defaults_match_example_and_preserve_explicit_policies() {
+    let defaults = DownloadConfig::default();
+    assert!(!defaults.enabled);
+    assert_eq!(defaults.max_file_bytes, 10 << 30);
+    assert_eq!(defaults.daily_user_bytes, 20 << 30);
+    assert_eq!(defaults.max_concurrent, 16);
+    assert_eq!(defaults.max_user_concurrent, 5);
+    assert_eq!(defaults.requests_per_minute, 300);
+    assert_eq!(defaults.max_duration_secs, 1800);
+    assert_eq!(defaults.bandwidth_bytes_per_sec, 100 << 20);
+    defaults.validate().unwrap();
+    let example: Config = toml::from_str(include_str!("../../../../config.example.toml")).unwrap();
+    assert_eq!(example.download, defaults);
+    let existing: DownloadConfig = serde_json::from_value(json!({
+        "enabled": true, "max_file_bytes": 2_u64 << 30,
+        "daily_user_bytes": 5_u64 << 30, "max_concurrent": 16,
+        "max_user_concurrent": 2, "requests_per_minute": 30,
+        "max_duration_secs": 1800, "bandwidth_bytes_per_sec": 20_u64 << 20
+    }))
+    .unwrap();
+    assert!(existing.enabled);
+    assert_eq!(existing.max_file_bytes, 2 << 30);
+    assert_eq!(existing.max_user_concurrent, 2);
+    assert_eq!(existing.requests_per_minute, 30);
+    assert_eq!(existing.bandwidth_bytes_per_sec, 20 << 20);
+    existing.validate().unwrap();
 }

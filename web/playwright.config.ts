@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
+  workers: 4,
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
@@ -17,7 +18,7 @@ export default defineConfig({
     },
   }],
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 4173',
+    command: 'npm run preview',
     port: 4173,
     reuseExistingServer: !process.env.CI,
   },

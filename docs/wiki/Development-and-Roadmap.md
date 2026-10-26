@@ -16,6 +16,22 @@ cargo build --workspace --locked
 ```
 
 `./build.sh` performs the release-style static Linux build. It also needs the target toolchain, `musl-tools`, and network access for checksum-pinned GeoIP data.
+Repeated local builds reuse the locked dependency installation and frontend only
+when their input fingerprints and output digests match. Missing or changed output
+forces a rebuild. GeoIP checksums are still verified and locked Cargo runs on
+every invocation, building server and client together. An unchanged native build
+retains its build timestamp; changed inputs or binaries invalidate it. Stage
+timings appear in the log. Use `./build.sh --force` for a fresh dependency install
+and frontend build, or set `BUILD_TIME` explicitly for release automation.
+
+Initial dependency installation may still report deprecated transitive packages
+from Umi's toolchain. Logs are not suppressed. React 19 Helmet/external-store
+peers and the Utoo Less-loader peer are pinned to compatible versions. npm 11's
+install-script policy allows only the reviewed esbuild versions; nonessential
+core-js/core-js-pure/es5-ext postinstall notices are denied. `npm audit` remains
+a separate validation gate; using cached build inputs does not perform a fresh
+online vulnerability scan. See `docs/testing/Local-Build-Cache.md` in the
+repository for the warning and performance acceptance boundary.
 Production installations still need HTTPS as described in the deployment guide.
 
 ## Local checks
@@ -57,3 +73,22 @@ Track features and defects through [Issues](https://github.com/inbjo/MirrorProxy
 [release notes](https://github.com/inbjo/MirrorProxy/releases). Mark planned functionality explicitly rather than presenting it as current support.
 
 [简体中文](Development-and-Roadmap-zh-CN)
+
+### Ant Design Pro console
+
+The Web UI uses React 19, Umi Max 4, Ant Design 6 and ProComponents. From `web`,
+run `npm ci`, `npm test`, `npm run build` and `npm run test:e2e`. The Umi build
+still writes `web/dist`; build the console before compiling the Rust server.
+`npm run dev` listens on port 4173. For a real local API, set
+`MIRRORPROXY_DEV_API=http://127.0.0.1:3000`. API requests preserve the existing
+cookie and CSRF protocol. Production requires only the Rust server, without a
+Node service. Administration pages use `/admin/<module>` routes; `/admin`,
+`/login`, `/account` and invitation links remain compatible. See
+`docs/testing/WebUI-Pro-Migration.md` for the feature and acceptance checklist.
+
+The frontend security gate audits all severities (`npm audit --audit-level=low`).
+The lockfile uses patched transitive dependencies and React Router 7 with Umi
+entry-point compatibility. The unused legacy Node crypto polyfill is removed;
+its private build adapter throws if imported, and the production build rejects
+any emitted chunk that references it. Browser Web Crypto and WebAuthn remain
+unchanged. Docker copies the adapter before the locked dependency installation.

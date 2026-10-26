@@ -51,6 +51,11 @@ try {
     $binary = Join-Path $tempDir "mirrorproxy.exe"
     if (-not (Test-Path $binary)) { throw "Archive does not contain mirrorproxy.exe." }
 
+    if ($Setup) {
+        & $binary setup --help *> $null
+        if ($LASTEXITCODE -ne 0) { throw "This client release does not support setup. Publish a stable release containing setup, or select one with -Version. Existing client was not replaced." }
+    }
+
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     Copy-Item -Force -Path $binary -Destination (Join-Path $InstallDir "mirrorproxy.exe")
 
