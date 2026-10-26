@@ -1138,9 +1138,22 @@ test('manages custom download domains in both languages on narrow screens', asyn
   await page.goto('/admin')
   await page.getByRole('button', { name: 'Custom downloads', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Custom download policy' })).toBeVisible()
-  for (const width of [320, 375, 768]) {
-    await page.setViewportSize({ width, height: 900 })
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+  for (const theme of ['light', 'dark']) {
+    await page.locator('html').evaluate((element, value) => { element.dataset.theme = value }, theme)
+    for (const width of [320, 375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      const blockButton = page.getByRole('button', { name: 'Block', exact: true })
+      const styles = await blockButton.evaluate(element => {
+        const style = getComputedStyle(element)
+        return { border: parseFloat(style.borderTopWidth), background: style.backgroundColor, height: element.getBoundingClientRect().height }
+      })
+      expect(styles.border).toBeGreaterThanOrEqual(1)
+      expect(styles.background).not.toBe('rgba(0, 0, 0, 0)')
+      expect(styles.height).toBeGreaterThanOrEqual(39)
+      await expect(page.locator('.download-table').first().locator('td').first()).toHaveCSS('border-top-width', '1px')
+      await page.screenshot({ path: test.info().outputPath(`downloads-${theme}-${width}.png`), fullPage: true })
+    }
   }
   await page.getByLabel('Domain', { exact: true }).fill('cdn.example.org')
   await page.getByRole('button', { name: 'Block', exact: true }).click()

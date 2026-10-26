@@ -40,6 +40,7 @@ html,
 .geo-target-options,
 .geo-trend-chart,
 .source-health-table-wrap,
+.download-scroll,
 .generator-command code,
 .command code {
   @apply scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-400 scrollbar-thumb-rounded-full scrollbar-track-rounded-full;
@@ -61,6 +62,7 @@ body {
 :root[data-theme="dark"] .geo-target-options,
 :root[data-theme="dark"] .geo-trend-chart,
 :root[data-theme="dark"] .source-health-table-wrap,
+:root[data-theme="dark"] .download-scroll,
 :root[data-theme="dark"] .generator-command code,
 :root[data-theme="dark"] .command code {
   @apply scrollbar-thumb-slate-600;
@@ -2060,7 +2062,31 @@ p {
 .toast-region button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 600px) { .toast-region { bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; } }
 
-.download-scroll { max-width: 100%; overflow-x: auto; }
-.download-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .875rem; }
-.download-table th, .download-table td { padding: .65rem; vertical-align: top; overflow-wrap: anywhere; }
-.download-table th { font-weight: 600; }
+/* Download administration uses the same controls and tokens as other settings. */
+.admin-downloads, .admin-downloads .settings-card { min-width: 0; }
+.admin-downloads .download-form { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); align-items: end; margin-bottom: 16px; }
+.admin-downloads .download-form > button { grid-column: 1 / -1; min-height: 42px; }
+.download-enabled { display: flex; align-items: center; gap: 9px; min-height: 42px; color: var(--text); font-size: 13px; }
+.download-enabled input { width: 16px; height: 16px; accent-color: var(--accent-strong); }
+.admin-downloads .stat-row { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.admin-downloads .stat-row > span { min-width: 0; overflow-wrap: anywhere; }
+.admin-downloads .stat-row small { display: block; }
+.download-totals { margin: 16px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: 13px; line-height: 1.7; }
+.download-scroll { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-strong); }
+.download-table { width: 100%; min-width: 660px; border-collapse: collapse; text-align: left; font-size: 12px; }
+.download-table th, .download-table td { padding: 12px 14px; vertical-align: middle; overflow-wrap: anywhere; }
+.download-table th { color: var(--muted); background: var(--panel); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.download-table td { border-top: 1px solid var(--line); color: var(--text); font-variant-numeric: tabular-nums; }
+.download-table td:first-child { max-width: 320px; }
+.download-table button { font-size: 12px; }
+.download-table .download-empty { padding: 24px 14px; text-align: center; color: var(--muted); }
+.download-details { margin-top: 16px; border-top: 1px solid var(--line); }
+.download-details summary { padding: 14px 0; color: var(--accent-strong); cursor: pointer; font-size: 13px; font-weight: 700; }
+.download-details .download-scroll { margin-top: 12px; }
+@media (max-width: 600px) {
+  .admin-downloads .settings-card-head { flex-direction: column; gap: 4px; }
+  .admin-downloads .download-form > button { width: 100%; }
+  .admin-downloads .config-fields { grid-template-columns: minmax(0, 1fr); }
+  .admin-downloads .stat-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .admin-downloads .stat-row > button { grid-column: 1 / -1; justify-self: start; }
+}
