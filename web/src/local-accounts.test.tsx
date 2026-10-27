@@ -38,6 +38,9 @@ it('only submits invitation registration after matching passwords and retains fa
   expect(fetcher.mock.calls[0]).toEqual(['/api/auth/register', expect.objectContaining({ body: JSON.stringify({ token: 'invitation-token', username: 'friend', password: 'a-unique-passphrase', display_name: 'Friend' }) })])
   expect(signedIn).not.toHaveBeenCalled()
   expect((screen.getByLabelText('账号') as HTMLInputElement).value).toBe('friend')
+  fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'another-friend' } })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect((screen.getByLabelText('密码') as HTMLInputElement).value).toBe('a-unique-passphrase')
 })
 
 it('generates and copies links with administrator-selected quota', async () => {

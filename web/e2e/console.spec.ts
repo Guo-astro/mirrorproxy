@@ -1028,6 +1028,7 @@ test('invited users choose credentials and retry conflicts without email', async
   await page.getByRole('button', { name: 'Create account', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('account already exists')
   await page.getByLabel('Account', { exact: true }).fill('friend')
+  await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Create account', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Invited Friend', exact: true })).toBeVisible()
   await expect(page).toHaveURL('http://localhost:4173/account')
