@@ -282,6 +282,8 @@ html, .config-modal .ant-modal-body, .config-option code { scrollbar-width: thin
 .admin-console .source-health-counts > .ant-pro-card { background: var(--panel); }
 .admin-console .source-health-table-wrap { overflow: visible; border: 0; }
 .admin-console .source-health-table-wrap .ant-table-cell { overflow-wrap: anywhere; }
+.admin-console .source-health-table-wrap .ant-table-wrapper .ant-table .ant-table-cell:first-child { padding-inline-start: 20px; }
+.admin-console .source-health-table-wrap .ant-table-wrapper .ant-table .ant-table-cell:last-child { padding-inline-end: 20px; }
 .admin-console .selection-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .admin-console .selection-heading h4 { margin: 0; }
 .admin-console .ip-access-columns { align-items: start; }

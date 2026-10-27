@@ -357,7 +357,7 @@ export function SourceConfigModal({ target, health, baseUrl, catalog, labels, co
   const mirrorproxyCommand = `mirrorproxy set ${target.code} --mirror mirrorproxy --base-url ${baseUrl} --scope ${target.default_scope}`
   const manualCommand = source ? sourceManualCommand(target.code, proxyUrl, template?.template) : `mirrorproxy get ${target.code}`
 
-  return <Modal open title={target.name} onCancel={onClose} footer={null} width={800} closable={{ 'aria-label': labels.closeConfig }} className="config-modal consumer-modal" styles={{ body: { maxHeight: 'min(72vh, 760px)', overflowY: 'auto', paddingRight: 8 } }} closeIcon={<X size={18} />} aria-label={`${target.name} ${labels.sourceCatalogHeading}`}>
+  return <Modal open centered title={target.name} onCancel={onClose} footer={null} width={800} closable={{ 'aria-label': labels.closeConfig }} className="config-modal consumer-modal" styles={{ body: { maxHeight: 'min(72vh, 760px)', overflowY: 'auto', paddingRight: 8 } }} closeIcon={<X size={18} />} aria-label={`${target.name} ${labels.sourceCatalogHeading}`}>
       <p>{source ? (customRepository ? labels.customRepositoryAvailable : labels.sourceAvailable) : labels.sourceUnavailable}</p>
       {target.code === 'huggingface' ? <p>{labels.huggingfaceHint}</p> : null}
       <SourceCapabilityDetails capabilities={target.capabilities} locale={locale} />

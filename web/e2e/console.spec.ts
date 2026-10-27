@@ -1248,6 +1248,10 @@ test('refines administration actions, health, IP forms and footer layout', async
       await page.setViewportSize({ width, height: 1100 })
       const scrollRegions = await page.locator('.source-health-table-wrap, .source-health-table-wrap *').evaluateAll(elements => elements.filter(element => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)
       expect(scrollRegions).toBe(0)
+      for (const row of ['.ant-table-thead > tr', '.ant-table-tbody > tr.ant-table-row']) {
+        await expect(page.locator(`.source-health-table-wrap ${row} > .ant-table-cell:first-child`).first()).toHaveCSS('padding-inline-start', '20px')
+        await expect(page.locator(`.source-health-table-wrap ${row} > .ant-table-cell:last-child`).first()).toHaveCSS('padding-inline-end', '20px')
+      }
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
     }
   }
