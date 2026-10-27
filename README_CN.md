@@ -2,8 +2,6 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-**在线演示：[https://sina.dev](https://sina.dev)** · [快速开始](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started-zh-CN) · [最新版本](https://github.com/inbjo/MirrorProxy/releases/latest)
-
 [![CI](https://img.shields.io/github/actions/workflow/status/inbjo/MirrorProxy/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI)](https://github.com/inbjo/MirrorProxy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/inbjo/MirrorProxy?style=flat-square&logo=github&label=Release)](https://github.com/inbjo/MirrorProxy/releases/latest)
 [![License](https://img.shields.io/github/license/inbjo/MirrorProxy?style=flat-square&label=License)](LICENSE)
@@ -42,6 +40,8 @@ MirrorProxy 按需获取并缓存内容，无需预先完整同步庞大的镜�
   不向第三方定位接口发送访问者 IP。
 - **从个人服务平滑扩展到团队平台**：先以公开代理和默认配置快速启动，需要时再开启账号、邀请、
   OAuth/OIDC、团队配额、审计、Prometheus、自动 HTTPS 等能力，无需更换系统。
+
+**在线演示：[https://sina.dev](https://sina.dev)** · [快速开始](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started-zh-CN) · [最新版本](https://github.com/inbjo/MirrorProxy/releases/latest)
 
 ## 支持的软件源
 

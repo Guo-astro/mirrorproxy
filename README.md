@@ -2,8 +2,6 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-**Live demo: [https://sina.dev](https://sina.dev)** · [Quick start](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started) · [Latest release](https://github.com/inbjo/MirrorProxy/releases/latest)
-
 [![CI](https://img.shields.io/github/actions/workflow/status/inbjo/MirrorProxy/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI)](https://github.com/inbjo/MirrorProxy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/inbjo/MirrorProxy?style=flat-square&logo=github&label=Release)](https://github.com/inbjo/MirrorProxy/releases/latest)
 [![License](https://img.shields.io/github/license/inbjo/MirrorProxy?style=flat-square&label=License)](LICENSE)
@@ -58,6 +56,8 @@ public mirrors into infrastructure they truly control.
 - **A path from personal service to team platform:** start quickly with public
   access and sensible defaults, then enable accounts, invitations, OAuth/OIDC,
   team quotas, auditing, Prometheus, and automatic HTTPS as needs grow.
+
+**Live demo: [https://sina.dev](https://sina.dev)** · [Quick start](https://github.com/inbjo/MirrorProxy/wiki/Getting-Started) · [Latest release](https://github.com/inbjo/MirrorProxy/releases/latest)
 
 ## Supported sources
 

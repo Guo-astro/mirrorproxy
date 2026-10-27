@@ -237,6 +237,7 @@ export function AdminConsole({ locale, theme = 'light', tools }: { locale: Local
         serviceAccess: 'Service access', trafficQuota: 'Traffic quota', subdomainRouting: 'User subdomains', advancedWarning: 'These settings directly affect proxy requests and upstream connectivity. Incorrect values can make the service unavailable.', showUpstreams: 'Edit upstream endpoints', upstreamHint: 'Upstream fields accept comma-separated HTTP(S) endpoints. Requests try them in order until one returns 200.', defaultUserQuota: 'Default per-user limit (GB)', bidirectionalAccounting: 'Bidirectional billing', unlimited: 'Unlimited', requestLabel: 'requests', errorLabel: 'errors', runtimeState: 'Listening on',
       }
   const [token, setToken] = React.useState<string | null>(null)
+  const [showInitialPasswordHint, setShowInitialPasswordHint] = React.useState(() => localStorage.getItem('mirrorproxy.admin.signed-in') !== '1')
   const [identity, setIdentity] = React.useState<AdminIdentity | null>(null)
   const [username, setUsername] = React.useState('admin')
   const [password, setPassword] = React.useState('')
@@ -319,6 +320,8 @@ export function AdminConsole({ locale, theme = 'light', tools }: { locale: Local
 
   React.useEffect(() => {
     if (!token) return
+    localStorage.setItem('mirrorproxy.admin.signed-in', '1')
+    setShowInitialPasswordHint(false)
     load(token).catch(() => {
       setToken(null)
       setError(text.badLogin)
@@ -554,14 +557,14 @@ export function AdminConsole({ locale, theme = 'light', tools }: { locale: Local
   const activeTabCopy = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]
 
   return (
-    <section className="admin-console" aria-label={text.title}>
+    <section className={`admin-console${token ? '' : ' admin-login-screen'}`} aria-label={text.title}>
       <OperationToast locale={locale} notice={notice} onClose={() => setNotice(null)} />
       <OperationToast locale={locale} notice={error ? { tone: error === text.passwordChanged || error === text.usernameChanged ? 'success' : 'error', message: error } : null} onClose={() => setError(null)} />
       {!token ? <header className="admin-login-header"><a className="brand-mark" href="/"><MirrorProxyMark size={24} /> MirrorProxy</a><Space>{tools}</Space></header> : null}
       {!token ? <div className="admin-login-notice"><HttpSecurityBanner locale={locale} /></div> : null}
-      {!token ? <SettingsForm className="login-card admin-login-card" onSubmit={signIn}><div className="admin-login-intro"><h3>{text.login}</h3><p>{text.passwordHint}</p></div><label className="admin-username-field">{text.username}<Field autoFocus required autoComplete="username webauthn" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="admin-password-field">{text.password}<Field required={!passkeyEnabled} autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="login-actions admin-login-actions"><Action className="primary-button password-login-button" type="submit"><LogIn size={17} /> {text.signIn}</Action>{passkeyEnabled ? <Action className="secondary-button passkey-login-button" disabled={passkeyBusy || !username.trim()} type="button" onClick={signInWithPasskey}><KeyRound size={17} /> {text.usePasskey}</Action> : null}</div></SettingsForm> : null}
+      {!token ? <SettingsForm className="login-card admin-login-card" onSubmit={signIn}><div className="admin-login-intro"><span className="admin-login-emblem" aria-hidden="true"><ShieldCheck size={25} /></span><h3>{text.login}</h3>{showInitialPasswordHint ? <p>{text.passwordHint}</p> : null}</div><label className="admin-username-field">{text.username}<Field autoFocus required autoComplete="username webauthn" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="admin-password-field">{text.password}<Field required={!passkeyEnabled} autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="login-actions admin-login-actions"><Action className="primary-button password-login-button" type="submit"><LogIn size={17} /> {text.signIn}</Action>{passkeyEnabled ? <Action className="secondary-button passkey-login-button" disabled={passkeyBusy || !username.trim()} type="button" onClick={signInWithPasskey}><KeyRound size={17} /> {text.usePasskey}</Action> : null}</div></SettingsForm> : null}
       {!token ? <SiteFooter /> : null}
-      {token && draft && stats ? <ProLayout className="console-workspace" title={draft.site.title || 'MirrorProxy'} logo={draft.site.icon_url || '/favicon.svg'}
+      {token && draft && stats ? <ProLayout className="console-workspace" title="MirrorProxy" logo="/icon-192.png"
         layout="mix" contentWidth="Fluid" fixedHeader={false} fixSiderbar navTheme={theme === 'dark' ? 'realDark' : 'light'}
         siderWidth={240} breakpoint="lg" splitMenus={false} location={{ pathname: `/admin/${activeTab}` }}
         menu={{ locale: false }} route={{ routes: tabs.map(tab => ({ path: `/admin/${tab.id}`, name: tab.label, icon: ADMIN_ICONS[tab.id] })) }}
@@ -660,7 +663,7 @@ export function AdminConsole({ locale, theme = 'light', tools }: { locale: Local
               <label>{text.webauthnOrigin}<Field value={draft.webauthn.rp_origin} onChange={(event) => update('webauthn', { ...draft.webauthn, rp_origin: event.target.value })} /></label>
             </div>
           </Panel>
-          {draft.webauthn.enabled && 'credentials' in navigator ? <Panel className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '已登记的 Passkey' : 'Registered passkeys'}</h4></div><div className="admin-account-list">{passkeys.map((passkey) => <div className="admin-account-row" key={passkey.id}><span><strong>{passkey.name}</strong><small>{passkey.last_used_at ? new Date(passkey.last_used_at * 1000).toLocaleString() : new Date(passkey.created_at * 1000).toLocaleDateString()}</small></span><Action onClick={() => removePasskey(passkey)}>{text.deletePasskey}</Action></div>)}</div><SettingsForm className="compact-form" onSubmit={registerPasskey}><label>{text.passkeyName}<Field required maxLength={80} value={passkeyName} onChange={(event) => setPasskeyName(event.target.value)} /></label><Action className="primary-button" disabled={passkeyBusy} type="submit"><KeyRound size={16} /> {text.addPasskey}</Action></SettingsForm></Panel> : null}
+          {draft.webauthn.enabled && 'credentials' in navigator ? <Panel className="settings-card"><div className="settings-card-head"><h4>{locale === 'zh' ? '已登记的 Passkey' : 'Registered passkeys'}</h4></div><div className="admin-account-list">{passkeys.map((passkey) => <div className="admin-account-row" key={passkey.id}><span><strong>{passkey.name}</strong><small>{passkey.last_used_at ? new Date(passkey.last_used_at * 1000).toLocaleString() : new Date(passkey.created_at * 1000).toLocaleDateString()}</small></span><Action onClick={() => removePasskey(passkey)}>{text.deletePasskey}</Action></div>)}</div><SettingsForm className="compact-form passkey-register-form" onSubmit={registerPasskey}><label>{text.passkeyName}<Field required maxLength={80} value={passkeyName} onChange={(event) => setPasskeyName(event.target.value)} /></label><Action className="primary-button" disabled={passkeyBusy} type="submit"><KeyRound size={16} /> {text.addPasskey}</Action></SettingsForm></Panel> : null}
           <AdminSessionManagement locale={locale} onCurrentRevoked={() => { setIdentity(null); setToken(null); setDraft(null) }} />
         </section> : null}
         {activeTab === 'audit' ? <section className="admin-tab-panel audit-log"><ProTable<AuditLogEntry> headerTitle={text.auditLog} rowKey={(entry, index) => `${entry.created_at}-${entry.action}-${index}`} search={false} options={false} dataSource={auditLog} scroll={{ x: 800 }} pagination={{ current: auditPage, total: auditTotal, pageSize: 20, showSizeChanger: false, onChange: setAuditPage }} locale={{ emptyText: text.noAudit }} columns={[

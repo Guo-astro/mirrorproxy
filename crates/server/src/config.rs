@@ -1664,7 +1664,38 @@ impl Default for SiteConfig {
 impl SiteConfig {
     pub(crate) fn upgrade_legacy_defaults(&mut self) {
         const LEGACY_DESCRIPTION: &str = "Fast, self-hosted package and source mirror proxy.";
-        if self.description.trim() == LEGACY_DESCRIPTION && self.keywords.is_empty() {
+        const PREVIOUS_DESCRIPTION: &str = "MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew，以及 Linux/BSD 系统与常用软件仓库。 Fast self-hosted package and source mirror proxy.";
+        const PREVIOUS_KEYWORDS: &[&str] = &[
+            "MirrorProxy",
+            "镜像加速",
+            "软件源",
+            "GitHub",
+            "Docker",
+            "OCI",
+            "npm",
+            "Go Modules",
+            "Maven",
+            "PyPI",
+            "crates.io",
+            "Homebrew",
+            "Linux",
+            "BSD",
+            "软件仓库",
+            "Composer",
+            "RubyGems",
+            "NuGet",
+            "CPAN",
+            "CRAN",
+        ];
+        let original_defaults = self.description == PREVIOUS_DESCRIPTION
+            && self
+                .keywords
+                .iter()
+                .map(String::as_str)
+                .eq(PREVIOUS_KEYWORDS.iter().copied());
+        if (self.description.trim() == LEGACY_DESCRIPTION && self.keywords.is_empty())
+            || original_defaults
+        {
             self.description = default_site_description();
             self.keywords = default_site_keywords();
         }
@@ -2688,7 +2719,7 @@ fn default_site_title() -> String {
 }
 
 fn default_site_description() -> String {
-    "MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew，以及 Linux/BSD 系统与常用软件仓库。 Fast self-hosted package and source mirror proxy.".to_string()
+    "MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew、Hugging Face 及 Linux/BSD 软件源，提供 AI Agent Skill 与 MCP 配置。 Self-hosted source and package mirrors with AI Agent Skill and MCP setup.".to_string()
 }
 
 fn default_site_keywords() -> Vec<String> {
@@ -2697,22 +2728,22 @@ fn default_site_keywords() -> Vec<String> {
         "镜像加速",
         "软件源",
         "GitHub",
-        "Docker",
-        "OCI",
+        "Docker/OCI",
         "npm",
         "Go Modules",
         "Maven",
         "PyPI",
         "crates.io",
         "Homebrew",
-        "Linux",
-        "BSD",
-        "软件仓库",
+        "Linux/BSD",
         "Composer",
         "RubyGems",
         "NuGet",
         "CPAN",
         "CRAN",
+        "Hugging Face",
+        "AI Skill",
+        "MCP",
     ]
     .into_iter()
     .map(ToString::to_string)
@@ -3736,5 +3767,24 @@ insecure_skip_verify = true
             "Private mirror for the engineering team"
         );
         assert!(customized.keywords.is_empty());
+    }
+
+    #[test]
+    fn upgrades_previous_site_defaults_without_overwriting_custom_metadata() {
+        let mut old = SiteConfig {
+            description: "MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew，以及 Linux/BSD 系统与常用软件仓库。 Fast self-hosted package and source mirror proxy.".to_string(),
+            keywords: ["MirrorProxy", "镜像加速", "软件源", "GitHub", "Docker", "OCI", "npm", "Go Modules", "Maven", "PyPI", "crates.io", "Homebrew", "Linux", "BSD", "软件仓库", "Composer", "RubyGems", "NuGet", "CPAN", "CRAN"].into_iter().map(String::from).collect(),
+            ..SiteConfig::default()
+        };
+        let mut custom = old.clone();
+        custom.keywords.push("custom".to_string());
+        custom.upgrade_legacy_defaults();
+        assert!(custom.keywords.contains(&"custom".to_string()));
+        assert!(!custom.description.contains("Hugging Face"));
+        old.upgrade_legacy_defaults();
+        assert!(old.description.contains("Hugging Face"));
+        assert!(old.description.contains("MCP"));
+        assert!(old.keywords.contains(&"AI Skill".to_string()));
+        assert!(old.validate().is_ok());
     }
 }

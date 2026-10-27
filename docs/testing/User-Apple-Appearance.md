@@ -11,6 +11,15 @@ controls and feedback to user pages. CSS selectors target `.consumer-ui` and
 `.consumer-modal`; they never target administration. Existing cookie, CSRF,
 registration, invitation and download-token behaviors are preserved.
 
+The public and account headers use the same site icon, title and compact
+navigation controls; the brand links to the public homepage. Authentication
+uses one surface with sign-in and registration tabs. Sign-in combines the
+password and configured third-party methods and offers an email-method switch
+when enabled. Registration follows the server policy: an invitation fragment
+opens the password registration form, while open/domain registration uses only
+enabled email or third-party methods. Disabled registration does not expose a
+creation form. The registry input editor uses the same scoped light/dark tokens.
+
 The portal restores the original functional order: hero, quick converters,
 container registry workbench, client/Agent installation, then source catalog.
 Apple presentation uses restrained white/parchment surfaces, Action Blue,
@@ -36,8 +45,8 @@ remains available.
 
 Validated locally:
 
-- 48 unit tests; TypeScript and production build.
-- 43 Chromium scenarios with no uncaught page errors, including user/admin
+- 50 unit tests; TypeScript and production build.
+- 48 Chromium scenarios with no uncaught page errors, including user/admin
   isolation, language switching, login/invitation/account behavior and source
   functionality. New visuals cover 320/375/414/768/1440 widths and theme round trips.
 - Native Rust embedding: every JS/CSS chunk matched; real administration and
@@ -60,6 +69,8 @@ Custom site icons still override browser/touch icons. Fixed-name brand assets
 require cache revalidation; hashed application chunks retain immutable caching.
 The homepage brand uses the new icon and its account/language/theme controls
 share 44px targets, rounded corners, restrained hover and visible keyboard focus.
+Email method switching and third-party sign-in use scoped light/dark hover and
+keyboard-focus states. The email icon is centered with its heading text.
 Installation and converter title icons are centered against the heading text,
 independently of the descriptions below. HTTPS/release links have an explicit
 6px icon gap. Browser geometry checks cover both languages and themes at

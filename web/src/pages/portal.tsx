@@ -110,7 +110,7 @@ function PublicPageContent() {
     <main className="shell public-home">
       <header className="topbar">
         <div>
-          <div className="brand-mark"><MirrorProxyMark size={28} src={config.site?.icon_url && config.site.icon_url !== '/favicon.svg' ? config.site.icon_url : '/icon-192.png'} /><span className="public-brand-title">{config.site?.title ?? 'MirrorProxy'}</span></div>
+          <a className="brand-mark" href="/" aria-label={locale === 'zh' ? '镜像首页' : 'Mirror home'}><MirrorProxyMark size={28} src={config.site?.icon_url && config.site.icon_url !== '/favicon.svg' ? config.site.icon_url : '/icon-192.png'} /><span className="public-brand-title">{config.site?.title ?? 'MirrorProxy'}</span></a>
         </div>
         <div className="toolbar public-toolbar">
           {publicProfile && avatarUrl ? <div className="public-account-control">

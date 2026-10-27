@@ -9,8 +9,8 @@ export const AdminBillingManagement = React.lazy(() => import('../admin-billing'
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   title: 'MirrorProxy',
-  description: 'MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew，以及 Linux/BSD 系统与常用软件仓库。 Fast self-hosted package and source mirror proxy.',
-  keywords: ['MirrorProxy', '镜像加速', '软件源', 'GitHub', 'Docker', 'OCI', 'npm', 'Go Modules', 'Maven', 'PyPI', 'crates.io', 'Homebrew', 'Linux', 'BSD', '软件仓库', 'Composer', 'RubyGems', 'NuGet', 'CPAN', 'CRAN'],
+  description: 'MirrorProxy 自托管镜像加速服务，支持 GitHub、Docker/OCI、npm、PyPI、crates.io、Go Modules、Composer、Maven、RubyGems、NuGet、CPAN、CRAN、Hackage、Homebrew、Hugging Face 及 Linux/BSD 软件源，提供 AI Agent Skill 与 MCP 配置。 Self-hosted source and package mirrors with AI Agent Skill and MCP setup.',
+  keywords: ['MirrorProxy', '镜像加速', '软件源', 'GitHub', 'Docker/OCI', 'npm', 'Go Modules', 'Maven', 'PyPI', 'crates.io', 'Homebrew', 'Linux/BSD', 'Composer', 'RubyGems', 'NuGet', 'CPAN', 'CRAN', 'Hugging Face', 'AI Skill', 'MCP'],
   icon_url: '/favicon.svg',
   footer_text: '',
 }

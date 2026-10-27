@@ -378,3 +378,49 @@
 /* Footer stays below long content and reaches the viewport edge on short pages. */
 .consumer-ui .shell { min-height: 100vh; display: flex; flex-direction: column; }
 .consumer-ui .shell > .site-footer { margin-top: auto; }
+
+/* Shared user navigation and a single, focused authentication surface. */
+.consumer-ui .public-home > .topbar > .brand-mark { min-width: 0; cursor: pointer; text-decoration: none; }
+.consumer-ui .public-home > .topbar > .brand-mark:hover { opacity: .85; }
+.consumer-ui .public-home > .topbar .brand-mark { cursor: pointer; }
+.consumer-ui .public-home > .topbar .brand-mark :is(img, span) { cursor: pointer; }
+.consumer-ui .public-home > .topbar .brand-mark:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 7px; }
+.consumer-ui .account-auth-layout { max-width: 520px; }
+.consumer-ui .auth-unified-card { padding: 32px; border: 1px solid var(--apple-hairline); border-radius: var(--apple-radius); background: var(--apple-canvas); }
+.consumer-ui .auth-unified-card .ant-tabs-nav { margin-bottom: 28px; }
+.consumer-ui .auth-unified-card .ant-tabs-nav-list { width: 100%; }
+.consumer-ui .auth-unified-card .ant-tabs-tab { flex: 1; justify-content: center; margin: 0; padding: 12px; border-bottom: 2px solid transparent; font-size: 16px; }
+.consumer-ui .auth-unified-card .ant-tabs-tab-active { border-bottom-color: var(--apple-blue); }
+.consumer-ui .auth-unified-card .ant-tabs-ink-bar { display: none; }
+.consumer-ui .auth-combined { display: grid; gap: 20px; }
+.consumer-ui .auth-combined .auth-method-card { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.consumer-ui .auth-combined .auth-method-head { margin-bottom: 0; }
+.consumer-ui .auth-combined .auth-method-head h2 { font-size: 21px; margin-bottom: 8px; }
+.consumer-ui .auth-combined .registration-policy { padding: 18px 20px; }
+.consumer-ui .auth-combined .registration-policy h2 { font-size: 16px; margin-bottom: 6px; }
+.consumer-ui .auth-combined .registration-policy p, .consumer-ui .auth-empty { font-size: 14px; line-height: 1.6; }
+.consumer-ui .auth-method-switch.ant-btn { justify-self: start; min-height: 44px; padding: 0 12px; margin-left: -12px; border: 1px solid transparent; border-radius: 10px; background: transparent; box-shadow: none; color: var(--apple-blue); }
+.consumer-ui .auth-method-switch.ant-btn:not(:disabled):not(.ant-btn-disabled):hover { color: var(--apple-blue); border-color: transparent; text-decoration: none; background: var(--command-copied); }
+.consumer-ui .auth-unified-card .provider-button { background: var(--apple-canvas); transition: background .16s ease, border-color .16s ease; }
+.consumer-ui .auth-unified-card .provider-button:hover { color: var(--apple-ink); background: var(--apple-parchment); border-color: var(--apple-blue); text-decoration: none; }
+.consumer-ui .auth-unified-card .provider-button:focus-visible,
+.consumer-ui .auth-method-switch.ant-btn:focus-visible { outline: 2px solid var(--apple-blue); outline-offset: 3px; }
+.consumer-ui .email-auth-card .auth-method-head h2 { display: flex; align-items: center; gap: 10px; }
+.consumer-ui .email-auth-card .auth-method-head h2 > svg { display: block; flex-shrink: 0; color: var(--apple-blue); }
+.consumer-ui .email-auth-card .auth-method-head p { padding-left: 29px; }
+.consumer-ui .auth-provider-section .auth-divider { margin: 0 0 20px; }
+.consumer-ui .auth-combined .account-form .ant-btn { width: 100%; justify-self: stretch; }
+.consumer-ui .auth-unified-card .ant-input::placeholder { color: var(--apple-muted); opacity: .85; }
+.consumer-ui .auth-combined .account-code-form p { color: var(--apple-muted); font-size: 13px; line-height: 1.6; }
+.consumer-ui .public-home .registry-editor { padding: 24px; border: 1px solid var(--apple-hairline); border-radius: 16px; background: var(--apple-pearl); }
+.consumer-ui .public-home .registry-modes { margin: 0 0 20px; }
+.consumer-ui .public-home .registry-editor > label { display: grid; gap: 10px; color: var(--apple-muted); font-size: 14px; font-weight: 500; }
+.consumer-ui .public-home .registry-editor textarea.ant-input { min-height: 120px; padding: 16px; border-color: var(--apple-hairline); border-radius: 12px; background: var(--apple-canvas); color: var(--apple-ink); font-size: 14px; line-height: 1.65; resize: vertical; }
+.consumer-ui .public-home .registry-editor textarea.ant-input::placeholder { color: var(--apple-muted); opacity: .8; }
+@media (max-width: 500px) {
+  .consumer-ui .auth-unified-card { padding: 24px; }
+  .consumer-ui .public-home .registry-editor { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .consumer-ui .auth-unified-card .provider-button { transition: none; }
+}

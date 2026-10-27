@@ -202,9 +202,11 @@ describe('App preferences', () => {
 
     const { container } = render(<App />)
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Register' }))
     expect(await screen.findByText('Registration is limited by email domain')).toBeTruthy()
     expect(screen.getByText('@example.com')).toBeTruthy()
     expect(screen.getByLabelText('Email address')).toBeTruthy()
+    expect(screen.queryByLabelText('Six-digit code')).toBeNull()
     expect(screen.queryByText('Continue with a configured provider')).toBeNull()
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[title="Language"]')!)
     expect(await screen.findByText('仅允许指定邮箱域名注册')).toBeTruthy()
@@ -212,6 +214,9 @@ describe('App preferences', () => {
     fireEvent.change(screen.getByLabelText('邮箱地址'), { target: { value: 'person@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: '发送 Magic Link' }))
     await waitFor(() => expect(requestedLocale).toBe('zh'))
+    expect(await screen.findByLabelText('六位验证码')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('邮箱地址'), { target: { value: 'another@example.com' } })
+    expect(screen.queryByLabelText('六位验证码')).toBeNull()
   })
 
   it('accepts an invitation link directly without requesting another email', async () => {
