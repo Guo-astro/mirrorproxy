@@ -463,7 +463,7 @@ fn setup_binds_all_agents_merges_existing_configuration_and_rolls_back_exactly()
                 "--scope",
                 scope,
                 "--agent",
-                "codex,claude-code,cursor",
+                "codex,claude-code,cursor,gemini,opencode,vscode,trae,trae-cn,workbuddy,dsh,generic",
             ])
             .output()
             .unwrap();
@@ -498,6 +498,41 @@ fn setup_binds_all_agents_merges_existing_configuration_and_rolls_back_exactly()
         )
         .is_absolute());
         assert_eq!(cursor["mcpServers"]["mirrorproxy"]["args"][2], server.base);
+        let gemini: Value =
+            serde_json::from_str(&fs::read_to_string(root.join(".gemini/settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(gemini["mcpServers"]["mirrorproxy"]["args"][2], server.base);
+        let opencode_path = root.join(if scope == "global" {
+            ".config/opencode/opencode.json"
+        } else {
+            "opencode.json"
+        });
+        let opencode: Value =
+            serde_json::from_str(&fs::read_to_string(&opencode_path).unwrap()).unwrap();
+        assert_eq!(opencode["mcp"]["mirrorproxy"]["type"], "local");
+        assert_eq!(opencode["mcp"]["mirrorproxy"]["command"][3], server.base);
+        let vscode: Value = serde_json::from_str(
+            &fs::read_to_string(root.join(".mirrorproxy/agents/vscode/mcp.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(vscode["servers"]["mirrorproxy"]["type"], "stdio");
+        let patch = fs::read_to_string(root.join(".mirrorproxy/agents/dsh/mirrorproxy.cordis.yml"))
+            .unwrap();
+        assert!(patch.contains("@deepseek-ai/dsh-mcp-client") && patch.contains(&server.base));
+        let patch: Value = serde_json::from_str(&patch).unwrap();
+        assert_eq!(patch[0]["insert"][0]["config"]["transport"], "stdio");
+        assert_eq!(patch[0]["insert"][0]["config"]["args"][2], server.base);
+
+        assert!(stdout.contains("activation required / 尚需激活"));
+        assert!(root
+            .join(".mirrorproxy/agents/workbuddy/connector-meta.json")
+            .is_file());
+        assert!(root
+            .join(".mirrorproxy/agents/workbuddy/icon.svg")
+            .is_file());
+        let again = workspace.cli().args(["setup", "--base-url", &server.base, "--scope", scope, "--agent", "codex,claude-code,cursor,gemini,opencode,vscode,trae,trae-cn,workbuddy,dsh,generic", "--dry-run"]).output().unwrap();
+        assert!(again.status.success());
+        assert!(String::from_utf8_lossy(&again.stdout).contains("0 conflicting file(s)"));
         let records = workspace.0.join("home/.mirrorproxy/agent-setups");
         let id = fs::read_dir(&records)
             .unwrap()
@@ -536,6 +571,18 @@ fn setup_binds_all_agents_merges_existing_configuration_and_rolls_back_exactly()
         assert_eq!(fs::read_to_string(claude_path).unwrap(), claude_original);
         assert!(!root.join(".cursor/mcp.json").exists());
         assert!(!root.join(".agents/skills/mirrorproxy/SKILL.md").exists());
+        assert!(!root.join(".gemini/settings.json").exists());
+        assert!(!opencode_path.exists());
+        for relative in [
+            ".dsh/skills/mirrorproxy/SKILL.md",
+            ".mirrorproxy/agents/dsh/mirrorproxy.cordis.yml",
+            ".mirrorproxy/agents/workbuddy/connector-meta.json",
+            ".mirrorproxy/agents/workbuddy/icon.svg",
+            ".mirrorproxy/agents/workbuddy/README.md",
+            ".mirrorproxy/agents/vscode/mcp.json",
+        ] {
+            assert!(!root.join(relative).exists(), "not rolled back: {relative}");
+        }
     }
 }
 
@@ -796,4 +843,36 @@ fn bootstrap_checks_digest_before_executing_or_installing_client() {
         "previous client"
     );
     assert!(!capture.exists());
+}
+
+#[test]
+fn expanded_setup_refuses_opencode_jsonc_and_malformed_json_before_writes() {
+    for (path, content) in [
+        ("opencode.jsonc", "// user config\n{}"),
+        (".gemini/settings.json", "{ invalid"),
+    ] {
+        let workspace = SetupWorkspace::new();
+        let root = workspace.0.join("project");
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, content).unwrap();
+        let output = workspace
+            .cli()
+            .args([
+                "setup",
+                "--base-url",
+                "https://mirror.example",
+                "--scope",
+                "project",
+                "--agent",
+                "codex,gemini,opencode",
+                "--dry-run",
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        assert!(!root.join(".codex/config.toml").exists());
+        assert!(!root.join(".agents/skills/mirrorproxy/SKILL.md").exists());
+    }
 }

@@ -68,7 +68,8 @@ MirrorProxy 提供约 30 类内置代理适配器，并允许在后台添加自�
   定时健康检测。
 - **统一源管理**：在 Web 后台启停内置源、调整上游，并添加自定义操作系统静态仓库；客户端可在
   Windows、macOS 和 Linux 上安全改源与回滚。
-- **AI Agent 集成**：为 Codex、Claude Code 和 Cursor 配置绑定当前实例的 Skill 与原生 MCP，
+- **AI Agent 集成**：为 Codex、Claude Code、Cursor、Gemini CLI 和 OpenCode 配置 Skill 与 MCP，并为
+  VS Code/Copilot、TRAE、WorkBuddy 和 dsh 导出激活文件，
   查询实时镜像能力、生成配置命令，并在单独授权后使用下载工具。
 - **受控自定义下载**：下载镜像目录之外的公网 HTTPS 文件；默认关闭，支持用户/分组授权、
   下载专用 token、流量限额、域名统计与封禁，可通过 CLI 或 MCP 使用。
@@ -155,7 +156,9 @@ Linux 客户端还提供 `mirrorproxy systems`，统一迁移 28 类发行版的
 
 ## AI Agent：Skill 与 MCP
 
-支持 Codex、Claude Code 和 Cursor。Skill 提供实例使用说明，原生 MCP 工具让 Agent 查询
+支持直接配置 Codex、Claude Code、Cursor、Gemini CLI、OpenCode，并为
+VS Code/Copilot、TRAE、WorkBuddy、dsh 提供导出激活流程。新增适配器需要使用此修订
+构建的客户端或后续 Release；已发布的 v1.7.0 客户端仅提供 Codex、Claude Code、Cursor。Skill 提供实例使用说明，原生 MCP 工具让 Agent 查询
 实时软件源、可用适配器和访问策略，无需依赖写死的镜像地址。
 配置向导要求客户端 **v1.7.0 及以上**；已有旧版客户端时，可先通过首页安装命令升级。
 

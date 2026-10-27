@@ -76,13 +76,16 @@ const adminStats = {
 test('copies complete Agent setup for this instance in both languages without mobile overflow', async ({ page }) => {
   await page.goto('/')
   const panel = page.locator('.agent-install')
-  await expect(panel).toContainText('global installation for your current user is strongly recommended')
+  await expect(panel).toContainText('Global scope for the current user is strongly recommended and the default')
+  await expect(panel).toContainText('1,2,3 or 1 2 3')
+  await expect(panel).toContainText('Some clients require importing generated files')
   await panel.getByRole('button', { name: 'Copy command' }).first().click()
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("--setup --base-url 'https://mirror.example'")
   await panel.locator('.install-platform').filter({ has: page.getByRole('heading', { name: 'Windows PowerShell', exact: true }) }).getByRole('button').click()
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("-Setup -BaseUrl 'https://mirror.example'")
   await page.getByTitle('Language').click()
-  await expect(panel).toContainText('默认选择当前用户全局安装，强烈推荐')
+  await expect(panel).toContainText('强烈推荐当前用户全局安装，也是默认选项')
+  await expect(panel).toContainText('多选输入 1,2,3 或 1 2 3')
   for (const width of [320, 375, 768]) {
     await page.setViewportSize({ width, height: 900 })
     await panel.scrollIntoViewIfNeeded()

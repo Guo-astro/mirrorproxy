@@ -88,7 +88,8 @@ administrator-defined static operating-system repositories:
   custom static OS repositories in the web console; safely switch and roll back
   local settings with the Windows, macOS, and Linux client.
 - **AI Agent integration:** configure instance-bound Skills and native MCP for
-  Codex, Claude Code and Cursor. Discover live mirror capabilities, generate
+  Codex, Claude Code, Cursor, Gemini CLI and OpenCode; export activation files
+  for VS Code/Copilot, TRAE, WorkBuddy and dsh. Discover live mirror capabilities, generate
   configuration commands and use separately authorized download tools.
 - **Controlled custom downloads:** fetch public HTTPS files outside the source
   catalog. Disabled by default, with user/group grants, download-only tokens,
@@ -185,11 +186,13 @@ guide](https://github.com/inbjo/MirrorProxy/wiki/System-Sources).
 
 ## AI agents: Skill and MCP
 
-Connect Codex, Claude Code or Cursor to your instance. The Skill provides usage
+Connect your coding agents to your instance using direct configuration or client-specific exports. The Skill provides usage
 instructions, while native MCP tools discover live sources, enabled adapters and
 access policy instead of relying on hard-coded mirror URLs.
 The setup workflow requires client **v1.7.0 or newer**; the homepage installer
-can upgrade an older client before configuration.
+can upgrade an older client before configuration. Additional Agent adapters require
+a client built from this revision or a later release; the published v1.7.0 client
+only offers Codex, Claude Code and Cursor.
 
 On the [live demo](https://sina.dev) or your own instance, open **Set up your AI
 agents** and copy the command for your platform. It installs the client and

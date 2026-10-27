@@ -15,7 +15,19 @@ use serde_json::{json, Value};
 use toml_edit::{DocumentMut, Item, Table};
 
 const SKILL: &str = include_str!("../assets/mirrorproxy/SKILL.md");
-const AGENTS: [Agent; 3] = [Agent::Codex, Agent::ClaudeCode, Agent::Cursor];
+const AGENTS: [Agent; 11] = [
+    Agent::Codex,
+    Agent::ClaudeCode,
+    Agent::Cursor,
+    Agent::Gemini,
+    Agent::OpenCode,
+    Agent::VsCode,
+    Agent::Trae,
+    Agent::TraeCn,
+    Agent::WorkBuddy,
+    Agent::Dsh,
+    Agent::Generic,
+];
 
 #[derive(Args, Debug)]
 pub(super) struct SetupArgs {
@@ -49,6 +61,21 @@ enum Agent {
     Codex,
     ClaudeCode,
     Cursor,
+    #[value(alias = "gemini-cli")]
+    Gemini,
+    #[value(name = "opencode")]
+    #[serde(rename = "opencode")]
+    OpenCode,
+    #[value(name = "vscode", alias = "copilot")]
+    #[serde(rename = "vscode")]
+    VsCode,
+    Trae,
+    TraeCn,
+    #[value(name = "workbuddy")]
+    #[serde(rename = "workbuddy")]
+    WorkBuddy,
+    Dsh,
+    Generic,
 }
 
 impl Agent {
@@ -57,6 +84,29 @@ impl Agent {
             Self::Codex => "codex",
             Self::ClaudeCode => "claude-code",
             Self::Cursor => "cursor",
+            Self::Gemini => "gemini",
+            Self::OpenCode => "opencode",
+            Self::VsCode => "vscode",
+            Self::Trae => "trae",
+            Self::TraeCn => "trae-cn",
+            Self::WorkBuddy => "workbuddy",
+            Self::Dsh => "dsh",
+            Self::Generic => "generic",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::ClaudeCode => "Claude Code",
+            Self::Cursor => "Cursor",
+            Self::Gemini => "Gemini CLI",
+            Self::OpenCode => "OpenCode",
+            Self::VsCode => "VS Code / GitHub Copilot",
+            Self::Trae => "TRAE international / 国际版",
+            Self::TraeCn => "TRAE CN / 国内版",
+            Self::WorkBuddy => "WorkBuddy",
+            Self::Dsh => "DeepSeek Harness (dsh)",
+            Self::Generic => "Other / 通用 Skill + MCP",
         }
     }
     fn directory(self) -> &'static str {
@@ -64,18 +114,58 @@ impl Agent {
             Self::Codex => ".codex",
             Self::ClaudeCode => ".claude",
             Self::Cursor => ".cursor",
+            Self::Gemini => ".gemini",
+            Self::OpenCode => ".config/opencode",
+            Self::VsCode => ".vscode",
+            Self::Trae => ".trae",
+            Self::TraeCn => ".trae-cn",
+            Self::WorkBuddy => ".workbuddy",
+            Self::Dsh => ".dsh",
+            Self::Generic => ".agents",
         }
     }
     fn executable(self) -> &'static str {
         match self {
-            Self::Codex => "codex",
             Self::ClaudeCode => "claude",
-            Self::Cursor => "cursor",
+            Self::VsCode => "code",
+            Self::Generic => "",
+            _ => self.name(),
+        }
+    }
+    fn needs_import(self) -> bool {
+        matches!(
+            self,
+            Self::VsCode | Self::Trae | Self::TraeCn | Self::WorkBuddy | Self::Dsh | Self::Generic
+        )
+    }
+    fn capability(self) -> &'static str {
+        if self.needs_import() {
+            "Skill + MCP export (manual activation) / 需导入或启动参数"
+        } else {
+            "Skill + MCP config / 自动写入配置"
+        }
+    }
+    fn kinds(self) -> &'static [Kind] {
+        if self == Self::WorkBuddy {
+            &[
+                Kind::Skill,
+                Kind::Mcp,
+                Kind::Instructions,
+                Kind::Metadata,
+                Kind::Icon,
+            ]
+        } else if self.needs_import() {
+            &[Kind::Skill, Kind::Mcp, Kind::Instructions]
+        } else {
+            &[Kind::Skill, Kind::Mcp]
         }
     }
 }
 
 fn on_path(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
     std::env::var_os("PATH").is_some_and(|paths| {
         std::env::split_paths(&paths).any(|path| {
             if cfg!(windows) {
@@ -101,6 +191,9 @@ enum Scope {
 enum Kind {
     Skill,
     Mcp,
+    Instructions,
+    Metadata,
+    Icon,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -130,16 +223,25 @@ struct Locations {
 
 impl Locations {
     fn path(&self, agent: Agent, kind: Kind) -> PathBuf {
-        if kind == Kind::Skill {
-            let directory = if agent == Agent::Codex {
-                ".agents"
-            } else {
-                agent.directory()
-            };
-            return self
-                .root
-                .join(directory)
-                .join("skills/mirrorproxy/SKILL.md");
+        let export = self.root.join(".mirrorproxy/agents").join(agent.name());
+        match kind {
+            Kind::Instructions => return export.join("README.md"),
+            Kind::Metadata => return export.join("connector-meta.json"),
+            Kind::Icon => return export.join("icon.svg"),
+            Kind::Skill => {
+                let directory = match agent {
+                    Agent::Codex | Agent::Generic | Agent::VsCode => ".agents",
+                    Agent::TraeCn if self.scope == Scope::Project => ".trae",
+                    Agent::WorkBuddy => return export.join("skills/mirrorproxy/SKILL.md"),
+                    Agent::OpenCode if self.scope == Scope::Project => ".opencode",
+                    _ => agent.directory(),
+                };
+                return self
+                    .root
+                    .join(directory)
+                    .join("skills/mirrorproxy/SKILL.md");
+            }
+            Kind::Mcp => {}
         }
         match agent {
             Agent::Codex if self.scope == Scope::Global => self.codex_home.join("config.toml"),
@@ -147,8 +249,16 @@ impl Locations {
             Agent::ClaudeCode if self.scope == Scope::Global => self.home.join(".claude.json"),
             Agent::ClaudeCode => self.root.join(".mcp.json"),
             Agent::Cursor => self.root.join(".cursor/mcp.json"),
+            Agent::Gemini => self.root.join(".gemini/settings.json"),
+            Agent::OpenCode if self.scope == Scope::Global => {
+                self.home.join(".config/opencode/opencode.json")
+            }
+            Agent::OpenCode => self.root.join("opencode.json"),
+            Agent::Dsh => export.join("mirrorproxy.cordis.yml"),
+            _ => export.join("mcp.json"),
         }
     }
+
     fn record(&self, id: &str) -> anyhow::Result<PathBuf> {
         ensure!(
             !id.is_empty()
@@ -212,17 +322,19 @@ fn agent_answer(answer: &str, defaults: &[Agent]) -> anyhow::Result<Vec<Agent>> 
         );
         return Ok(defaults.to_vec());
     }
+    if answer.trim().eq_ignore_ascii_case("all") || answer.trim() == "全部" {
+        return Ok(AGENTS.to_vec());
+    }
     let mut agents = BTreeSet::new();
     for item in answer
-        .split(|c: char| c == ',' || c.is_whitespace())
+        .split(|c: char| c == ',' || c == '，' || c.is_whitespace())
         .filter(|s| !s.is_empty())
     {
-        let agent = match item {
-            "1" | "codex" => Agent::Codex,
-            "2" | "claude-code" => Agent::ClaudeCode,
-            "3" | "cursor" => Agent::Cursor,
-            _ => bail!("select 1/codex, 2/claude-code, or 3/cursor, separated by commas"),
-        };
+        let normalized = item.to_ascii_lowercase();
+        let agent = normalized.parse::<usize>().ok()
+            .and_then(|index| index.checked_sub(1).and_then(|i| AGENTS.get(i).copied()))
+            .or_else(|| Agent::from_str(&normalized, true).ok())
+            .with_context(|| format!("unknown Agent: {item}; use listed numbers/names, separated by commas or spaces / 请使用编号或名称，多选以逗号或空格分隔"))?;
         agents.insert(agent);
     }
     ensure!(!agents.is_empty(), "select at least one agent");
@@ -324,14 +436,22 @@ fn merge_mcp(
     let root = doc
         .as_object_mut()
         .context("MCP configuration must be a JSON object")?;
+    let server_key = match agent {
+        Agent::OpenCode => "mcp",
+        Agent::VsCode => "servers",
+        _ => "mcpServers",
+    };
     let servers = root
-        .entry("mcpServers")
+        .entry(server_key)
         .or_insert(json!({}))
         .as_object_mut()
-        .context("mcpServers must be a JSON object")?;
+        .with_context(|| format!("{server_key} must be a JSON object"))?;
     let mut entry = json!({"command": executable, "args": args});
-    if agent == Agent::ClaudeCode {
+    if matches!(agent, Agent::ClaudeCode | Agent::VsCode | Agent::WorkBuddy) {
         entry["type"] = json!("stdio");
+    }
+    if agent == Agent::OpenCode {
+        entry = json!({"type": "local", "command": [executable, "mcp", "--base-url", base_url], "enabled": true});
     }
     let conflict = servers.get("mirrorproxy").is_some_and(|old| old != &entry);
     servers.insert("mirrorproxy".into(), entry);
@@ -339,6 +459,46 @@ fn merge_mcp(
         format!("{}\n", serde_json::to_string_pretty(&doc)?),
         conflict,
     ))
+}
+
+fn export_content(
+    locations: &Locations,
+    agent: Agent,
+    kind: Kind,
+    executable: &str,
+    base_url: &str,
+) -> anyhow::Result<String> {
+    match kind {
+        // JSON is a YAML subset accepted by Cordis, and safely escapes paths on Windows.
+        Kind::Mcp if agent == Agent::Dsh => Ok(format!("{}\n", serde_json::to_string_pretty(&json!([
+            {"insert": [{"id": "mirrorproxy-mcp", "name": "@deepseek-ai/dsh-mcp-client", "config": {
+                "serverName": "mirrorproxy", "transport": "stdio", "command": executable,
+                "args": ["mcp", "--base-url", base_url]
+            }}]}
+        ]))?)),
+        Kind::Metadata => Ok(format!("{}\n", serde_json::to_string_pretty(&json!({
+            "name": "MirrorProxy", "name_en": "MirrorProxy", "name_zh": "MirrorProxy",
+            "source": "mirrorproxy", "type": "mcp", "version": env!("CARGO_PKG_VERSION"),
+            "description": "Discover package mirrors and generate native client configuration.",
+            "description_zh": "查询镜像能力并生成原生客户端配置。",
+            "examples_zh": ["查询可用镜像", "生成 npm 镜像配置"],
+            "examples_en": ["List available mirrors", "Generate npm mirror configuration"]
+        }))?)),
+        Kind::Icon => Ok("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"14\" fill=\"#0066cc\"/><path d=\"M16 20h22L28 10m10 10L28 30M48 44H26l10-10M26 44l10 10\" fill=\"none\" stroke=\"white\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>\n".into()),
+        Kind::Instructions => {
+            let mcp = locations.path(agent, Kind::Mcp);
+            let skill = locations.path(agent, Kind::Skill);
+            let steps = match agent {
+                Agent::Dsh => format!("Skill installed to the dsh skill root. Start the desired profile with this explicit patch (JSON argv):\n\n```json\n{}\n```\nUse a dsh version that ships @deepseek-ai/dsh-mcp-client; existing custom profiles must provide the Skill filesystem plugin. Do not enable this patch twice in the same profile. / 使用包含官方 MCP 插件的 dsh；自定义 profile 需启用本地 Skill 插件，同一 profile 不要重复加载此 patch。", json!(["dsh", "web", "--patch", mcp.to_string_lossy()])),
+                Agent::VsCode => "VS Code / GitHub Copilot: open the command palette and run MCP: Open User Configuration (global) or MCP: Open Workspace Folder MCP Configuration (project). Merge the exported servers.mirrorproxy entry into that file. The Skill uses .agents/skills; enable Agent Skills in a supporting VS Code version. / 打开命令面板中的用户或工作区 MCP 配置，合并导出的 servers.mirrorproxy；Skill 需要支持 .agents/skills 的版本。".into(),
+                Agent::Trae | Agent::TraeCn => "TRAE IDE: Skill installed into the selected edition's skill directory. Open Settings > MCP > raw JSON configuration; merge only mcpServers.mirrorproxy from the export, preserving other servers. Project Skills use .trae/skills in both editions. / Skill 已写入对应版本目录；在设置的 MCP 原始 JSON 中合并 mcpServers.mirrorproxy，保留其他服务。".into(),
+                Agent::WorkBuddy => "WorkBuddy: this directory is an MCP + Skill connector bundle, not an automatically activated user configuration. Import skills/mirrorproxy using the client's Skill import UI; add the stdio server in MCP settings using mcp.json (command and args). A connector-market submission is a separate manual action. / 此目录是连接器包，尚未自动激活；通过 Skill 界面导入技能，并在 MCP 设置添加 mcp.json 中的 command 和 args。发布连接器市场需另行提交。".into(),
+                _ => "Other clients: import the SKILL.md if Agent Skills is supported; merge mcpServers.mirrorproxy into the client's MCP configuration, translating field names if necessary. / 其他客户端：导入标准 Skill，按客户端要求合并 MCP 配置，必要时转换字段名。".into(),
+            };
+            Ok(format!("# MirrorProxy — {}\n\nActivation required / 需要手动激活\n\n{steps}\n\nSkill: {}\n\nMCP export: {}\n\nOnly local files were prepared. The self-check validates MirrorProxy's MCP process and instance catalog, not whether this Agent loaded it. Restart/reload the Agent and confirm mirrorproxy tools appear. Keep normal workspace trust and MCP approval checks. / 自检仅验证 MirrorProxy MCP 和实例，不能证明 Agent 已加载；请重启并确认工具可用，保留信任与授权检查。\n", agent.name(), skill.display(), mcp.display()))
+        }
+        _ => bail!("unsupported Agent export"),
+    }
 }
 
 fn plan(
@@ -349,16 +509,28 @@ fn plan(
 ) -> anyhow::Result<(Vec<Change>, Vec<PathBuf>)> {
     let mut changes = Vec::new();
     let mut conflicts = Vec::new();
+    let mut paths = BTreeSet::new();
     for agent in agents.iter().copied().collect::<BTreeSet<_>>() {
-        for kind in [Kind::Skill, Kind::Mcp] {
+        for &kind in agent.kinds() {
             let path = locations.path(agent, kind);
+            if !paths.insert(path.clone()) {
+                continue;
+            }
+            if agent == Agent::OpenCode && kind == Kind::Mcp {
+                let jsonc = path.with_extension("jsonc");
+                ensure!(!jsonc.exists(), "OpenCode JSONC config exists at {}; merge MCP manually instead of shadowing it", jsonc.display());
+            }
             let before = read(&path)?;
             let (installed, conflict) = if kind == Kind::Skill {
                 let text = bound_skill(base_url, executable)?;
                 let conflict = before.as_ref().is_some_and(|old| old != &text);
                 (text, conflict)
-            } else {
+            } else if kind == Kind::Mcp && agent != Agent::Dsh {
                 merge_mcp(agent, before.as_deref().unwrap_or(""), executable, base_url)?
+            } else {
+                let text = export_content(locations, agent, kind, executable, base_url)?;
+                let conflict = before.as_ref().is_some_and(|old| old != &text);
+                (text, conflict)
             };
             if conflict {
                 conflicts.push(path);
@@ -461,7 +633,7 @@ fn rollback(locations: &Locations, id: &str) -> anyhow::Result<()> {
     let mut seen = BTreeSet::new();
     for change in &record.changes {
         ensure!(
-            seen.insert((change.agent, change.kind)),
+            seen.insert(locations.path(change.agent, change.kind)),
             "duplicate rollback target"
         );
         let path = locations.path(change.agent, change.kind);
@@ -577,10 +749,12 @@ pub(super) fn run(args: SetupArgs) -> anyhow::Result<()> {
         let detected: Vec<_> = AGENTS
             .into_iter()
             .filter(|a| {
-                on_path(a.executable())
-                    || home.join(a.directory()).is_dir()
-                    || locations.root.join(a.directory()).is_dir()
-                    || (*a == Agent::Codex && locations.codex_home.is_dir())
+                *a != Agent::Generic
+                    && (on_path(a.executable())
+                        || home.join(a.directory()).is_dir()
+                        || locations.root.join(a.directory()).is_dir()
+                        || (*a == Agent::Codex && locations.codex_home.is_dir())
+                        || locations.path(*a, Kind::Mcp).is_file())
             })
             .collect();
         if terminal.is_none() {
@@ -593,7 +767,26 @@ pub(super) fn run(args: SetupArgs) -> anyhow::Result<()> {
             .collect::<Vec<_>>()
             .join(",");
         loop {
-            let answer = tty.ask(&format!("选择 Agent（可多选）/ Select agents:\n  1. Codex  2. Claude Code  3. Cursor\n输入编号或名称 / Numbers or names [{defaults}]:"))?;
+            let options = AGENTS
+                .iter()
+                .enumerate()
+                .map(|(index, agent)| {
+                    format!(
+                        "  {}. {} / {} [{}]{}",
+                        index + 1,
+                        agent.label(),
+                        agent.name(),
+                        agent.capability(),
+                        if detected.contains(agent) {
+                            " * detected / 已检测"
+                        } else {
+                            ""
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let answer = tty.ask(&format!("选择 Agent（可多选）/ Select agents:\n{options}\n多选示例 / Examples: 1,2,3 or 1 2 3; all = 全部\n回车选择已检测项 / Enter selects detected agents [{defaults}]:"))?;
             match agent_answer(&answer, &detected) {
                 Ok(agents) => break agents,
                 Err(e) => writeln!(tty.output, "{e}")?,
@@ -662,7 +855,16 @@ pub(super) fn run(args: SetupArgs) -> anyhow::Result<()> {
             );
         }
     }
-    println!("Client + Skill + MCP ready / 配置完成: {base_url}\nRestart your Agent to load the configuration; keep its normal workspace trust/MCP approval checks. / 重启 Agent 后加载，保留原有信任与授权检查。");
+    for agent in &agents {
+        if agent.needs_import() {
+            println!(
+                "{}: activation required / 尚需激活: {}",
+                agent.name(),
+                locations.path(*agent, Kind::Instructions).display()
+            );
+        }
+    }
+    println!("Client + Skill/MCP files prepared / 配置文件已准备: {base_url}\nRestart your Agent to load the configuration; keep its normal workspace trust/MCP approval checks. / 重启 Agent 后加载，保留原有信任与授权检查。");
     Ok(())
 }
 
@@ -683,6 +885,82 @@ mod tests {
             agent_answer("1,3", &[]).unwrap(),
             vec![Agent::Codex, Agent::Cursor]
         );
+    }
+
+    #[test]
+    fn multi_selection_accepts_examples_names_aliases_and_all() {
+        for input in [
+            "1,2,3",
+            "1 2 3",
+            "1，2，3",
+            "CODEX claude-code cursor",
+            "1,1,2,3",
+        ] {
+            assert_eq!(
+                agent_answer(input, &[]).unwrap(),
+                vec![Agent::Codex, Agent::ClaudeCode, Agent::Cursor]
+            );
+        }
+        assert_eq!(agent_answer("all", &[]).unwrap(), AGENTS.to_vec());
+        assert_eq!(agent_answer("全部", &[]).unwrap(), AGENTS.to_vec());
+        assert_eq!(
+            agent_answer("dsh workbuddy trae-cn gemini-cli copilot", &[]).unwrap(),
+            vec![
+                Agent::Gemini,
+                Agent::VsCode,
+                Agent::TraeCn,
+                Agent::WorkBuddy,
+                Agent::Dsh
+            ]
+        );
+        for input in ["0", "12", "99", "unknown", ",,,", "all codex"] {
+            assert!(agent_answer(input, &[]).is_err());
+        }
+    }
+
+    #[test]
+    fn new_mcp_formats_preserve_existing_servers_and_detect_rebinding() {
+        for (agent, key) in [
+            (Agent::Gemini, "mcpServers"),
+            (Agent::OpenCode, "mcp"),
+            (Agent::VsCode, "servers"),
+            (Agent::WorkBuddy, "mcpServers"),
+        ] {
+            let original =
+                json!({"user_setting": true, key: {"other": {"command": "keep"}}}).to_string();
+            let (merged, conflict) = merge_mcp(
+                agent,
+                &original,
+                r"C:\Program Files\mirrorproxy.exe",
+                "https://mirror.example",
+            )
+            .unwrap();
+            assert!(!conflict);
+            let doc: Value = serde_json::from_str(&merged).unwrap();
+            assert_eq!(doc["user_setting"], true);
+            assert_eq!(doc[key]["other"]["command"], "keep");
+            assert!(
+                !merge_mcp(
+                    agent,
+                    &merged,
+                    r"C:\Program Files\mirrorproxy.exe",
+                    "https://mirror.example"
+                )
+                .unwrap()
+                .1
+            );
+            assert!(
+                merge_mcp(
+                    agent,
+                    &merged,
+                    r"C:\Program Files\mirrorproxy.exe",
+                    "https://other.example"
+                )
+                .unwrap()
+                .1
+            );
+            assert!(merge_mcp(agent, "{ broken", "/bin", "https://mirror.example").is_err());
+        }
     }
 
     #[test]

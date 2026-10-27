@@ -25,15 +25,23 @@ binary. Publishing a new stable client remains a separate release step.
 
 The Windows command runs the downloaded text as a script block with explicit
 parameters; it does not run `Set-ExecutionPolicy` or change machine/user policy.
-Enterprise application control and group policy restrictions still apply.
+Enterprise application control and group policy restrictions still apply. Windows
+PowerShell 5.1 architecture detection uses Windows environment variables; the
+installer temporarily uses UTF-8 for the setup console and restores its encoding
+after success or failure.
 
 The local wizard asks for the installation scope first:
 
 1. **Global, current user — strongly recommended (default)**: available across projects.
 2. **Current project only**: Skill and MCP configuration stay in the selected project.
 
-Then choose one or more of Codex, Claude Code and Cursor. Agent executables on
-PATH and initialized directories are detected and offered as defaults. With no interactive terminal,
+Then select one or more Agents using `1,2,3`, `1 2 3`, names, or `all`.
+Chinese commas (`1，2，3`) are also accepted. Press Enter to use detected Agents;
+if none are detected, an explicit selection is required. The menu marks detected
+applications and distinguishes direct configuration from exports requiring activation.
+Agent executables on PATH and initialized directories are detected as hints, not
+proof that the application loaded the configuration. The generic export is never
+automatically selected. With no interactive terminal,
 specify both `--agent` and `--scope`; missing selections never silently become a
 global installation. Unix prompts read `/dev/tty`, so piping the bootstrap script
 does not consume the wizard's input. Windows uses the attached console.
@@ -59,6 +67,50 @@ a shell restart or PATH changes. The wizard does not install Agent applications.
 | Codex | `~/.agents/skills/mirrorproxy/SKILL.md` | `$CODEX_HOME/config.toml`, default `~/.codex/config.toml` | `.codex/config.toml` |
 | Claude Code | `~/.claude/skills/mirrorproxy/SKILL.md` | `~/.claude.json` | `.mcp.json` |
 | Cursor | `~/.cursor/skills/mirrorproxy/SKILL.md` | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
+| Gemini CLI | `~/.gemini/skills/mirrorproxy/SKILL.md` | `~/.gemini/settings.json` | `.gemini/settings.json` |
+| OpenCode | `~/.config/opencode/skills/mirrorproxy/SKILL.md` | `~/.config/opencode/opencode.json` | `opencode.json` |
+| VS Code / GitHub Copilot | `~/.agents/skills/mirrorproxy/SKILL.md` | Export; merge `servers.mirrorproxy` in VS Code | Export; merge into `.vscode/mcp.json` |
+| TRAE international | `~/.trae/skills/mirrorproxy/SKILL.md` | Export; import in Settings > MCP | Export; import in Settings > MCP |
+| TRAE CN | `~/.trae-cn/skills/mirrorproxy/SKILL.md` | Export; import in Settings > MCP | Export; import in Settings > MCP |
+| WorkBuddy | Connector bundle: `skills/mirrorproxy/SKILL.md` | Connector bundle; import Skill and stdio MCP in client UI | Same, exported into project |
+| DeepSeek Harness (`dsh`) | `~/.dsh/skills/mirrorproxy/SKILL.md` | Cordis patch; start desired profile with `--patch` | Same, exported into project |
+| Other (`generic`) | `~/.agents/skills/mirrorproxy/SKILL.md` | Standard `mcpServers` export; import/translate for your client | Same, exported into project |
+
+Exports are under `<scope-root>/.mirrorproxy/agents/<agent>/`, with a bilingual
+`README.md` containing the remaining activation steps. Exported files are not
+implicitly enabled. VS Code uses `servers`, OpenCode uses `mcp` with a local
+command array, and Gemini uses `mcpServers`; they are not interchangeable.
+WorkBuddy exports `connector-meta.json`, `mcp.json`, `icon.svg`, and a bound Skill.
+It is not published to the connector marketplace. Dsh exports
+`mirrorproxy.cordis.yml`; its README shows the exact JSON argv for
+`dsh web --patch <absolute-file>`. Existing profile patches are never rewritten;
+use a dsh version shipping `@deepseek-ai/dsh-mcp-client` and enable the filesystem
+Skill plugin in custom profiles. The same patch must not be loaded twice.
+
+Example preview (no network or writes):
+
+```sh
+mirrorproxy setup --base-url https://mirror.example.com --scope global --agent dsh,workbuddy,trae-cn,gemini,opencode,vscode --dry-run
+```
+
+Both TRAE editions use `.trae/skills` for project Skills. OpenCode uses
+`.opencode/skills` in projects. Clients using custom configuration roots must
+import exports or use their own configuration tooling. OpenCode `.jsonc` files
+are refused instead of being shadowed by a new `.json`; malformed JSON is also
+refused. Shared Skill destinations are written and backed up only once.
+The self-check proves the local MirrorProxy MCP handshake and catalog response,
+not that every selected Agent has loaded the integration. Confirm the Skill and
+`mirrorproxy` tools in each client after reloading; preserve its trust/approval checks.
+
+Reference contracts: [Gemini Skills](https://geminicli.com/docs/cli/using-agent-skills/),
+[Gemini MCP](https://geminicli.com/docs/tools/mcp-server/),
+[OpenCode Skills](https://opencode.ai/docs/skills/),
+[OpenCode MCP](https://opencode.ai/docs/mcp-servers/),
+[VS Code MCP](https://code.visualstudio.com/docs/agents/reference/mcp-configuration),
+[TRAE editions](https://forum.trae.cn/t/topic/168988/2),
+[WorkBuddy connector format](https://open.workbuddy.cn/docs/connector),
+[dsh filesystem Skills](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill-filesystem/README.md),
+[dsh MCP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md).
 
 Project Skills use the corresponding directory under the project; Codex uses
 `.agents/skills`. `--project-dir` selects a different project in project scope.

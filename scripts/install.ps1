@@ -12,8 +12,12 @@ $ErrorActionPreference = "Stop"
 if ($Setup -and [string]::IsNullOrWhiteSpace($BaseUrl)) { throw "-Setup requires -BaseUrl." }
 if (-not $Setup -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) { throw "-BaseUrl requires -Setup." }
 
-$architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-if ($architecture -ne "X64") {
+$architecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+if ([string]::IsNullOrWhiteSpace($architecture)) {
+    try { $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
+    catch { throw "Unable to determine Windows architecture. Run on Windows x64 with Windows PowerShell 5.1 or PowerShell 7." }
+}
+if ($architecture -notin @("AMD64", "X64")) {
     throw "Unsupported Windows architecture: $architecture. Stable releases currently provide Windows x64 only."
 }
 
@@ -43,8 +47,14 @@ try {
     }
     Invoke-WebRequest -UseBasicParsing -Uri (Get-DownloadUrl "$releaseUrl/$archive.sha256") -OutFile $checksumPath
 
-    $expected = ((Get-Content -Path $checksumPath -TotalCount 1) -split '\s+')[0].ToLowerInvariant()
-    $actual = (Get-FileHash -Algorithm SHA256 -Path $archivePath).Hash.ToLowerInvariant()
+    $checksumLine = Get-Content -Path $checksumPath -TotalCount 1
+    if ([string]::IsNullOrWhiteSpace($checksumLine) -or $checksumLine -notmatch '^\s*([a-fA-F0-9]{64})(?:\s|$)') {
+        throw "Downloaded checksum file is empty or invalid. Check the mirror URL and retry."
+    }
+    $expected = $Matches[1].ToLowerInvariant()
+    $hashResult = Get-FileHash -Algorithm SHA256 -Path $archivePath
+    if (-not $hashResult -or [string]::IsNullOrWhiteSpace($hashResult.Hash)) { throw "Could not calculate the client archive checksum." }
+    $actual = $hashResult.Hash.ToLowerInvariant()
     if ($expected -ne $actual) { throw "Checksum verification failed." }
 
     Expand-Archive -Path $archivePath -DestinationPath $tempDir -Force
@@ -69,9 +79,22 @@ try {
     $env:Path = "$InstallDir;$env:Path"
     Write-Host "MirrorProxy installed to $(Join-Path $InstallDir 'mirrorproxy.exe')"
     if ($Setup) {
-        & (Join-Path $InstallDir 'mirrorproxy.exe') setup --base-url $BaseUrl
-        if ($LASTEXITCODE -ne 0) { throw "MirrorProxy setup did not complete. Client remains installed; retry setup --base-url with this instance." }
+        $previousInputEncoding = [Console]::InputEncoding
+        $previousOutputEncoding = [Console]::OutputEncoding
+        try {
+            # The client writes UTF-8 prompts directly to CONOUT$. Windows
+            # PowerShell 5.1 commonly starts with an OEM console code page.
+            [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+            [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+            & (Join-Path $InstallDir 'mirrorproxy.exe') setup --base-url $BaseUrl
+            if ($LASTEXITCODE -ne 0) { throw "MirrorProxy setup did not complete. Client remains installed; retry setup --base-url with this instance." }
+        } finally {
+            [Console]::InputEncoding = $previousInputEncoding
+            [Console]::OutputEncoding = $previousOutputEncoding
+        }
     }
+} catch {
+    throw "MirrorProxy installer failed at line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)"
 } finally {
     if (Test-Path $tempDir) { Remove-Item -Recurse -Force $tempDir }
 }

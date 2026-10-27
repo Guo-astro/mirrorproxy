@@ -132,6 +132,8 @@ describe('App preferences', () => {
     await waitFor(() => expect(container.querySelector('.agent-install')?.textContent).toContain('https://personal.mirror.example'))
     const panel = container.querySelector('.agent-install')!
     expect(panel.textContent).toContain('strongly recommended')
+    expect(panel.textContent).toContain('1,2,3 or 1 2 3')
+    expect(panel.textContent).toContain('Some clients require importing generated files')
     fireEvent.click(within(panel as HTMLElement).getAllByRole('button', { name: 'Copy command' })[0])
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(agentSetupCommands('https://personal.mirror.example').unix))
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[title="Language"]')!)

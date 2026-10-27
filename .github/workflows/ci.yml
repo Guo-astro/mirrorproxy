@@ -9,6 +9,16 @@ permissions:
   contents: read
 
 jobs:
+  windows-powershell-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Windows PowerShell 5.1 installer contract
+        shell: powershell
+        run: ./scripts/test-install-windows-powershell.ps1
+      - name: PowerShell 7 installer contract
+        shell: pwsh
+        run: ./scripts/test-install-windows-powershell.ps1
   checks:
     runs-on: ubuntu-latest
     steps:

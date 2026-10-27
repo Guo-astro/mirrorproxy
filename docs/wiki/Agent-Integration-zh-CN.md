@@ -21,15 +21,18 @@ MCP stdio 服务，用于发现现有实例的源目录、已启用适配器、�
 
 Windows 的一行命令将下载文本作为脚本块运行，并显式传入参数；不运行
 `Set-ExecutionPolicy`，不修改机器或用户执行策略。企业应用控制和组策略限制仍然
-生效。
+生效。Windows PowerShell 5.1 使用系统环境变量识别架构；安装器运行配置向导时临时
+切换控制台为 UTF-8，成功或失败后均恢复原编码。
 
 本地向导首先询问安装范围：
 
 1. **全局（当前用户，强烈推荐，默认选项）**：所有项目均可使用。
 2. **仅当前项目**：Skill 和 MCP 配置放在选定项目中。
 
-随后可多选 Codex、Claude Code、Cursor，检测到 PATH 中的程序或已有初始化目录的 Agent 会作为
-默认选择。无交互终端时必须显式指定 `--agent` 与 `--scope`，不会因为无法询问
+随后可输入 `1,2,3`、`1 2 3`、名称或 `all`（全部）多选，也接受中文逗号。
+回车采用已检测项；未检测到客户端时必须显式选择。向导标注已检测项，并区分自动写入
+与导出后手动激活。检测仅依据 PATH 或初始化目录，不代表客户端已经加载配置。
+通用导出不会被自动选中。无交互终端时必须显式指定 `--agent` 与 `--scope`，不会因为无法询问
 就静默全局安装。Unix 向导从 `/dev/tty` 读取输入，不受安装脚本管道占用 stdin
 影响；Windows 从当前控制台读取。
 
@@ -53,6 +56,46 @@ Skill 使用客户端绝对路径，因此 Agent 不依赖 shell 重启或 PATH 
 | Codex | `~/.agents/skills/mirrorproxy/SKILL.md` | `$CODEX_HOME/config.toml`，默认 `~/.codex/config.toml` | `.codex/config.toml` |
 | Claude Code | `~/.claude/skills/mirrorproxy/SKILL.md` | `~/.claude.json` | `.mcp.json` |
 | Cursor | `~/.cursor/skills/mirrorproxy/SKILL.md` | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
+| Gemini CLI | `~/.gemini/skills/mirrorproxy/SKILL.md` | `~/.gemini/settings.json` | `.gemini/settings.json` |
+| OpenCode | `~/.config/opencode/skills/mirrorproxy/SKILL.md` | `~/.config/opencode/opencode.json` | `opencode.json` |
+| VS Code / GitHub Copilot | `~/.agents/skills/mirrorproxy/SKILL.md` | 导出后合并 `servers.mirrorproxy` | 导出后合并到 `.vscode/mcp.json` |
+| TRAE 国际版 | `~/.trae/skills/mirrorproxy/SKILL.md` | 导出后在设置的 MCP 页面导入 | 同左 |
+| TRAE 国内版 | `~/.trae-cn/skills/mirrorproxy/SKILL.md` | 导出后在设置的 MCP 页面导入 | 同左 |
+| WorkBuddy | 连接器包中的 `skills/mirrorproxy/SKILL.md` | 导出连接器；在客户端导入 Skill 并添加 stdio MCP | 导出到项目，需手动激活 |
+| DeepSeek Harness（`dsh`） | `~/.dsh/skills/mirrorproxy/SKILL.md` | 导出 Cordis patch；启动时传入 `--patch` | 同左，导出到项目 |
+| 其他（`generic`） | `~/.agents/skills/mirrorproxy/SKILL.md` | 导出标准 `mcpServers`；按客户端格式导入 | 同左 |
+
+导出目录是 `<范围根目录>/.mirrorproxy/agents/<agent>/`，其中双语 `README.md`
+说明剩余激活步骤。导出文件不会自动启用。VS Code 使用 `servers`，OpenCode 使用
+`mcp` 和本地命令数组，Gemini 使用 `mcpServers`，格式不能直接混用。
+WorkBuddy 导出 `connector-meta.json`、`mcp.json`、`icon.svg` 和绑定的 Skill，
+不会发布到连接器市场。dsh 导出 `mirrorproxy.cordis.yml`，README 给出
+`dsh web --patch <绝对路径>` 的准确 JSON argv。不会改写已有 profile patch；
+需要包含官方 `@deepseek-ai/dsh-mcp-client` 的版本，自定义 profile 需启用本地 Skill
+插件，同一 profile 不要重复加载同一 patch。
+
+预览示例（不联网、不写文件）：
+
+```sh
+mirrorproxy setup --base-url https://mirror.example.com --scope global --agent dsh,workbuddy,trae-cn,gemini,opencode,vscode --dry-run
+```
+
+TRAE 两个版本的项目 Skill 都使用 `.trae/skills`；OpenCode 项目 Skill 使用
+`.opencode/skills`。使用自定义配置根目录的客户端应手动导入或使用客户端自有工具。
+遇到 OpenCode `.jsonc` 配置会拒绝写入，以免新 `.json` 遮蔽原配置；无效 JSON
+也会被拒绝。共享 Skill 路径只写入、备份一次。
+自检只证明 MirrorProxy MCP 进程与实例目录可用，不代表每个 Agent 已加载。
+请重启后分别确认 Skill 和 `mirrorproxy` 工具，保留正常信任与授权检查。
+
+配置依据：[Gemini Skills](https://geminicli.com/docs/cli/using-agent-skills/)、
+[Gemini MCP](https://geminicli.com/docs/tools/mcp-server/)、
+[OpenCode Skills](https://opencode.ai/docs/skills/)、
+[OpenCode MCP](https://opencode.ai/docs/mcp-servers/)、
+[VS Code MCP](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)、
+[TRAE 版本目录](https://forum.trae.cn/t/topic/168988/2)、
+[WorkBuddy 连接器](https://open.workbuddy.cn/docs/connector)、
+[dsh Skills](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill-filesystem/README.md)、
+[dsh MCP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。
 
 项目 Skill 使用项目下对应目录，Codex 使用 `.agents/skills`。项目模式下可用
 `--project-dir` 指定项目。参见官方 [Codex MCP](https://developers.openai.com/codex/mcp/)、
