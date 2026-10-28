@@ -5,7 +5,7 @@ use std::{
     net::{TcpListener, TcpStream},
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     thread,
@@ -404,6 +404,7 @@ fn malformed_json_recovers_and_oversized_frames_stop_the_process() {
 }
 
 struct SetupWorkspace(std::path::PathBuf);
+static SETUP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 impl SetupWorkspace {
     fn new() -> Self {
@@ -411,9 +412,13 @@ impl SetupWorkspace {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        Self::with_stamp(stamp)
+    }
+    fn with_stamp(stamp: u128) -> Self {
         let root = std::env::temp_dir().join(format!(
-            "mirrorproxy-agent-setup-{}-{stamp}",
-            std::process::id()
+            "mirrorproxy-agent-setup-{}-{stamp}-{}",
+            std::process::id(),
+            SETUP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(root.join("home")).unwrap();
         fs::create_dir_all(root.join("project")).unwrap();
@@ -433,6 +438,17 @@ impl Drop for SetupWorkspace {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn setup_fixtures_with_identical_clock_ticks_have_independent_lifetimes() {
+    let first = SetupWorkspace::with_stamp(1);
+    let second = SetupWorkspace::with_stamp(1);
+    assert_ne!(first.0, second.0);
+    let retained = second.0.join("home/existing-config");
+    fs::write(&retained, "keep").unwrap();
+    drop(first);
+    assert_eq!(fs::read_to_string(retained).unwrap(), "keep");
 }
 
 #[test]
@@ -837,7 +853,13 @@ fn bootstrap_checks_digest_before_executing_or_installing_client() {
     let (workspace, output, capture) =
         bootstrap_fixture("#!/bin/sh\nprintf ran > \"$SETUP_CAPTURE\"\n", false);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("checksum verification failed"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("checksum verification failed"),
+        "installer exited with {:?}\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         fs::read_to_string(workspace.0.join("home/.local/bin/mirrorproxy")).unwrap(),
         "previous client"
