@@ -54,7 +54,7 @@ export function AdminSessionManagement({ locale, onCurrentRevoked }: { locale: L
   const dateCell = (timestamp: number) => <time dateTime={new Date(timestamp * 1000).toISOString()}><span>{new Date(timestamp * 1000).toLocaleDateString(locale === 'zh' ? 'zh-CN' : 'en-US')}</span><span>{new Date(timestamp * 1000).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US')}</span></time>
   return <Panel className="settings-card session-card">
     <div className="settings-card-head">
-      <h4>{locale === 'zh' ? '登录会话' : 'Administrator sessions'}</h4>
+      <h2>{locale === 'zh' ? '登录会话' : 'Administrator sessions'}</h2>
       <p>{locale === 'zh' ? '查看登录方式及会话时间。如果发现陌生会话，可立即撤销；撤销当前会话会退出登录。' : 'Review sign-in methods and session times. Revoke sessions you do not recognize; revoking the current session signs you out.'}</p>
     </div>
     <OperationToast locale={locale} notice={notice} />
@@ -64,7 +64,7 @@ export function AdminSessionManagement({ locale, onCurrentRevoked }: { locale: L
       { title: locale === 'zh' ? '创建时间' : 'Created', width: '18%', onCell: () => cellLabel(locale === 'zh' ? '创建时间' : 'Created'), className: 'session-time-cell', render: (_, session) => dateCell(session.created_at) },
       { title: locale === 'zh' ? '最近使用' : 'Last used', width: '18%', onCell: () => cellLabel(locale === 'zh' ? '最近使用' : 'Last used'), className: 'session-time-cell', render: (_, session) => dateCell(session.last_used_at) },
       { title: locale === 'zh' ? '到期时间' : 'Expires', width: '18%', onCell: () => cellLabel(locale === 'zh' ? '到期时间' : 'Expires'), className: 'session-time-cell', render: (_, session) => dateCell(session.expires_at) },
-      { title: locale === 'zh' ? '会话' : 'Session', width: '13%', onCell: () => cellLabel(locale === 'zh' ? '会话' : 'Session'), render: (_, session) => <Tag color={session.current ? 'processing' : 'default'}>{session.current ? (locale === 'zh' ? '当前会话' : 'Current') : (locale === 'zh' ? '其他会话' : 'Other')}</Tag> },
+      { title: locale === 'zh' ? '会话' : 'Session', width: '13%', onCell: () => cellLabel(locale === 'zh' ? '会话' : 'Session'), render: (_, session) => <Tag className={session.current ? "current-session-tag" : undefined} color={session.current ? 'processing' : 'default'}>{session.current ? (locale === 'zh' ? '当前会话' : 'Current') : (locale === 'zh' ? '其他会话' : 'Other')}</Tag> },
       { title: locale === 'zh' ? '操作' : 'Action', width: '18%', onCell: () => cellLabel(locale === 'zh' ? '操作' : 'Action'), render: (_, session) => <Action type="button" className={session.current ? 'danger-button session-revoke' : 'revoke-button'} disabled={!!busy[session.id]} onClick={() => void revoke(session)}>{busy[session.id] ? (locale === 'zh' ? '处理中…' : 'Working…') : (locale === 'zh' ? '撤销' : 'Revoke')}</Action> },
     ]} /></div> : null}
   </Panel>

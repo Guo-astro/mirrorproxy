@@ -530,3 +530,6 @@
 @media (max-width: 600px) {
   .account-token-table .ant-table-placeholder, .account-token-table .ant-table-placeholder > td { display: block; width: 100%; }
 }
+
+.consumer-ui .converter-input .ant-input::placeholder { color: var(--apple-muted); opacity: 1; }
+.consumer-ui .consumer-account .account-usage .ant-statistic-title { color: var(--apple-muted); }

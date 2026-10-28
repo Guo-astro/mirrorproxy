@@ -5,6 +5,24 @@ follow semantic versioning.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-28
+
+### Account and administration
+
+- Refine account, login, invitation, mirror health and session layouts, including
+  responsive tables, shared footers and clearer authorization labels.
+- Make download tokens visible once with copyable shell-specific setup commands;
+  prompt interactive CLI users for tokens and accept piped input.
+- Improve contrast and security-settings heading semantics. Preserve grant
+  inheritance, account authentication and download security controls.
+- Extend Agent setup coverage and correct Windows installer compatibility.
+
+### Build and security checks
+
+- Temporarily except only GHSA-gcqx-w48m-w2h4 in the npm build-tool audit;
+  all other findings and audit errors still fail. Remove the exception when
+  upstream supplies a compatible fix.
+
 ## [1.7.0] - 2026-10-26
 
 ### Web console and public portal

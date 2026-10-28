@@ -43,7 +43,7 @@ button { cursor: pointer; }
 .converter-title, .install-platform-title, .install-heading, .panel-head, .source-workbench-head, .registry-workbench-head, .settings-card-head, .console-section-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 18px; }
 .converter-title { justify-content: start; }
 .converter-title > svg, .install-platform-title > svg { flex-shrink: 0; color: var(--accent); margin-top: 5px; }
-.converter-title h2, .install-heading h2, .settings-card-head h4 { margin: 0; }
+.converter-title h2, .install-heading h2, .settings-card-head h4, .settings-card-head h2 { margin: 0; }
 .converter-title p, .install-heading p, .source-workbench-head p, .registry-workbench-head p, .settings-card-head p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
 .settings-card-head p { max-width: 640px; }
 .converter-input { display: flex; gap: 10px; }
@@ -170,7 +170,7 @@ button { cursor: pointer; }
 .ip-lookup-result, .ip-rule-list { margin-top: 16px; }
 .selection-sample, .session-card, .acme-status-card { padding: 14px; margin-top: 12px; border: 1px solid var(--line); border-radius: 6px; }
 .selection-rank, .selection-heading, .acme-status-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.restart-note { padding: 12px; border-left: 3px solid var(--color-warning); background: var(--panel); }
+.restart-note { padding: 12px; border: 1px solid var(--color-warning); border-radius: 6px; background: var(--panel); }
 .toast-region { position: fixed; z-index: 1100; bottom: 24px; right: 24px; width: min(440px,calc(100% - 32px)); }
 .admin-toast { display: flex; gap: 12px; padding: 18px; background: var(--panel-strong); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-notice); }
 .admin-toast-success .admin-toast-icon { color: var(--color-success); } .admin-toast-error .admin-toast-icon { color: var(--color-error); }
@@ -409,7 +409,7 @@ html, .config-modal .ant-modal-body, .config-option code { scrollbar-width: thin
 .admin-login-screen .admin-login-intro { display: grid; justify-items: center; text-align: center; gap: 12px; }
 .admin-login-screen .admin-login-intro h3 { margin: 0; }
 .admin-login-screen .admin-login-intro p { max-width: 330px; font-size: 13px; }
-.admin-login-emblem { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; color: var(--accent-strong); background: var(--code-bg); }
+.admin-login-emblem { display: grid; place-items: center; width: 52px; height: 52px; color: var(--accent-strong); }
 @media (prefers-reduced-motion: no-preference) {
   .admin-login-screen .admin-login-card { animation: admin-login-arrive 450ms ease-out both; }
   @keyframes admin-login-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -481,3 +481,9 @@ html, .config-modal .ant-modal-body, .config-option code { scrollbar-width: thin
 @media (max-width: 480px) {
   .admin-session-table .ant-table-row > .ant-table-cell { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+.admin-console .ant-breadcrumb .ant-breadcrumb-link { color: var(--muted); }
+.admin-console .admin-session-table .current-session-tag { color: var(--accent-strong) !important; }
+
+.admin-console .settings-card-head h2 { font-size: 16px; line-height: 1.5; }
+
+.admin-console .security-subheading { font-size: 15px; margin: 8px 0; }
