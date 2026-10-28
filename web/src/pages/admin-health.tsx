@@ -20,12 +20,12 @@ export function AdminSourceHealthPanel({ report, locale }: { report: SourceHealt
       <div className="source-health-counts">{(['healthy', 'degraded', 'unhealthy', 'disabled', 'unknown'] as const).map(status => <StatisticCard key={status} statistic={{ title: <Tag color={healthColor(status)}>{labels[status]}</Tag>, value: report?.[status] ?? 0 }} />)}</div>
     </ProCard>
     <ProCard><UpstreamSelectionDetails report={report?.selection} locale={locale} /></ProCard>
-    {items.length ? <div className="source-health-table-wrap"><ProTable rowKey="target_code" search={false} options={false} pagination={false} dataSource={items} tableLayout="fixed" columns={[
-      { title: labels.source, dataIndex: 'target_code', width: '42%', render: (_, item) => <div className="health-source"><strong>{item.target_code}</strong>{item.error ? <p className="health-source-error">{item.error}</p> : null}{item.endpoints.length ? <details className="source-endpoint-details"><summary>{item.endpoints.length} {labels.upstreams}</summary><div>{item.endpoints.map(endpoint => <article className={endpoint.status} key={`${endpoint.position}-${endpoint.endpoint}`}><Tag color={healthColor(endpoint.status)}>{labels[endpoint.status]}</Tag><code>{endpoint.endpoint}</code><small>HTTP {endpoint.http_status ?? '—'} · {endpoint.latency_ms ?? '—'} ms {endpoint.error}</small></article>)}</div></details> : null}</div> },
-      { title: labels.adapter, dataIndex: 'adapter' },
-      { title: labels.result, render: (_, item) => <Tag color={healthColor(item.status)}>{labels[item.status]}</Tag> },
-      { title: labels.latency, render: (_, item) => item.latency_ms === null ? '—' : `${item.latency_ms} ms` },
-      { title: labels.checked, render: (_, item) => new Date(item.checked_at * 1000).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US') },
+    {items.length ? <div className="source-health-table-wrap"><ProTable rowKey="target_code" search={false} options={false} pagination={false} dataSource={items} tableLayout="fixed" scroll={{ x: 760 }} columns={[
+      { title: labels.source, dataIndex: 'target_code', width: 300, render: (_, item) => <div className="health-source"><strong>{item.target_code}</strong>{item.error ? <p className="health-source-error">{item.error}</p> : null}{item.endpoints.length ? <details className="source-endpoint-details"><summary>{item.endpoints.length} {labels.upstreams}</summary><div>{item.endpoints.map(endpoint => <article className={endpoint.status} key={`${endpoint.position}-${endpoint.endpoint}`}><Tag color={healthColor(endpoint.status)}>{labels[endpoint.status]}</Tag><code>{endpoint.endpoint}</code><small>HTTP {endpoint.http_status ?? '—'} · {endpoint.latency_ms ?? '—'} ms {endpoint.error}</small></article>)}</div></details> : null}</div> },
+      { title: labels.adapter, dataIndex: 'adapter', width: 100 },
+      { title: labels.result, width: 120, render: (_, item) => <Tag color={healthColor(item.status)}>{labels[item.status]}</Tag> },
+      { title: labels.latency, width: 110, align: 'right', className: 'numeric-cell', render: (_, item) => item.latency_ms === null ? '—' : `${item.latency_ms} ms` },
+      { title: labels.checked, width: 130, className: 'numeric-cell', render: (_, item) => new Date(item.checked_at * 1000).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US') },
     ]} /></div> : <div className="source-health-empty"><Database size={24} /><p>{labels.empty}</p></div>}
   </section>
 }

@@ -29,11 +29,21 @@ impl Database {
 
     pub async fn download_permissions(&self) -> anyhow::Result<Value> {
         let rows = sqlx::query(
-            "SELECT kind,subject_id,policy FROM download_permissions ORDER BY kind,subject_id",
+            "SELECT p.kind,p.subject_id,p.policy, CASE WHEN p.kind='user' THEN u.display_name ELSE g.name END AS subject_name, u.email AS subject_email, u.username AS subject_username FROM download_permissions p LEFT JOIN users u ON p.kind='user' AND u.id=p.subject_id LEFT JOIN groups g ON p.kind='group' AND g.id=p.subject_id ORDER BY p.kind,p.subject_id",
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(json!(rows.into_iter().map(|r| json!({"kind":r.get::<String,_>("kind"),"subject_id":r.get::<i64,_>("subject_id"),"policy":r.get::<String,_>("policy")})).collect::<Vec<_>>()))
+        Ok(json!(rows
+            .into_iter()
+            .map(|r| json!({
+                "kind": r.get::<String, _>("kind"),
+                "subject_id": r.get::<i64, _>("subject_id"),
+                "policy": r.get::<String, _>("policy"),
+                "subject_name": r.get::<Option<String>, _>("subject_name"),
+                "subject_email": r.get::<Option<String>, _>("subject_email"),
+                "subject_username": r.get::<Option<String>, _>("subject_username"),
+            }))
+            .collect::<Vec<_>>()))
     }
 
     pub async fn set_download_permission(
@@ -395,6 +405,43 @@ mod tests {
             .unwrap();
         (db, user.id)
     }
+    #[tokio::test]
+    async fn permission_report_resolves_current_user_and_group_identity() {
+        let (db, user) = fixture().await;
+        let group = db
+            .create_billing_group("admin", "Download team", None)
+            .await
+            .unwrap()
+            .unwrap();
+        db.set_download_permission("admin", "user", user, "allow")
+            .await
+            .unwrap();
+        db.set_download_permission("admin", "group", group.id, "deny")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE users SET username='artifact-account', display_name='Current name' WHERE id=?",
+        )
+        .bind(user)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        let report = db.download_permissions().await.unwrap();
+        let rows = report.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let user_row = rows.iter().find(|row| row["kind"] == "user").unwrap();
+        assert_eq!(user_row["subject_id"], user);
+        assert_eq!(user_row["policy"], "allow");
+        assert_eq!(user_row["subject_name"], "Current name");
+        assert_eq!(user_row["subject_username"], "artifact-account");
+        assert_eq!(user_row["subject_email"], "artifact@example.org");
+        let group_row = rows.iter().find(|row| row["kind"] == "group").unwrap();
+        assert_eq!(group_row["subject_name"], "Download team");
+        assert_eq!(group_row["policy"], "deny");
+        assert!(group_row["subject_email"].is_null());
+        assert!(group_row["subject_username"].is_null());
+    }
+
     #[tokio::test]
     async fn permissions_tokens_and_revocation_follow_current_user_and_group_state() {
         let (db, user) = fixture().await;

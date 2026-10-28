@@ -47,7 +47,7 @@ test('keeps multiline source commands fully visible with occupying scrollbars', 
         await page.locator('.source-tile').filter({ hasText: name }).click()
         const dialog = page.getByRole('dialog')
         await expect(dialog).toBeVisible()
-        await page.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished)))
+        await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running' && animation.effect?.getComputedTiming().iterations !== Infinity).length)).toBe(0)
         const body = dialog.locator('.ant-modal-body')
         const manual = dialog.locator('.config-option').last()
         const code = manual.locator('.consumer-command-scroll')

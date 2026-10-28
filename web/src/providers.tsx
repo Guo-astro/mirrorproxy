@@ -18,7 +18,9 @@ export function ApplicationProviders({ children }: { children: React.ReactNode }
     window.addEventListener('storage', sync)
     return () => { observer.disconnect(); window.removeEventListener('storage', sync) }
   }, [])
-  return <AppearanceContext.Provider value={preferences}><ConfigProvider locale={preferences.locale === 'zh' ? zhCN : enUS} theme={{ cssVar: {}, algorithm: preferences.dark ? theme.darkAlgorithm : theme.defaultAlgorithm, components: { Button: { colorError: '#b42318', colorErrorHover: '#912018', colorErrorActive: '#7a1b15' } }, token: { colorPrimary: '#1677ff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' } }}>
+  const rootStyle = getComputedStyle(document.documentElement)
+  const token = (name: string, fallback: string) => rootStyle.getPropertyValue(name).trim() || fallback
+  return <AppearanceContext.Provider value={preferences}><ConfigProvider locale={preferences.locale === 'zh' ? zhCN : enUS} theme={{ cssVar: {}, algorithm: preferences.dark ? theme.darkAlgorithm : theme.defaultAlgorithm, components: { Button: { colorError: token('--control-danger', theme.defaultSeed.colorError), colorErrorHover: token('--control-danger-hover', theme.defaultSeed.colorError), colorErrorActive: token('--control-danger-active', theme.defaultSeed.colorError) } }, token: { colorPrimary: token('--brand-primary', theme.defaultSeed.colorPrimary), fontFamily: token('--font-ui', theme.defaultSeed.fontFamily) } }}>
     <AntApp><ToastProvider><ConfirmDialogProvider>{children}</ConfirmDialogProvider></ToastProvider></AntApp>
   </ConfigProvider></AppearanceContext.Provider>
 }

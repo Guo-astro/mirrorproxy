@@ -239,7 +239,7 @@ export function AdminConsole({ locale, theme = 'light', tools }: { locale: Local
   const [token, setToken] = React.useState<string | null>(null)
   const [showInitialPasswordHint, setShowInitialPasswordHint] = React.useState(() => localStorage.getItem('mirrorproxy.admin.signed-in') !== '1')
   const [identity, setIdentity] = React.useState<AdminIdentity | null>(null)
-  const [username, setUsername] = React.useState('admin')
+  const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [draft, setDraft] = React.useState<AdminConfig | null>(null)
   const [stats, setStats] = React.useState<AdminStats | null>(null)

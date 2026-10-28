@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, OpenOptions},
-    io::{Read, Write},
+    io::{BufRead, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -21,6 +21,7 @@ pub struct DownloadArgs {
 pub enum DownloadCommand {
     /// Save a download-only token read from stdin, or remove it with --logout.
     Auth {
+        /// Read a piped token, or prompt for one line when stdin is a terminal.
         #[arg(long, conflicts_with = "logout", required_unless_present = "logout")]
         token_stdin: bool,
         #[arg(long)]
@@ -57,6 +58,29 @@ fn valid_token(token: &str) -> bool {
     token.len() == 52
         && token.starts_with("mpd_")
         && token[4..].bytes().all(|b| b.is_ascii_alphanumeric())
+}
+fn read_auth_token(
+    input: impl BufRead,
+    interactive: bool,
+    prompt: &mut impl Write,
+) -> anyhow::Result<String> {
+    if interactive {
+        write!(prompt, "Paste download token and press Enter: ")?;
+        prompt.flush()?;
+    }
+    let mut token = String::new();
+    let mut bounded = input.take(256);
+    if interactive {
+        bounded.read_line(&mut token)?;
+    } else {
+        bounded.read_to_string(&mut token)?;
+    }
+    let token = token.trim().to_owned();
+    ensure!(
+        valid_token(&token),
+        "expected a download-only token from the account page"
+    );
+    Ok(token)
 }
 fn token(base: &str) -> anyhow::Result<String> {
     if let Ok(token) = std::env::var("MIRRORPROXY_DOWNLOAD_TOKEN") {
@@ -239,13 +263,12 @@ pub fn run(args: DownloadArgs) -> anyhow::Result<()> {
             println!("Download credential removed.");
             return Ok(());
         }
-        let mut token = String::new();
-        std::io::stdin().take(256).read_to_string(&mut token)?;
-        let token = token.trim();
-        ensure!(
-            valid_token(token),
-            "expected a download-only token from the account page"
-        );
+        let stdin = std::io::stdin();
+        let token = read_auth_token(
+            stdin.lock(),
+            stdin.is_terminal(),
+            &mut std::io::stderr().lock(),
+        )?;
         let parent = path.parent().unwrap();
         fs::create_dir_all(parent)?;
         super::reject_symlink(&path)?;
@@ -255,7 +278,7 @@ pub fn run(args: DownloadArgs) -> anyhow::Result<()> {
             fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
         }
         // Existing atomic writer creates private files and rejects symlink ancestors.
-        super::write_atomic(&path, token)?;
+        super::write_atomic(&path, &token)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -281,4 +304,54 @@ pub fn run(args: DownloadArgs) -> anyhow::Result<()> {
     serde_json::to_writer_pretty(std::io::stdout().lock(), &result)?;
     println!();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn sample_token() -> String {
+        format!("mpd_{}", "A".repeat(48))
+    }
+
+    #[test]
+    fn terminal_auth_prompts_and_finishes_on_enter_without_waiting_for_eof() {
+        let token = sample_token();
+        let input = format!("{token}\nnot part of the pasted token");
+        let mut prompt = Vec::new();
+        assert_eq!(
+            read_auth_token(Cursor::new(input), true, &mut prompt).unwrap(),
+            token
+        );
+        let message = String::from_utf8(prompt).unwrap();
+        assert!(message.contains("press Enter"));
+        assert!(!message.contains(&token));
+    }
+
+    #[test]
+    fn piped_auth_accepts_posix_and_powershell_line_endings_without_a_prompt() {
+        let token = sample_token();
+        for ending in ["", "\n", "\r\n"] {
+            let mut prompt = Vec::new();
+            assert_eq!(
+                read_auth_token(Cursor::new(format!("{token}{ending}")), false, &mut prompt)
+                    .unwrap(),
+                token
+            );
+            assert!(prompt.is_empty());
+        }
+    }
+
+    #[test]
+    fn auth_rejects_empty_oversized_and_multiple_piped_tokens() {
+        for input in [
+            String::new(),
+            "mpd_invalid".into(),
+            "A".repeat(1024),
+            format!("{}\n{}", sample_token(), sample_token()),
+        ] {
+            assert!(read_auth_token(Cursor::new(input), false, &mut Vec::new()).is_err());
+        }
+    }
 }

@@ -9,27 +9,54 @@ forward proxy, CONNECT tunnel, upload API, or private artifact service.
 A super administrator opens **Custom downloads** in `/admin`, enables the
 channel, and grants permission to a registered user or an existing group.
 Registration alone grants nothing. A direct user deny overrides group grants;
-otherwise a direct user allow or an allowed group grants access. Inherit removes
-the direct rule. Group deny grants nothing but does not override another allowed
-group. Existing group membership management remains under Users & groups.
+otherwise a direct user allow or an allowed group grants access. Removing a
+direct rule falls back to group permissions. Group deny grants nothing but does
+not override another allowed group. Existing group membership management remains under Users & groups.
 
 The user opens `/account` and creates a named, expiring **download-only token**.
-The token has only `download:fetch` scope, is shown once, and is stored hashed on
-the server. Each user can hold at most 20 active tokens, lasting 1–365 days.
+The token has only `download:fetch` scope. It is shown once in plain text with
+a copy button beside it; it cannot be revealed again after a page refresh or
+navigation. Only its hash is stored on the server. If creation succeeds but the
+list refresh fails, save the displayed token first. Retry only refreshes the
+list and never creates a second token. Each user can hold at most 20 active tokens, lasting 1–365 days.
 These tokens cannot log in or access administration APIs. Browser sessions and
 administrator tokens cannot authenticate download requests. Account disablement,
 permission changes, token expiry and revocation are checked again during transfer.
 Revoking a token cancels that user's active downloads; permission changes cancel
 active downloads so that policy takes effect promptly.
 
+
+The permission list identifies users by display name, username and email, and
+groups by name; IDs are secondary identifiers. **Revoke permission** removes
+that direct grant. A user may still receive access through a group; without any
+group grant, downloads are denied. **Remove deny** removes a direct deny and may
+restore access granted by a group. A group without a grant does not override a
+direct user grant or another group's grant; these entries use **Remove rule**.
+The account page lists active tokens in a table with name, purpose, expiry and
+revocation. **Custom downloads only** is the plain-language label for the
+`download:fetch` scope; it grants no sign-in or administration access.
+
 ## CLI and MCP
 
-Install a client build containing `download`. Save the token through stdin using
-`mirrorproxy download --base-url https://mirror.example.org auth --token-stdin`.
-On a terminal, paste the token, then send EOF (Ctrl-D on Unix; Ctrl-Z then Enter
-on Windows). Input may be echoed by the terminal: use a private terminal, or feed
-stdin from a local secret manager. Do not put the token in command arguments,
-chat, Skill content, project files, or shared MCP configuration.
+Install a client build containing `download`. After token creation, the account
+page offers complete setup commands for Linux/macOS and Windows PowerShell.
+Copy and run the appropriate command locally; no further input is needed:
+
+```sh
+printf '%s\n' 'YOUR_DOWNLOAD_TOKEN' | mirrorproxy download --base-url 'https://mirror.example.org' auth --token-stdin
+```
+
+```powershell
+'YOUR_DOWNLOAD_TOKEN' | mirrorproxy download --base-url 'https://mirror.example.org' auth --token-stdin
+```
+
+`Download credential saved for this instance.` confirms completion. The command
+contains the token and may be stored in terminal history; keep it local. The new
+client also prompts when `auth --token-stdin` is run directly in a terminal:
+paste the token and press Enter. Older clients wait for EOF (Ctrl-D on Unix,
+Ctrl-Z then Enter on Windows); the pipeline commands above work with those
+clients too. Never share the token in chat, Skill content, project files or
+shared MCP configuration.
 
 The credential is saved under `~/.mirrorproxy/credentials`, keyed by exact
 normalized instance origin, with mode 0600 on Unix. On Windows it inherits the

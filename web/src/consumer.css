@@ -10,6 +10,10 @@
   --apple-hairline: #d2d2d7;
   --apple-nav: #1d1d1f;
   --apple-nav-ink: #f5f5f7;
+  --apple-nav-control-ink: #fff;
+  --apple-nav-control-hover: rgb(255 255 255 / 14%);
+  --apple-nav-control-border: rgb(255 255 255 / 20%);
+  --apple-nav-control-active: rgb(255 255 255 / 20%);
   --apple-nav-hover: #333336;
   --apple-success: #237804;
   --apple-warning: #8a5700;
@@ -362,10 +366,10 @@
 .consumer-ui .public-home .public-toolbar .account-entry { border-color: rgb(255 255 255 / 12%); }
 .consumer-ui .public-home .public-toolbar svg { display: block; flex-shrink: 0; width: 18px; height: 18px; }
 .consumer-ui .public-home .public-toolbar .account-entry:hover,
-.consumer-ui .public-home .public-toolbar .ant-btn:hover { background: rgb(255 255 255 / 14%); border-color: rgb(255 255 255 / 20%); color: #fff; }
+.consumer-ui .public-home .public-toolbar .ant-btn:hover { background: var(--apple-nav-control-hover); border-color: var(--apple-nav-control-border); color: var(--apple-nav-control-ink); }
 .consumer-ui .public-home .public-toolbar .account-entry:active,
-.consumer-ui .public-home .public-toolbar .ant-btn:active { background: rgb(255 255 255 / 20%); }
-.consumer-ui .public-home .public-toolbar :is(a, button):focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.consumer-ui .public-home .public-toolbar .ant-btn:active { background: var(--apple-nav-control-active); }
+.consumer-ui .public-home .public-toolbar :is(a, button):focus-visible { outline: 2px solid var(--apple-nav-control-ink); outline-offset: 3px; }
 @media (max-width: 500px) {
   .consumer-ui .public-home .public-toolbar { gap: 6px; }
   .consumer-ui .public-home .public-toolbar .account-entry { padding-inline: 10px; }
@@ -387,7 +391,7 @@
 .consumer-ui .public-home > .topbar > .brand-mark:hover { opacity: .85; }
 .consumer-ui .public-home > .topbar .brand-mark { cursor: pointer; }
 .consumer-ui .public-home > .topbar .brand-mark :is(img, span) { cursor: pointer; }
-.consumer-ui .public-home > .topbar .brand-mark:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 7px; }
+.consumer-ui .public-home > .topbar .brand-mark:focus-visible { outline: 2px solid var(--apple-nav-control-ink); outline-offset: 4px; border-radius: 7px; }
 .consumer-ui .account-auth-layout { max-width: 520px; }
 .consumer-ui .auth-unified-card { padding: 32px; border: 1px solid var(--apple-hairline); border-radius: var(--apple-radius); background: var(--apple-canvas); }
 .consumer-ui .auth-unified-card .ant-tabs-nav { margin-bottom: 28px; }
@@ -426,4 +430,103 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .consumer-ui .auth-unified-card .provider-button { transition: none; }
+}
+
+/* Account details share one action size and one separator between sections. */
+.consumer-ui .consumer-account .account-heading { display: block; }
+.consumer-ui .consumer-account .account-title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px 24px; }
+.consumer-ui .consumer-account .account-title-row h1 { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.consumer-ui .consumer-account :is(.account-profile-card, .account-usage) { min-width: 0; }
+.consumer-ui .consumer-account .account-profile-card { gap: 24px; align-items: start; }
+.consumer-ui .consumer-account .account-profile-card > div { min-width: 0; overflow-wrap: anywhere; }
+.consumer-ui .consumer-account .account-profile-card > .identity-panel { margin-top: 0; padding-top: 28px; }
+.consumer-ui .consumer-account .identity-panel h3 { margin: 0 0 20px; line-height: 1.4; }
+.consumer-ui .consumer-account .identity-row { border-bottom: 0; padding: 16px 0; }
+.consumer-ui .consumer-account .identity-row + .identity-row { border-top: 1px solid var(--apple-hairline); }
+.consumer-ui .consumer-account .identity-row:last-child { padding-bottom: 0; }
+.consumer-ui .consumer-account .identity-row > span:first-child { flex: 1 1 180px; }
+.consumer-ui .consumer-account .identity-row small { margin-top: 4px; }
+.consumer-ui .consumer-account :is(.account-profile-card, .account-title-row) .ant-btn { min-height: 48px; height: 48px; padding-inline: 20px; white-space: nowrap; max-width: 100%; }
+.consumer-ui .consumer-account .account-routing-address { gap: 16px; padding-top: 28px; }
+.consumer-ui .consumer-account .account-routing-address .ant-input { min-height: 48px; }
+.consumer-ui .consumer-account .account-profile-card .account-help { margin: 0; }
+.consumer-ui .consumer-account .user-downloads .account-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.consumer-ui .consumer-account .user-downloads .account-form > .ant-btn { grid-column: 1 / -1; margin-top: 0; }
+.consumer-ui .consumer-account .download-token-result { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; }
+.consumer-ui .consumer-account .download-token-result > :is(label, p) { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.consumer-ui .consumer-account .account-usage :is(.ant-statistic-content, .stat-row) { font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .consumer-ui .consumer-account .account-profile-card { gap: 20px; }
+  .consumer-ui .consumer-account .account-title-row h1 { flex-basis: 100%; font-size: 30px; }
+  .consumer-ui .consumer-account .user-downloads .account-form { grid-template-columns: minmax(0, 1fr); }
+  .consumer-ui .consumer-account :is(.account-profile-card, .account-title-row) .ant-btn { padding-inline: 16px; }
+}
+.consumer-ui .consumer-account .identity-panel .ant-btn { margin-right: 0; }
+
+/* Shared footer flows after content, and fills the bottom of short account pages. */
+.consumer-ui .account-page { display: flex; flex-direction: column; min-height: 100dvh; padding-bottom: 0; }
+.consumer-ui .account-page > .account-shell { padding-bottom: 48px; }
+.consumer-ui .account-page > .site-footer { margin-top: auto; flex-shrink: 0; }
+@media (max-width: 600px) {
+  .consumer-ui .account-page > .account-shell { padding-bottom: 32px; }
+}
+
+.consumer-ui .consumer-account .download-token-value-row { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; }
+.consumer-ui .consumer-account .download-token-value-row .ant-input { flex: 1 1 0; width: 0; min-width: 0; font-family: var(--font-mono); }
+.consumer-ui .consumer-account .download-token-value-row .ant-btn { flex-shrink: 0; }
+.consumer-ui .consumer-account .download-token-result code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }
+.consumer-ui .consumer-account .download-token-error { color: var(--apple-error); margin-top: 16px; }
+.consumer-ui .consumer-account .user-downloads .resource-error { margin-top: 20px; }
+
+/* Keep related account controls together at comfortable desktop widths. */
+.consumer-ui .consumer-account .routing-address-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.consumer-ui .consumer-account .routing-address-controls .ant-input { flex: 1 1 0; width: 0; min-width: 0; }
+.consumer-ui .consumer-account .routing-address-controls .ant-btn { flex-shrink: 0; }
+.consumer-ui .consumer-account .user-downloads .token-create-form { grid-template-columns: minmax(0, 1fr) minmax(120px, .45fr) auto; align-items: end; }
+.consumer-ui .consumer-account .user-downloads .token-create-form > .ant-btn { grid-column: auto; }
+.consumer-ui .consumer-account .account-token-table { min-width: 0; max-width: 100%; overflow: auto; border: 1px solid var(--apple-hairline); border-radius: 12px; margin-top: 24px; }
+.consumer-ui .consumer-account .account-token-table .ant-table { background: var(--apple-pearl); font-size: 14px; }
+.consumer-ui .consumer-account .account-token-table .ant-table-cell { overflow-wrap: anywhere; }
+.consumer-ui .consumer-account .account-token-table .token-expiry-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.consumer-ui .consumer-account .account-token-table .ant-btn { height: 40px; min-height: 40px; padding-inline: 16px; }
+.consumer-ui .consumer-account .account-usage h2 { font-size: 21px; line-height: 1.4; }
+.consumer-ui .consumer-account .account-usage h3 { font-size: 16px; line-height: 1.4; }
+.consumer-ui .consumer-account .account-usage .ant-statistic-title { font-size: 13px; }
+.consumer-ui .consumer-account .account-usage .ant-statistic-content { font-size: 24px; line-height: 1.3; }
+.consumer-ui .consumer-account .account-usage .stats-columns { font-size: 14px; gap: 24px; }
+.consumer-ui .consumer-account .account-usage .console-metrics { gap: 12px; }
+@media (max-width: 600px) {
+  .consumer-ui .consumer-account .routing-address-controls { flex-wrap: wrap; }
+  .consumer-ui .consumer-account .routing-address-controls .ant-input { flex-basis: 100%; width: 100%; }
+  .consumer-ui .consumer-account .user-downloads .token-create-form { grid-template-columns: minmax(0, 1fr); }
+  .consumer-ui .consumer-account .account-token-table .ant-btn { min-height: 44px; height: 44px; }
+}
+@media (max-width: 600px) {
+  .consumer-ui .consumer-account .routing-address-controls { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .consumer-ui .consumer-account .routing-address-controls .ant-input { width: 100%; }
+  .consumer-ui .consumer-account .routing-address-controls .ant-btn { justify-self: start; }
+}
+.consumer-ui .consumer-account .user-downloads .table-scroll-hint { margin-top: 8px; font-size: 12px; color: var(--apple-muted); }
+.consumer-ui .consumer-account .account-usage .empty-stat { color: var(--apple-muted); font-size: 14px; margin-bottom: 0; }
+@media (max-width: 600px) {
+  .consumer-ui .consumer-account .account-usage .console-metrics { grid-template-columns: minmax(0, 1fr); }
+}
+.consumer-ui .consumer-account .account-token-table { overflow: visible; }
+.consumer-ui .consumer-account .account-token-table .token-expiry-cell { white-space: normal; }
+.consumer-ui .consumer-account .account-token-table .ant-btn { padding-inline: 12px; }
+.consumer-ui .consumer-account .download-auth-setup { width: 100%; min-width: 0; display: grid; gap: 16px; }
+.consumer-ui .consumer-account .download-auth-setup > label { max-width: 260px; }
+.consumer-ui .consumer-account .download-auth-command .consumer-command-scroll { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
+@media (max-width: 600px) {
+  .account-token-table .ant-table-thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .account-token-table :is(table, tbody) { display: block; width: 100%; }
+  .account-token-table colgroup { display: none; }
+  .account-token-table .ant-table-row { display: grid; gap: 12px; padding: 16px; border-bottom: 1px solid var(--apple-hairline); }
+  .account-token-table .ant-table-row:last-child { border-bottom: 0; }
+  .consumer-ui .account-token-table .ant-table-row > .ant-table-cell { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: start; gap: 12px; width: auto !important; padding: 0 !important; border: 0 !important; white-space: normal !important; }
+  .account-token-table .ant-table-row > .ant-table-cell::before { content: attr(data-label); color: var(--apple-muted); font-size: 12px; }
+  .account-token-table .ant-btn { justify-self: start; }
+}
+@media (max-width: 600px) {
+  .account-token-table .ant-table-placeholder, .account-token-table .ant-table-placeholder > td { display: block; width: 100%; }
 }

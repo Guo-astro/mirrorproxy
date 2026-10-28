@@ -174,7 +174,7 @@ export function AccelerationWorkbench({ baseUrl, config, catalog, health, labels
   }
   return <section className="accelerator-shell">
     <div className="accelerator-hero">
-      <div><span className="eyebrow">MIRRORPROXY / ACCELERATION DESK</span><h1>{labels.accelerationTitle}</h1><p>{labels.subtitle}</p></div>
+      <div><h1>{labels.accelerationTitle}</h1><p>{labels.subtitle}</p></div>
       <div className="hero-stats"><Metric icon={<CheckCircle2 size={18} />} label={labels.status} value={labels.online} tone="ok" /><Metric icon={<PackageOpen size={18} />} label={labels.adapters} value={String(config.enabled_proxies.length)} /></div>
     </div>
     <div className="quick-converters">
@@ -277,7 +277,7 @@ export function ContainerRegistryWorkbench({ registries, baseUrl, labels, copied
   }
 
   return <section className="registry-workbench">
-    <div className="registry-workbench-head"><div><span className="eyebrow">OCI DISTRIBUTION</span><h2>{labels.registryWorkbench}</h2><p>{labels.registryWorkbenchHint}</p></div><span className="registry-count">{registries.filter((item) => !item.legacy).length} REGISTRIES</span></div>
+    <div className="registry-workbench-head"><div><h2>{labels.registryWorkbench}</h2><p>{labels.registryWorkbenchHint}</p></div><span className="registry-count">{registries.filter((item) => !item.legacy).length} {labels.registryCountLabel}</span></div>
     <div className="registry-rail">{registries.map((registry) => <Action type="button" className={registry.code === selectedRegistryCode ? 'registry-chip active' : 'registry-chip'} aria-pressed={registry.code === selectedRegistryCode} onClick={() => selectRegistry(registry)} key={registry.code}><span>{registry.name}</span><code>{registry.host}</code>{registry.legacy ? <em>{labels.legacyRegistry}</em> : null}</Action>)}</div>
     <div className="registry-editor">
       <div className="registry-modes"><Action className={mode === 'image' ? 'active' : ''} onClick={() => setMode('image')}>{labels.singleImage}</Action><Action className={mode === 'compose' ? 'active' : ''} onClick={() => setMode('compose')}>{labels.composeFile}</Action><Action className={mode === 'dockerfile' ? 'active' : ''} onClick={() => setMode('dockerfile')}>{labels.dockerfile}</Action><Action className={mode === 'engine' ? 'active' : ''} onClick={() => setMode('engine')}>{labels.dockerEngine}</Action><Action className={mode === 'k3s' ? 'active' : ''} onClick={() => setMode('k3s')}>{labels.k3sConfig}</Action></div>

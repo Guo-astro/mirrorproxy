@@ -414,6 +414,7 @@ test('signs in and saves an updated runtime configuration', async ({ page }) => 
   })
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
   const adminTabs = page.locator('.ant-pro-sider-menu')
@@ -475,6 +476,7 @@ test('refreshes statistics from the admin console', async ({ page }) => {
   })
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.locator('.console-metrics').getByText('1', { exact: true })).toBeVisible()
@@ -498,6 +500,7 @@ test('operates the v1.3 cache, alerts, and adaptive upstream controls', async ({
   await page.route('**/admin/api/acme/config', route => route.fulfill({ json: { config: { enabled: true, email: 'admin@example.com', domains: ['mirror.example'], challenge: 'http-01', direct_https: false, redirect_http_to_https: true }, managed_by_environment: false, restart_required: false } }))
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
   await page.getByRole('link', { name: 'Access & quotas' }).click()
@@ -537,6 +540,7 @@ test('localizes the administrator tabs and primary settings in Chinese', async (
   await page.route('**/admin/api/admins', route => route.fulfill({ json: [] }))
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('管理员密码').fill('correct-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('link', { name: '访问与配额' })).toBeVisible()
@@ -570,6 +574,7 @@ test('changes the administrator password and revokes the active session', async 
   })
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
   await page.getByRole('link', { name: 'Administrators & security' }).click()
@@ -651,6 +656,7 @@ test('registers and signs in with a passkey through the browser WebAuthn API', a
   })
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('link', { name: 'Administrators & security' }).click()
@@ -662,6 +668,9 @@ test('registers and signs in with a passkey through the browser WebAuthn API', a
   await expect(page.getByText('Test platform key')).toBeVisible()
   await page.reload()
   const passkeySignIn = page.getByRole('button', { name: 'Sign in with a passkey' })
+  await expect(page.locator('.admin-username-field input')).toHaveValue('')
+  await expect(passkeySignIn).toBeDisabled()
+  await page.getByLabel('Administrator username').fill('admin')
   await expect(passkeySignIn).toBeEnabled()
   await passkeySignIn.click()
   await expect.poll(() => authenticatedCredential?.type).toBe('public-key')
@@ -669,13 +678,14 @@ test('registers and signs in with a passkey through the browser WebAuthn API', a
 })
 
 test('signs in by email and rotates the dedicated routing address', async ({ page }) => {
+  test.setTimeout(60000)
   let signedIn = false
   let linked = true
   let verified: Record<string, unknown> | undefined
   let routingId = 'first-routing-id'
   await page.route('**/api/account/profile', route => route.fulfill(signedIn ? {
     json: {
-      user: { id: 7, email: 'person+tag@example.com', display_name: 'Person', routing_id: routingId, routing_rotated_at: 1784592000 },
+      user: { id: 7, username: 'person', email: 'person+tag@example.com', display_name: 'Person', routing_id: routingId, routing_rotated_at: 1784592000 },
       proxy_base_url: `https://${routingId}.mirror.example`,
     },
   } : { status: 401, json: { error: 'unauthorized' } }))
@@ -689,6 +699,7 @@ test('signs in by email and rotates the dedicated routing address', async ({ pag
     await route.fulfill({ status: 204 })
   })
   await page.route('**/api/auth/providers', route => route.fulfill({ json: [] }))
+  await page.route('**/api/account/download', route => route.fulfill({ json: { enabled: true, allowed: true, tokens: [{ id: 'existing-download-token', name: 'Laptop', expires_at: 1893456000 }] } }))
   await page.route('**/api/auth/email/verify', async route => {
     verified = route.request().postDataJSON() as Record<string, unknown>
     signedIn = true
@@ -706,17 +717,76 @@ test('signs in by email and rotates the dedicated routing address', async ({ pag
   await expect(page.locator('.account-avatar')).toHaveAttribute('src', /^data:image\/svg\+xml/)
   await expect(page.getByRole('heading', { name: 'Traffic usage' })).toBeVisible()
   await expect(page.getByText('1.0 KB', { exact: true })).toBeVisible()
+  for (let language = 0; language < 2; language++) {
+    for (const theme of ['light', 'dark']) {
+      await setTheme(page, theme)
+      for (const width of [1440, 768, 414, 375, 320]) {
+        await page.setViewportSize({ width, height: 1000 })
+        const title = (await page.locator('.account-title-row h1').boundingBox())!
+        const signout = (await page.locator('.account-signout').boundingBox())!
+        if (width >= 768) expect(Math.abs(title.y + title.height / 2 - signout.y - signout.height / 2)).toBeLessThan(1)
+        else expect(signout.y).toBeGreaterThanOrEqual(title.y + title.height + 16)
+        for (const button of ['.routing-address-button', '.account-signout', '.connected-identities .revoke-button', '.user-downloads .account-form .ant-btn']) {
+          await expect(page.locator(button)).toHaveCSS('height', '48px')
+          await expect(page.locator(button)).toHaveCSS('white-space', 'nowrap')
+        }
+        await expect(page.locator('.routing-address-button')).toHaveCSS('border-radius', await page.locator('.connected-identities .revoke-button').evaluate(element => getComputedStyle(element).borderRadius))
+        await expect(page.locator('.connected-identities .identity-row')).toHaveCount(1)
+        await expect(page.locator('.account-token-table .ant-table-row')).toHaveCount(1)
+        for (const row of await page.locator('.identity-panel .identity-row').all()) await expect(row).toHaveCSS('border-bottom-width', '0px')
+        await expect(page.locator('.user-downloads')).toHaveCSS('border-top-width', '1px')
+        await expect(page.locator('.account-token-table')).not.toContainText('download:fetch')
+        const routing = await page.locator('.routing-address-controls > :is(input, button)').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+        const create = await page.locator('.token-create-form input, .token-create-form > button').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+        if (width >= 768) {
+          expect(routing[0].y).toBeCloseTo(routing[1].y, 0)
+          expect(routing[0].height).toBeCloseTo(routing[1].height, 0)
+          expect(create).toHaveLength(3)
+          expect(Math.max(...create.map(box => box.bottom)) - Math.min(...create.map(box => box.bottom))).toBeLessThan(1)
+        } else {
+          expect(routing[1].y).toBeGreaterThanOrEqual(routing[0].bottom)
+          expect(create[1].y).toBeGreaterThanOrEqual(create[0].bottom)
+        }
+        await expect(page.locator('.account-usage .empty-stat')).toHaveCount(2)
+        await expect(page.locator('.account-usage h2')).toHaveCSS('font-size', '21px')
+        await expect(page.locator('.account-usage .ant-statistic-content').first()).toHaveCSS('font-size', '24px')
+        const wrappedMetrics = await page.locator('.account-usage .ant-statistic-content').evaluateAll(elements => elements.filter(element => { const range = document.createRange(); range.selectNodeContents(element); return range.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight) + 1 }).length)
+        expect(wrappedMetrics).toBe(0)
+
+        const tokenTable = page.locator('.account-token-table')
+        expect(await tokenTable.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+        await expect(page.locator('.user-downloads .table-scroll-hint')).toHaveCount(0)
+        await tokenTable.getByRole('button').last().scrollIntoViewIfNeeded()
+        await tokenTable.getByRole('button').last().focus()
+        await expect(tokenTable.getByRole('button').last()).toBeInViewport()
+
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        await expect(page.locator('.account-page > .site-footer')).toHaveCount(1)
+        expect(await page.locator('.site-footer').evaluate(element => Math.abs(element.getBoundingClientRect().bottom + scrollY - document.documentElement.scrollHeight))).toBeLessThan(2)
+        await page.locator('.account-heading').screenshot({ path: test.info().outputPath(`account-heading-${language}-${theme}-${width}.png`), animations: 'disabled' })
+        await page.locator('.account-profile-card').screenshot({ path: test.info().outputPath(`account-profile-${language}-${theme}-${width}.png`), animations: 'disabled' })
+        await page.locator('.account-usage').screenshot({ path: test.info().outputPath(`account-usage-${language}-${theme}-${width}.png`), animations: 'disabled' })
+      }
+    }
+    await page.getByTitle(language === 0 ? 'Language' : '语言').click()
+  }
+  await page.locator('.routing-address-button').focus()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.locator('.routing-address-button')).toBeFocused()
+  await expect(page.locator('.routing-address-button')).toHaveCSS('outline-style', 'solid')
   const disconnect = page.getByRole('button', { name: 'Disconnect' })
   await expect(disconnect).toHaveClass(/revoke-button/)
   await disconnect.click()
   await page.getByRole('dialog').getByRole('button', { name: 'Disconnect' }).click()
   await expect(page.getByText('GitHub was disconnected.')).toBeVisible()
-  await page.getByRole('button', { name: 'Generate a new routing address' }).click()
+  await page.getByRole('button', { name: 'Generate new address' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Rotate address' }).click()
   await expect(page.locator('input[readonly]')).toHaveValue('https://rotated-routing-id.mirror.example')
 })
 
 test('configures SMTP, queues a test email, and resends an invitation', async ({ page }) => {
+  let invitationsEmpty = false
   let smtpUpdate: Record<string, unknown> | undefined
   let testRecipient: Record<string, unknown> | undefined
   let invitationRequest: Record<string, unknown> | undefined
@@ -755,10 +825,11 @@ test('configures SMTP, queues a test email, and resends an invitation', async ({
       await route.fulfill({ status: 202 })
       return
     }
-    await route.fulfill({ json: [{ id: 9, email: 'new@example.com', display_name: 'New User', status: 'pending', expires_at: 1784851200 }] })
+    await route.fulfill({ json: invitationsEmpty ? [] : ['pending', 'accepted', 'expired', 'revoked'].map((status, index) => ({ id: 9 + index, email: index === 0 ? 'new@example.com' : `a-long-invitation-address-for-responsive-checks-${index}@example.com`, display_name: 'New User', status, expires_at: 1784851200 })) })
   })
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('link', { name: 'Email & invitations' }).click()
@@ -782,6 +853,28 @@ test('configures SMTP, queues a test email, and resends an invitation', async ({
   await page.getByRole('button', { name: '重新发送' }).click()
   await expect.poll(() => resent).toBe(true)
   await expect.poll(() => resendLocale).toBe('zh')
+  await page.getByRole('button', { name: '关闭提示' }).click()
+  const history = page.locator('.invitation-history')
+  await expect(history.getByRole('heading', { name: '最近邀请' })).toBeVisible()
+  await expect(history.getByRole('listitem')).toHaveCount(4)
+  await expect(history.getByRole('button')).toHaveCount(2)
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 768, 414, 375, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await history.scrollIntoViewIfNeeded()
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      for (const status of ['待接受', '已接受', '已过期', '已撤销']) await expect(history.getByText(status, { exact: true })).toBeVisible()
+      await expect(history).toHaveCSS('border-bottom-left-radius', '8px')
+      await history.screenshot({ path: test.info().outputPath(`invitation-history-${theme}-${width}.png`), animations: 'disabled' })
+    }
+  }
+  invitationsEmpty = true
+  // A fresh session route lets the empty-state reload follow the authenticated path.
+  await page.route('**/admin/api/auth/session', route => route.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.reload()
+  await expect(history.getByText('最近 3 天没有邀请记录。')).toBeVisible()
+  await expect(history.getByRole('listitem')).toHaveCount(0)
 })
 
 test('assigns a user to a billing group with a custom quota', async ({ page }) => {
@@ -819,6 +912,7 @@ test('assigns a user to a billing group with a custom quota', async ({ page }) =
   } }))
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('link', { name: 'Users & groups' }).click()
@@ -865,6 +959,7 @@ test('configures an OpenID Connect provider without exposing its saved secret', 
   await page.route('**/admin/api/auth-providers', route => route.fulfill({ json: { providers, templates } }))
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('link', { name: 'Identity providers' }).click()
@@ -905,10 +1000,11 @@ test('revokes administrator sessions and searches and soft-deletes users', async
   })
 
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('link', { name: 'Administrators & security' }).click()
-  await page.locator('.admin-account-row', { hasText: 'passkey' }).getByRole('button', { name: 'Revoke' }).click()
+  await page.locator('.admin-session-table .ant-table-row', { hasText: 'Passkey' }).getByRole('button', { name: 'Revoke' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Revoke session' }).click()
   await expect.poll(() => revokedSession).toBe('0123456789abcdef01234567')
   await page.getByRole('link', { name: 'Users & groups' }).click()
@@ -969,6 +1065,7 @@ test('creates password users and copies revocable registration links without SMT
   })
   await page.route('**/admin/api/registration-invitations/9', async route => { pending = false; await route.fulfill({ status: 204 }) })
   await page.goto('/admin')
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByRole('link', { name: 'Users & groups', exact: true }).click()
@@ -1055,6 +1152,7 @@ for (const operation of ['OIDC', 'Passkey']) {
     await page.route('**/admin/api/auth-providers', route => route.fulfill({ json: { templates: [], providers: [{ id: 4, slug: 'google', display_name: 'Google', kind: 'oidc', preset: 'google', enabled: true, client_id: 'client-id', has_client_secret: true, issuer_url: 'https://accounts.google.com', scopes: ['openid', 'email', 'profile'], subject_field: 'sub', email_field: 'email', display_name_field: 'name' }] } }))
     await page.route('**/admin/api/auth-providers/4', async route => { rejected++; await route.fulfill({ status: 403, json: { error: 'invalid CSRF proof', code: 'csrf_invalid' } }) })
     await page.goto('/admin')
+    await page.locator('.admin-username-field input').fill('admin')
     await page.getByLabel('Administrator password').fill('correct-password')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     if (operation === 'OIDC') {
@@ -1145,11 +1243,14 @@ test('manages custom download domains in both languages on narrow screens', asyn
   await page.route('**/admin/api/audit-log*', r => r.fulfill({ json: { items: [], total: 0 } }))
   await page.route('**/admin/api/admins', r => r.fulfill({ json: [] }))
   await page.route('**/admin/api/users/summary?*', r => r.fulfill({ json: { items: [] } }))
-  await page.route('**/admin/api/download?*', r => r.fulfill({ json: { config, permissions: [], blocks: [], active: [], usage: { domains: [usage], users: [usage], daily: [usage], totals: [usage], rows: [usage], truncated: false } } }))
+  await page.route('**/admin/api/download?*', r => r.fulfill({ json: { config, permissions: [{ kind: 'user', subject_id: 103, policy: 'allow', subject_name: 'Flex', subject_username: 'flex-account', subject_email: 'long-email-address-for-download-authorization@example.org' }, { kind: 'group', subject_id: 7, policy: 'deny', subject_name: 'Download team' }], blocks: [], active: [], usage: { domains: [usage], users: [usage], daily: [usage], totals: [usage], rows: [usage], truncated: false } } }))
   await page.route('**/admin/api/download/blocks', r => { blocked = r.request().postDataJSON(); return r.fulfill({ status: 204 }) })
   await page.goto('/admin')
   await page.getByRole('link', { name: 'Custom downloads', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Custom download policy' })).toBeVisible()
+  await expect(page.locator('.download-permission-row').first()).toContainText('Flex')
+  await expect(page.locator('.download-permission-row').first()).toContainText('flex-account')
+  await expect(page.getByRole('button', { name: 'Revoke permission', exact: true })).toBeVisible()
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme)
     for (const width of [320, 375, 768, 1440]) {
@@ -1245,8 +1346,10 @@ test('refines administration actions, health, IP forms and footer layout', async
   await page.keyboard.press('Escape')
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme)
-    for (const width of [1920, 768, 375]) {
+    for (const width of [1920, 768, 414, 375, 320]) {
       await page.setViewportSize({ width, height: 1100 })
+      await expect(page.locator('.source-health-table-wrap')).toHaveCSS('overflow', 'hidden')
+      expect(await page.locator('.source-health-table-wrap').evaluate(element => parseFloat(getComputedStyle(element).borderBottomLeftRadius))).toBeGreaterThan(0)
       const scrollRegions = await page.locator('.source-health-table-wrap, .source-health-table-wrap *').evaluateAll(elements => elements.filter(element => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)
       expect(scrollRegions).toBe(0)
       for (const row of ['.ant-table-thead > tr', '.ant-table-tbody > tr.ant-table-row']) {
@@ -1254,6 +1357,17 @@ test('refines administration actions, health, IP forms and footer layout', async
         await expect(page.locator(`.source-health-table-wrap ${row} > .ant-table-cell:last-child`).first()).toHaveCSS('padding-inline-end', '20px')
       }
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      const content = page.locator('.source-health-table-wrap .ant-table-content')
+      if (width < 768) {
+        expect(await content.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+        await expect(page.locator('.source-health-table-wrap th').first()).toHaveCSS('white-space', 'nowrap')
+        await content.evaluate(element => { element.scrollLeft = element.scrollWidth })
+        expect(await content.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+        await expect(page.locator('.source-health-table-wrap th').last()).toBeInViewport()
+        await content.evaluate(element => { element.scrollLeft = 0 })
+      }
+      await expect(page.locator('.source-health-table-wrap .numeric-cell').first()).toHaveCSS('font-variant-numeric', 'tabular-nums')
+      await page.locator('.source-health-table-wrap').screenshot({ path: test.info().outputPath(`health-table-${theme}-${width}.png`), animations: 'disabled' })
     }
   }
   await page.setViewportSize({ width: 1920, height: 1100 })
@@ -1268,7 +1382,7 @@ test('refines administration actions, health, IP forms and footer layout', async
   expect(add!.x).toBeGreaterThan(note!.x + note!.width)
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme)
-    for (const width of [1920, 768, 375]) {
+    for (const width of [1920, 768, 414, 375, 320]) {
       await page.setViewportSize({ width, height: 1100 })
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
       await expect.poll(() => page.locator('.site-footer').evaluate(element => Math.abs(element.getBoundingClientRect().bottom + scrollY - document.documentElement.scrollHeight))).toBeLessThan(2)
@@ -1461,6 +1575,14 @@ test('uses the new brand assets and aligned accessible homepage controls', async
   const toolbar = page.locator('.public-toolbar')
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme)
+    const themeControl = page.getByTitle('Theme')
+    await themeControl.hover()
+    await expect(themeControl).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.14)')
+    await themeControl.focus()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(themeControl).toBeFocused()
+    await expect(themeControl).toHaveCSS('outline-color', 'rgb(255, 255, 255)')
     for (const width of [1440, 470, 375, 320]) {
       await page.setViewportSize({ width, height: 900 })
       for (let language = 0; language < 2; language++) {
@@ -1579,7 +1701,7 @@ test('keeps settings actions compact and security and advanced forms readable', 
   await page.route('**/admin/api/users/summary?*', r => r.fulfill({ json: { items: [{ id: 1, username: 'reader', email: 'reader@example.com', display_name: 'Reader', disabled: false, routing_id: 'reader-route', billing: { group_id: null, quota_mode: 'default', user_monthly_limit_bytes: null }, response_bytes: 1024 }], total: 1, page: 1, per_page: 10 } }))
   await page.route('**/admin/api/registration-invitations', r => r.fulfill({ json: [] }))
   await page.route('**/admin/api/auth-provider-templates', r => r.fulfill({ json: [] }))
-  await page.route('**/admin/api/auth-providers', r => r.fulfill({ json: [] }))
+  await page.route('**/admin/api/auth-providers', r => r.fulfill({ json: { providers: [], templates: [] } }))
   await page.route('**/admin/api/smtp', r => r.fulfill({ json: { enabled: false, host: '', port: 587, security: 'starttls', username: null, has_password: false, from_address: '', from_name: 'MirrorProxy' } }))
   await page.route('**/admin/api/invitations*', r => r.fulfill({ json: [] }))
   await page.route('**/admin/api/acme/config', r => r.fulfill({ json: { config: { enabled: false, email: '', domains: [], challenge: 'http-01', direct_https: false }, managed_by_environment: false } }))
@@ -1635,7 +1757,7 @@ test('keeps settings actions compact and security and advanced forms readable', 
     }
     for (const theme of ['light', 'dark']) {
       await setTheme(page, theme)
-      for (const width of [1920, 768, 375]) {
+      for (const width of [1920, 768, 414, 375, 320]) {
         await page.setViewportSize({ width, height: 1100 })
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
         await page.screenshot({ path: test.info().outputPath(`settings-${route}-${theme}-${width}.png`), fullPage: true, animations: 'disabled' })
@@ -1854,7 +1976,27 @@ test('keeps administration diagnostics and identity details aligned across theme
   await page.goto('/admin/security')
   await expect(page.locator('.passkey-register-form input')).toBeVisible()
   await assertAligned('.admin-account-row:has-text("bitwarden") > span:first-child > :is(strong, small)')
-  await assertAligned('.session-card .admin-account-row > span:first-child > :is(strong, small)')
+  const sessions = page.locator('.admin-session-table')
+  await expect(sessions.getByRole('columnheader', { name: 'Sign-in method', exact: true })).toBeVisible()
+  await expect(sessions.locator('time')).toHaveCount(3)
+  await expect(sessions.getByText('Current', { exact: true })).toBeVisible()
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    for (const width of [1440, 768, 414, 375, 320]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+      expect(await sessions.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+      await expect(page.locator('.session-card .table-scroll-hint')).toHaveCount(0)
+      await sessions.getByRole('button', { name: 'Revoke', exact: true }).focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await expect(sessions.getByRole('button', { name: 'Revoke', exact: true })).toBeFocused()
+      await expect(sessions.getByRole('button', { name: 'Revoke', exact: true })).toBeInViewport()
+
+      await sessions.screenshot({ path: test.info().outputPath(`session-table-${theme}-${width}.png`), animations: 'disabled' })
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   expect((await page.locator('.passkey-register-form input').boundingBox())!.width).toBeLessThanOrEqual(420)
   await page.goto('/admin/email')
   for (const selector of ['.mail-test-form input', '.invite-form input']) expect((await page.locator(selector).boundingBox())!.width).toBeLessThanOrEqual(420)
@@ -1867,6 +2009,7 @@ test('shows the initial administrator hint until a successful sign-in in this br
   await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
   await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
   await page.goto('/admin')
+  await expect(page.locator('.admin-username-field input')).toHaveValue('')
   const hint = page.getByText('The initial password is in the local startup log; changing it signs out every administrator session.')
   await expect(hint).toBeVisible()
   for (const theme of ['light', 'dark']) {
@@ -1879,13 +2022,249 @@ test('shows the initial administrator hint until a successful sign-in in this br
       await page.screenshot({ path: test.info().outputPath(`admin-login-${theme}-${width}.png`), animations: 'disabled' })
     }
   }
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('incorrect')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(hint).toBeVisible()
+  await page.locator('.admin-username-field input').fill('admin')
   await page.getByLabel('Administrator password').fill('correct')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mirrorproxy.admin.signed-in'))).toBe('1')
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Administrator sign in' })).toBeVisible()
   await expect(hint).toHaveCount(0)
+  await expect(page.locator('.admin-username-field input')).toHaveValue('')
+})
+
+
+test('retries failed mail and invitation resources independently without hiding loaded settings', async ({ page }) => {
+  let smtpFails = true
+  let invitationsFail = true
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/smtp', r => r.fulfill(smtpFails ? { status: 503, json: {} } : { json: { enabled: false, host: 'smtp.example.com', port: 587, security: 'starttls', username: null, has_password: false, from_name: 'MirrorProxy', from_address: '' } }))
+  await page.route('**/admin/api/invitations', r => r.fulfill(invitationsFail ? { status: 503, json: {} } : { json: [] }))
+  await page.goto('/admin/email')
+  const mail = page.locator('.mail-settings-card')
+  const history = page.locator('.invitation-history')
+  await expect(mail.getByRole('alert')).toContainText('Unable to load mail server settings.')
+  await expect(history.getByRole('alert')).toContainText('Unable to load recent invitations.')
+  await expect(history.getByText('No invitations in the last 3 days.')).toHaveCount(0)
+  smtpFails = false
+  await mail.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByLabel('SMTP host')).toHaveValue('smtp.example.com')
+  await page.getByLabel('SMTP host').fill('unsaved.example.com')
+  invitationsFail = false
+  await history.getByRole('button', { name: 'Retry' }).click()
+  await expect(history.getByText('No invitations in the last 3 days.')).toBeVisible()
+  await expect(page.getByLabel('SMTP host')).toHaveValue('unsaved.example.com')
+})
+
+for (const resource of [
+  { route: '/admin/providers', api: '/admin/api/auth-providers', selector: '.identity-provider-settings', message: 'Unable to load identity providers.', empty: 'No identity providers configured.', data: { providers: [], templates: [] } },
+  { route: '/admin/security', api: '/admin/api/auth/sessions', selector: '.session-card', message: 'Unable to load administrator sessions.', empty: 'No administrator sessions.', data: [] },
+]) {
+  test(`shows loading, failure and retry for ${resource.route}`, async ({ page }) => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let fails = true
+    await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+    await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+    await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+    await page.route(`**${resource.api}`, async r => { await gate; await r.fulfill(fails ? { status: 503, json: {} } : { json: resource.data }) })
+    await page.goto(resource.route)
+    const panel = page.locator(resource.selector)
+    await expect(panel.getByRole('status', { name: 'Loading' })).toBeVisible()
+    release()
+    await expect(panel.getByRole('alert')).toContainText(resource.message)
+    await expect(panel.getByText(resource.empty)).toHaveCount(0)
+    fails = false
+    await panel.getByRole('button', { name: 'Retry' }).click()
+    await expect(panel.getByText(resource.empty)).toBeVisible()
+    await expect(panel.getByRole('alert')).toHaveCount(0)
+  })
+}
+
+test('locks only the active invitation and reports HTTP and network failures', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let sends = 0
+  let deletes = 0
+  let reads = 0
+  let revoked = false
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/smtp', r => r.fulfill({ json: { enabled: false, host: '', port: 587, security: 'starttls', from_name: 'MirrorProxy', from_address: '' } }))
+  await page.route('**/admin/api/invitations', r => { reads++; return r.fulfill({ json: [9, 10].map(id => ({ id, email: `invite-${id}@example.com`, status: revoked && id === 9 ? 'revoked' : 'pending', expires_at: 1893456000 })) }) })
+  await page.route('**/admin/api/invitations/9/resend', async r => { sends++; await gate; await r.fulfill({ status: 503, json: {} }) })
+  await page.route('**/admin/api/invitations/9', async r => { deletes++; if (deletes === 1) await r.abort('failed'); else { revoked = true; await r.fulfill({ status: 204 }) } })
+  await page.goto('/admin/email')
+  const row = page.getByRole('listitem').filter({ hasText: 'invite-9@example.com' })
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme)
+    await row.getByRole('button', { name: 'Revoke', exact: true }).hover()
+    await expect(row.getByRole('button', { name: 'Revoke', exact: true })).toHaveCSS('background-color', 'rgb(145, 32, 24)')
+  }
+  await row.getByRole('button', { name: 'Resend', exact: true }).click()
+  await expect(row.getByRole('button', { name: 'Sending…' })).toBeDisabled()
+  await expect(row.getByRole('button', { name: 'Revoke', exact: true })).toBeDisabled()
+  await expect(page.getByRole('listitem').filter({ hasText: 'invite-10@example.com' }).getByRole('button', { name: 'Resend', exact: true })).toBeEnabled()
+  release()
+  await expect(page.getByRole('alert')).toContainText('Unable to resend invitation.')
+  await expect(row.getByRole('button', { name: 'Resend', exact: true })).toBeEnabled()
+  await row.getByRole('button', { name: 'Revoke', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Revoke invitation' }).click()
+  await expect(page.getByRole('alert')).toContainText('Could not reach the local MirrorProxy service.')
+  await expect(row.getByRole('button', { name: 'Revoke', exact: true })).toBeEnabled()
+  expect(sends).toBe(1)
+  expect(deletes).toBe(1)
+  expect(reads).toBe(1)
+  await row.getByRole('button', { name: 'Revoke', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Revoke invitation' }).click()
+  await expect(row.getByText('Revoked', { exact: true })).toBeVisible()
+  await expect(row.getByRole('button')).toHaveCount(0)
+  expect(deletes).toBe(2)
+  expect(reads).toBe(2)
+})
+
+test('keeps registry counts bilingual and removes decorative English headings', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.eyebrow:visible')).toHaveCount(0)
+  await expect(page.locator('.registry-count')).toHaveText('5 registries')
+  await page.getByTitle('Language').click()
+  await expect(page.locator('.registry-count')).toHaveText('5 个镜像仓库')
+  await expect(page.getByText('OCI DISTRIBUTION', { exact: true })).toHaveCount(0)
+})
+
+
+test('places the shared footer at the bottom of short and long sign-in and registration pages', async ({ page }) => {
+  await page.route('**/api/public-config', r => r.fulfill({ json: { ...publicConfig, registration: { mode: 'open', allowed_email_domains: [], email_login_enabled: true } } }))
+  await page.route('**/api/account/profile', r => r.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/account/usage', r => r.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/account/providers', r => r.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/auth/providers', r => r.fulfill({ json: [] }))
+  await page.goto('/login')
+  const footer = page.locator('.account-page > .site-footer')
+  await expect(footer).toHaveCount(1)
+  await expect(footer).toContainText('Private mirror service')
+  await expect(footer.getByRole('link', { name: 'MirrorProxy', exact: true })).toHaveAttribute('href', 'https://github.com/inbjo/MirrorProxy')
+  for (const mode of ['Sign in', 'Register']) {
+    await page.getByRole('tab', { name: mode, exact: true }).click()
+    for (const theme of ['light', 'dark']) {
+      await setTheme(page, theme)
+      for (const width of [320, 375, 414, 768, 1440]) {
+        for (const height of [480, 2200]) {
+          await page.setViewportSize({ width, height })
+          await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+          const dimensions = await footer.evaluate(element => ({ bottom: element.getBoundingClientRect().bottom + scrollY, top: element.getBoundingClientRect().top + scrollY, documentHeight: document.documentElement.scrollHeight, position: getComputedStyle(element).position, contentBottom: document.querySelector('.account-shell')!.getBoundingClientRect().bottom + scrollY }))
+          expect(Math.abs(dimensions.bottom - dimensions.documentHeight)).toBeLessThan(2)
+          expect(dimensions.top).toBeGreaterThanOrEqual(dimensions.contentBottom - 1)
+          expect(dimensions.position).not.toBe('fixed')
+          if (height === 2200) expect(Math.abs(dimensions.bottom - height)).toBeLessThan(2)
+          else expect(dimensions.documentHeight).toBeGreaterThan(height)
+        }
+      }
+    }
+  }
+  await page.route('**/api/account/profile', r => r.fulfill({ json: { user: { id: 7, email: 'reader@example.com', display_name: 'Reader' }, proxy_base_url: null } }))
+  await page.route('**/api/account/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/account/download', r => r.fulfill({ json: { enabled: false, allowed: false, tokens: [] } }))
+  await page.goto('/account')
+  await expect(page.locator('.account-profile-card')).toBeVisible()
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: 2200 })
+    await expect.poll(() => footer.evaluate(element => Math.abs(element.getBoundingClientRect().bottom + scrollY - innerHeight))).toBeLessThan(2)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+  }
+
+})
+
+
+test('creates a plaintext download token once and keeps copy beside it across account layouts', async ({ page }) => {
+  let reads = 0
+  let creates = 0
+  const value = 'mpd_' + 'test-credential-for-browser-layout-'.repeat(4)
+  await page.route('**/api/account/profile', r => r.fulfill({ json: { user: { id: 7, email: 'reader@example.com', display_name: 'Reader' }, proxy_base_url: 'https://reader.mirror.example' } }))
+  await page.route('**/api/account/usage', r => r.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/account/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/auth/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/account/download', r => {
+    reads++
+    return r.fulfill(reads === 2 ? { status: 503, json: {} } : { json: { enabled: true, allowed: true, tokens: creates ? [{ id: 'new-id', name: 'Agent', expires_at: 1900000000 }] : [] } })
+  })
+  await page.route('**/api/account/download/tokens', r => {
+    creates++
+    return r.fulfill({ status: 201, json: { id: 'new-id', token: value, expires_at: 1900000000 } })
+  })
+  await page.goto('/account')
+  await page.getByRole('button', { name: 'Create download token', exact: true }).click()
+  const token = page.getByLabel('Download token', { exact: true })
+  await expect(token).toHaveAttribute('type', 'text')
+  await expect(token).toHaveValue(value)
+  await expect(page.locator('.user-downloads .resource-error')).toContainText('Token created.')
+  await page.locator('.user-downloads .resource-error').getByRole('button', { name: 'Retry' }).click()
+  await expect(page.locator('.user-downloads .resource-error')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Copy token', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(value)
+  await expect(page.getByRole('button', { name: 'Copied', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Clear token', exact: true })).toHaveCount(0)
+  const setup = page.locator('.download-auth-command')
+  await selectChoice(page, page.getByRole('combobox', { name: 'Local terminal' }), 'Linux / macOS')
+  await setup.getByRole('button', { name: 'Copy setup command', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`printf '%s\\n' '${value}' | mirrorproxy download --base-url 'http://localhost:4173' auth --token-stdin`)
+  await selectChoice(page, page.getByRole('combobox', { name: 'Local terminal' }), 'Windows PowerShell')
+  await setup.getByRole('button', { name: 'Copy setup command', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`'${value}' | mirrorproxy download --base-url 'http://localhost:4173' auth --token-stdin`)
+
+  for (let language = 0; language < 2; language++) {
+    for (const theme of ['light', 'dark']) {
+      await setTheme(page, theme)
+      for (const width of [320, 375, 414, 768, 1440]) {
+        await page.setViewportSize({ width, height: 1000 })
+        await token.scrollIntoViewIfNeeded()
+        const bounds = await page.locator('.download-token-value-row > :is(input, button)').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+        expect(bounds).toHaveLength(2)
+        expect(bounds[0].y).toBeCloseTo(bounds[1].y, 0)
+        expect(bounds[0].height).toBeCloseTo(bounds[1].height, 0)
+        expect(bounds[1].x).toBeGreaterThan(bounds[0].right)
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        await page.locator('.user-downloads').screenshot({ path: test.info().outputPath(`token-${language}-${theme}-${width}.png`), animations: 'disabled' })
+      }
+    }
+    await page.getByTitle(language === 0 ? 'Language' : '语言').click()
+  }
+  expect(creates).toBe(1)
+  await page.reload()
+  await expect(token).toHaveCount(0)
+  await expect(page.locator('.account-token-table .ant-table-row')).toContainText('Agent')
+})
+
+
+test('lets token and session records grow with the page without nested vertical scrollbars', async ({ page }) => {
+  await page.route('**/api/account/profile', r => r.fulfill({ json: { user: { id: 7, email: 'reader@example.com', display_name: 'Reader' }, proxy_base_url: null } }))
+  await page.route('**/api/account/usage', r => r.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/account/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/auth/providers', r => r.fulfill({ json: [] }))
+  await page.route('**/api/account/download', r => r.fulfill({ json: { enabled: true, allowed: true, tokens: Array.from({ length: 20 }, (_, i) => ({ id: String(i), name: `Token ${i}`, expires_at: 1900000000 })) } }))
+  await page.route('**/admin/api/auth/session', r => r.fulfill({ json: { username: 'admin', role: 'super_admin' } }))
+  await page.route('**/admin/api/config', r => r.fulfill({ json: adminConfig }))
+  await page.route('**/admin/api/stats', r => r.fulfill({ json: adminStats }))
+  await page.route('**/admin/api/auth/sessions', r => r.fulfill({ json: Array.from({ length: 20 }, (_, i) => ({ id: String(i), auth_method: 'password', created_at: 1792972800, last_used_at: 1792972800, expires_at: 1900000000, current: i === 0 })) }))
+  for (const [path, selector] of [['/account', '.account-token-table'], ['/admin/security', '.admin-session-table']]) {
+    for (const width of [1440, 768, 375, 320]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(path)
+      const table = page.locator(selector)
+      await expect(table.locator('.ant-table-row')).toHaveCount(20)
+      await expect(table).toHaveCSS('overflow-y', 'visible')
+      const innerVerticalScrollbars = await table.evaluate(element => [element, ...element.querySelectorAll('*')].filter(node => ['auto', 'scroll'].includes(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight).length)
+      expect(innerVerticalScrollbars).toBe(0)
+      expect((await table.boundingBox())!.height).toBeGreaterThan(900)
+      await table.locator('.ant-table-row').last().scrollIntoViewIfNeeded()
+      await expect(table.locator('.ant-table-row').last().getByRole('button')).toBeInViewport()
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+    }
+  }
 })

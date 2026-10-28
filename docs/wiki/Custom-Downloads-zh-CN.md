@@ -7,26 +7,42 @@ HTTP 正向代理、CONNECT 隧道、上传或私有制品访问。
 
 超级管理员在 `/admin` 的「自定义下载」页面开启通道，向注册用户或已有分组授权。
 注册本身没有权限。用户直接拒绝优先于组授权；否则用户直接允许或任一组允许即可。
-「继承」删除直接规则。组拒绝表示该组不授予权限，不覆盖其他组的允许。
+授权列表显示用户的姓名、账号和邮箱，或分组名称，ID 仅作辅助标识。
+「撤销权限」删除对应的直接授权规则；用户之后仍可能通过分组获得权限，
+没有任何分组授权时默认禁止下载。「撤销禁止」删除直接禁止规则，可能恢复分组授予的权限。
+分组不授权只表示该组不授予权限，不覆盖用户的单独允许或其他组的允许；
+此类条目使用「移除规则」按钮。
+个人中心的有效 token 以表格显示名称、用途、到期时间与撤销操作。
+「仅用于自定义下载」对应技术作用域 `download:fetch`，不代表登录或管理权限。
 组成员仍在「用户与分组」中管理。
 
 用户在 `/account` 创建具名、有期限的下载专用 token。作用域仅为 `download:fetch`，
-仅创建时显示，服务端只保存哈希。每人最多 20 个有效 token，有效期 1–365 天。
+仅创建时以明文显示，输入框旁可直接复制；刷新或离开页面后无法再次查看，
+服务端只保存哈希。若创建成功但列表刷新失败，请先保存已显示的 token；
+「重试」只刷新列表，不会再次创建。每人最多 20 个有效 token，有效期 1–365 天。
 下载 token 不能登录或管理实例；浏览器会话和管理员 token 也不能用于下载认证。
 传输中会重新检查账号状态、权限和 token 有效性。撤销 token 会终止该用户的活跃下载；
 更改权限会取消活跃下载，使策略及时生效。
 
 ## CLI 与 MCP
 
-安装包含 `download` 命令的客户端。在本地执行：
+安装包含 `download` 命令的客户端。创建 token 后，个人中心提供 Linux/macOS 和
+Windows PowerShell 两种完整配置命令。复制后在本机终端执行即可，无需再次输入：
 
 ```sh
-mirrorproxy download --base-url https://mirror.example.org auth --token-stdin
+printf '%s\n' '你的下载token' | mirrorproxy download --base-url 'https://mirror.example.org' auth --token-stdin
 ```
 
-粘贴 token 后发送 EOF：Unix 为 Ctrl-D，Windows 为 Ctrl-Z 后回车。
-终端可能回显输入，请使用私密终端，或从本地凭据管理器通过 stdin 输入。
-不要把 token 放入命令参数、聊天、Skill、项目文件或共享 MCP 配置。
+```powershell
+'你的下载token' | mirrorproxy download --base-url 'https://mirror.example.org' auth --token-stdin
+```
+
+看到 `Download credential saved for this instance.` 即保存完成。命令包含 token，
+只在本机使用，勿分享；终端可能保存命令历史。新客户端也支持单独执行
+`mirrorproxy download --base-url https://mirror.example.org auth --token-stdin`，
+按提示粘贴 token 并回车。旧客户端会等待 EOF：Unix 为 Ctrl-D，Windows 为 Ctrl-Z
+后回车；上面的管道命令兼容旧客户端，无需 EOF 操作。不要把 token 发送到聊天、
+Skill、项目文件或共享 MCP 配置。
 
 凭据按规范化后的精确实例地址保存在 `~/.mirrorproxy/credentials`。
 Unix 权限为 0600，Windows 继承用户目录 ACL，请勿使用共享用户目录。
