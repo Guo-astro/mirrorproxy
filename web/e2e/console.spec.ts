@@ -722,10 +722,14 @@ test('signs in by email and rotates the dedicated routing address', async ({ pag
       await setTheme(page, theme)
       for (const width of [1440, 768, 414, 375, 320]) {
         await page.setViewportSize({ width, height: 1000 })
-        const title = (await page.locator('.account-title-row h1').boundingBox())!
-        const signout = (await page.locator('.account-signout').boundingBox())!
-        if (width >= 768) expect(Math.abs(title.y + title.height / 2 - signout.y - signout.height / 2)).toBeLessThan(1)
-        else expect(signout.y).toBeGreaterThanOrEqual(title.y + title.height + 16)
+        // Read both boxes in one frame after responsive layout has settled.
+        await expect.poll(() => page.locator('.account-title-row').evaluate((row, desktop) => {
+          const title = row.querySelector('h1')!.getBoundingClientRect()
+          const signout = row.querySelector('.account-signout')!.getBoundingClientRect()
+          return desktop
+            ? Math.abs(title.y + title.height / 2 - signout.y - signout.height / 2) < 1
+            : signout.y >= title.y + title.height + 16
+        }, width >= 768), { message: `Account heading alignment at ${width}px` }).toBe(true)
         for (const button of ['.routing-address-button', '.account-signout', '.connected-identities .revoke-button', '.user-downloads .account-form .ant-btn']) {
           await expect(page.locator(button)).toHaveCSS('height', '48px')
           await expect(page.locator(button)).toHaveCSS('white-space', 'nowrap')
