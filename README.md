@@ -144,12 +144,12 @@ see [Deployment](https://github.com/inbjo/MirrorProxy/wiki/Deployment).
 
 ```bash
 # macOS / Linux
-curl -fsSL https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh
+curl -fsSL https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- --mirror https://sina.dev
 ```
 
 ```powershell
 # Windows PowerShell
-irm https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.ps1 | iex
+& ([scriptblock]::Create((irm 'https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.ps1'))) -Mirror 'https://sina.dev'
 ```
 
 The scripts install only the standalone client, select the current platform

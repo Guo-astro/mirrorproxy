@@ -100,3 +100,11 @@ Windows ZIP 同样只包含客户端可执行文件。
 [独立客户端](Client-zh-CN)。
 
 [维护者发布配置](Release-Maintenance-zh-CN) · [English](Distribution)
+
+### 通过实例下载脚本和客户端
+
+只代理脚本地址不会自动代理后续的 Release 下载，需要同时传入 `--mirror`：
+
+```bash
+curl -fsSL https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- --mirror https://sina.dev
+```

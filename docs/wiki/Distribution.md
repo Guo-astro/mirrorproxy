@@ -108,3 +108,11 @@ Run `mirrorproxy --version` and `mirrorproxy list` after installation. See
 [Standalone Client](Client) for client operations.
 
 [Maintainer publishing setup](Release-Maintenance) · [简体中文](Distribution-zh-CN)
+
+### Proxy both the script and release downloads
+
+Proxying the script URL does not proxy subsequent release downloads. Pass `--mirror` explicitly:
+
+```bash
+curl -fsSL https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- --mirror https://sina.dev
+```

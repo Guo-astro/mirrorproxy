@@ -116,12 +116,12 @@ systemd、TLS、反向代理、持久化存储和生产配置详见
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh
+curl -fsSL https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.sh | sh -s -- --mirror https://sina.dev
 ```
 
 ```powershell
 # Windows PowerShell
-irm https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.ps1 | iex
+& ([scriptblock]::Create((irm 'https://sina.dev/https://raw.githubusercontent.com/inbjo/MirrorProxy/main/scripts/install.ps1'))) -Mirror 'https://sina.dev'
 ```
 
 脚本只安装独立客户端，会自动选择当前平台的 Release 资产并验证 SHA-256 校验和。安装后执行

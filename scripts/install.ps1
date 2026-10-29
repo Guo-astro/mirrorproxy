@@ -43,7 +43,7 @@ try {
     try {
         Invoke-WebRequest -UseBasicParsing -Uri (Get-DownloadUrl "$releaseUrl/$archive") -OutFile $archivePath
     } catch {
-        throw "No stable release asset was found. Publish a v* release or set MIRRORPROXY_VERSION to a release tag. $($_.Exception.Message)"
+        throw "Client archive download failed. Check the network, TLS or HTTP error below. If GitHub is unreachable, pass -Mirror https://YOUR-INSTANCE; proxying the script URL does not proxy subsequent downloads. For HTTP 404, check the release tag and asset name. $($_.Exception.Message)"
     }
     Invoke-WebRequest -UseBasicParsing -Uri (Get-DownloadUrl "$releaseUrl/$archive.sha256") -OutFile $checksumPath
 

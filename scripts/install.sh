@@ -124,8 +124,11 @@ trap cleanup EXIT HUP INT TERM
 archive_path="${tmp_dir}/${archive}"
 checksum_path="${archive_path}.sha256"
 echo "Downloading MirrorProxy ${version} for ${target}..."
+echo "From: $(download_url "${release_url}/${archive}")"
 if ! curl -fL --retry 3 --connect-timeout 15 "$(download_url "${release_url}/${archive}")" -o "$archive_path"; then
-  echo "No stable release asset was found. Publish a v* release or choose --version <tag>." >&2
+  echo "Client archive download failed. See the curl error above for network, TLS or HTTP details." >&2
+  echo "If GitHub is unreachable, retry with --mirror https://YOUR-INSTANCE. Fetching this script through a proxy does not proxy subsequent downloads." >&2
+  echo "For an HTTP 404, check the release tag and asset name; you can select a tag with --version <tag>." >&2
   exit 1
 fi
 curl -fL --retry 3 --connect-timeout 15 "$(download_url "${release_url}/${archive}.sha256")" -o "$checksum_path"
