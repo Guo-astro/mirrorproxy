@@ -5,9 +5,56 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { once } from 'node:events'
 
 const require = createRequire(import.meta.url)
 const fromPackage = name => createRequire(require.resolve(`${name}/package.json`))
+
+test('Utoopack serves static files and WebSockets with the patched Hono adapter', { timeout: 10000 }, async t => {
+  const fromUtoo = createRequire(fromPackage('@umijs/bundler-utoopack').resolve('@utoo/pack/package.json'))
+  const { Hono } = fromUtoo('hono')
+  const { serve } = fromUtoo('@hono/node-server')
+  const { serveStatic } = fromUtoo('@hono/node-server/serve-static')
+  const { createNodeWebSocket } = fromUtoo('@hono/node-ws')
+  const { WebSocket } = fromUtoo('ws')
+  const root = mkdtempSync(join(tmpdir(), 'mirrorproxy-hono-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  writeFileSync(join(root, 'fixture.txt'), 'static-ok')
+  mkdirSync(join(root, 'private'))
+  writeFileSync(join(root, 'private/secret.txt'), 'protected-fixture')
+  const app = new Hono()
+  const sockets = createNodeWebSocket({ app })
+  app.get('/socket', sockets.upgradeWebSocket(() => ({
+    onMessage(event, ws) { ws.send(`echo:${event.data}`) },
+  })))
+  app.use('/private/*', c => c.text('Forbidden', 403))
+  app.use('/*', serveStatic({ root }))
+  const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
+  t.after(() => new Promise((resolve, reject) => {
+    sockets.wss.close()
+    server.close(error => error ? reject(error) : resolve())
+    server.closeAllConnections()
+  }))
+  sockets.injectWebSocket(server)
+  if (!server.listening) await once(server, 'listening')
+  const base = `127.0.0.1:${server.address().port}`
+  const response = await fetch(`http://${base}/fixture.txt`)
+  assert.equal(response.status, 200)
+  assert.equal(await response.text(), 'static-ok')
+  assert.equal((await fetch(`http://${base}/private/secret.txt`)).status, 403)
+  // A second decoding pass must not turn an unmatched path into a protected file.
+  const encoded = await fetch(`http://${base}/%2570rivate/secret.txt`)
+  assert.equal(encoded.status, 404)
+  const ws = new WebSocket(`ws://${base}/socket`)
+  t.after(() => ws.terminate())
+  await once(ws, 'open')
+  const message = once(ws, 'message')
+  ws.send('compatible')
+  assert.equal(String((await message)[0]), 'echo:compatible')
+  const closed = once(ws, 'close')
+  ws.close()
+  await closed
+})
 
 test('SVGR uses the patched SVG optimizer and preserves React component generation', () => {
   const fromSvgr = fromPackage('@svgr/plugin-svgo')
