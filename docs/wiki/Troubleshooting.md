@@ -68,6 +68,73 @@ ordinary restarts do not clear the lock. Avoid repeated attempts.
 | 404 or manifest unknown | Upstream package, repository, tag, and enabled adapters; do not guess URLs |
 | GeoIP shows Unknown | Private IP, missing XDB result, or incorrect trusted-proxy configuration |
 
+## Monthly quota blocks downloads despite remaining traffic
+
+Monthly traffic is keyed by the configured timezone's calendar month; it does not
+carry over and needs no scheduled reset. Admission checks billed bytes **plus
+in-flight reservations**, while the console's remaining traffic subtracts billed
+bytes. Each proxy request reserves 8 MiB, or 16 MiB with bidirectional accounting.
+
+In v1.7.1 and earlier, a cancelled handler or discarded response body could leave
+its reservation in SQLite and omit partial delivery from billing. The cancellation
+fix settles the original month's global, user and billing-group reservations once,
+including when the client disconnects before headers or during streaming. It bills
+the bytes yielded by the response body, with the existing accounting multiplier;
+these are not TCP acknowledgement measurements. Configuration and schema remain
+compatible. Process termination or a failed database write can still prevent
+settlement; upgrading alone does not clear historical orphaned reservations.
+HEAD, 204 and 304 responses also release their reservations even when the HTTP
+server does not read a body; these are not recorded as client disconnects.
+
+The public homepage displays a prominent monthly-limit notice and changes its
+service status when global quota admission is blocked. It distinguishes exhausted
+billed traffic from temporarily unavailable capacity, supports both stop and
+throttle policies, and refreshes every 30 seconds and on window focus. The notice
+clears after capacity returns or the month changes. It follows the site's consumer
+design in English/Chinese, light/dark themes and mobile layouts.
+`/api/config` and `/api/public-config` add `quota.month` and `quota.status`
+(`available`, `exhausted`, `reserved`, or `unavailable` if lookup fails), with
+`Cache-Control: no-store`. This status reflects global admission including the
+next request's reservation, ignores historical `quota_exceeded` flags, and exposes
+no account traffic details. Existing clients can ignore the additional fields;
+the new console also tolerates older servers without them.
+
+To diagnose, discover the active database path and run this read-only query:
+
+```sql
+SELECT month,
+       ROUND(response_bytes / 1073741824.0, 4) AS billed_gib,
+       ROUND(reserved_bytes / 1073741824.0, 4) AS reserved_gib,
+       quota_exceeded
+FROM traffic_monthly ORDER BY month DESC LIMIT 3;
+```
+
+For confirmed orphaned reservations, stop **all** MirrorProxy processes sharing
+that database and verify no process still has it open. Make a consistent SQLite
+backup, retaining the master key separately if configured. Only while stopped,
+clear reservations in one transaction:
+
+```sql
+BEGIN IMMEDIATE;
+UPDATE traffic_monthly SET reserved_bytes = 0;
+UPDATE user_traffic_monthly SET reserved_bytes = 0;
+UPDATE group_traffic_monthly SET reserved_bytes = 0;
+COMMIT;
+```
+
+If the current month's billed usage is below the active global limit (or that
+limit is disabled), also clear **that month's** stale `quota_exceeded` flag. Use
+the persisted runtime configuration and its timezone, not just TOML defaults.
+Preserve `response_bytes`, account quotas and historical billing; lost partial
+delivery cannot be reconstructed from the aggregate reservation counter. Do not
+run periodic resets or clear reservations while requests are active.
+
+Restart and verify a real package download and its published digest, the monthly
+counters and service logs. Before rollback, stop all database users again; restore
+the verified backup using the [database restore procedure](Advanced-Deployment).
+Restoring also restores the orphaned reservations and discards intervening writes.
+Rolling back to an affected binary reintroduces the cancellation defect.
+
 ## Editing a configuration file has no effect
 
 Some runtime settings are seeded into SQLite on first use and then managed in the console;

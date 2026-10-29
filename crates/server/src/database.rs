@@ -3287,6 +3287,17 @@ impl Database {
         Ok(())
     }
 
+    pub async fn monthly_quota_totals(&self, month: &str) -> anyhow::Result<(u64, u64)> {
+        let (billed, reserved): (i64, i64) = sqlx::query_as(
+            "SELECT response_bytes, reserved_bytes FROM traffic_monthly WHERE month = ?",
+        )
+        .bind(month)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or_default();
+        Ok((as_u64(billed), as_u64(reserved)))
+    }
+
     pub async fn traffic_overview(&self, month: &str) -> anyhow::Result<TrafficOverview> {
         let row = sqlx::query(
             "SELECT request_count, response_bytes, error_count, quota_exceeded FROM traffic_monthly WHERE month = ?",
@@ -3802,3 +3813,6 @@ fn ip_access_rule_from_row(row: SqliteRow) -> Result<IpAccessRule, sqlx::Error> 
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod traffic_tests;

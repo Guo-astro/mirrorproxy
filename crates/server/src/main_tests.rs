@@ -11,6 +11,8 @@ use tokio::{
 use tower::ServiceExt;
 
 use super::*;
+use crate::database::ProxyTrafficRecord;
+use crate::geoip::GeoLocation;
 
 fn assert_security_headers(headers: &HeaderMap, expect_hsts: bool) {
     assert_eq!(
@@ -3071,8 +3073,7 @@ async fn streamed_proxy_response_records_actual_body_bytes() {
         .status(StatusCode::OK)
         .body(Body::from("hello"))
         .unwrap();
-    let response = track_proxy_response(
-        response,
+    let traffic = ProxyTraffic::new(
         Arc::new(database.clone()),
         observability.clone(),
         "2026-07-10".to_string(),
@@ -3080,13 +3081,15 @@ async fn streamed_proxy_response_records_actual_body_bytes() {
         "npm",
         "GET".to_string(),
         "/npm/react".to_string(),
-        0,
         1,
-        None,
         None,
         30,
         GeoLocation::default(),
-    );
+    )
+    .reserve(None, None, 0)
+    .await
+    .unwrap();
+    let response = track_proxy_response(response, traffic);
 
     assert_eq!(
         to_bytes(response.into_body(), usize::MAX).await.unwrap(),
@@ -3113,8 +3116,7 @@ async fn bidirectional_accounting_records_twice_the_streamed_body_bytes() {
         .status(StatusCode::OK)
         .body(Body::from("hello"))
         .unwrap();
-    let response = track_proxy_response(
-        response,
+    let traffic = ProxyTraffic::new(
         Arc::new(database.clone()),
         Arc::new(Observability::new().unwrap()),
         "2026-07-10".to_string(),
@@ -3122,13 +3124,15 @@ async fn bidirectional_accounting_records_twice_the_streamed_body_bytes() {
         "npm",
         "GET".to_string(),
         "/npm/react".to_string(),
-        0,
         2,
-        None,
         None,
         30,
         GeoLocation::default(),
-    );
+    )
+    .reserve(None, None, 0)
+    .await
+    .unwrap();
+    let response = track_proxy_response(response, traffic);
 
     assert_eq!(
         to_bytes(response.into_body(), usize::MAX).await.unwrap(),
@@ -3150,6 +3154,187 @@ fn quota_period_uses_requested_iana_timezone() {
     assert!(day.starts_with(&month));
     assert_eq!(day.len(), 10);
     assert_eq!(month.len(), 7);
+}
+
+#[tokio::test]
+async fn public_quota_availability_is_uncached_and_matches_real_proxy_rejection() {
+    let mut config = Config::default();
+    config.quota.enabled = true;
+    config.quota.monthly_gb = 1;
+    let application = build_application(config).await.unwrap();
+    let (_, month) = quota_period(&application.state.config().quota.timezone);
+    let limit = 1024 * 1024 * 1024;
+    assert!(application
+        .state
+        .database
+        .try_reserve_monthly_bytes(&month, limit, limit)
+        .await
+        .unwrap());
+    for path in ["/api/config", "/api/public-config"] {
+        let response = application
+            .router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let value: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(value["quota"]["status"], "reserved");
+        assert_eq!(value["quota"]["month"], month);
+        assert!(value["quota"].get("reserved_bytes").is_none());
+        assert!(value["quota"].get("response_bytes").is_none());
+    }
+    let response = application
+        .router
+        .oneshot(
+            Request::builder()
+                .uri("/npm/is-number")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let value: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(value["scope"], "global");
+}
+
+#[tokio::test]
+async fn cancelled_proxy_handler_releases_quota_before_response_headers() {
+    let mut config = Config::default();
+    config.quota.enabled = true;
+    config.quota.bidirectional_accounting = true;
+    config.quota.monthly_gb = 1;
+    let application = build_application(config).await.unwrap();
+    let state = application.state;
+    let (_, month) = quota_period(&state.config().quota.timezone);
+    let started = Arc::new(tokio::sync::Notify::new());
+    let handler_started = started.clone();
+    let app = Router::new()
+        .route(
+            "/npm/pending",
+            get(move || async move {
+                handler_started.notify_one();
+                std::future::pending::<Response>().await
+            }),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ));
+    let request = tokio::spawn(
+        app.oneshot(
+            Request::builder()
+                .uri("/npm/pending")
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    );
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .unwrap();
+    assert!(!state
+        .database
+        .try_reserve_monthly_bytes(&month, QUOTA_RESERVATION_BYTES * 2, 1)
+        .await
+        .unwrap());
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    wait_for_cancelled_proxy(&state.database, &month, 0).await;
+    assert!(state
+        .database
+        .try_reserve_monthly_bytes(
+            &month,
+            QUOTA_RESERVATION_BYTES * 2,
+            QUOTA_RESERVATION_BYTES * 2,
+        )
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+async fn tcp_disconnect_bills_partial_proxy_body_and_releases_quota() {
+    let mut config = Config::default();
+    config.quota.enabled = true;
+    config.quota.bidirectional_accounting = true;
+    config.quota.monthly_gb = 1;
+    let application = build_application(config).await.unwrap();
+    let state = application.state;
+    let (_, month) = quota_period(&state.config().quota.timezone);
+    let app = Router::new()
+        .route(
+            "/npm/stream",
+            get(|| async {
+                use futures_util::StreamExt;
+                Body::from_stream(
+                    futures_util::stream::once(async {
+                        Ok::<_, std::io::Error>(bytes::Bytes::from_static(b"hello"))
+                    })
+                    .chain(futures_util::stream::pending()),
+                )
+            }),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut socket = TcpStream::connect(address).await.unwrap();
+    socket
+        .write_all(b"GET /npm/stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+    let mut received = Vec::new();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let mut buffer = [0; 1024];
+            let count = socket.read(&mut buffer).await.unwrap();
+            assert_ne!(count, 0);
+            received.extend_from_slice(&buffer[..count]);
+            if received.windows(5).any(|part| part == b"hello") {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(received.starts_with(b"HTTP/1.1 200"));
+    drop(socket);
+    wait_for_cancelled_proxy(&state.database, &month, 10).await;
+    assert!(state
+        .database
+        .try_reserve_monthly_bytes(
+            &month,
+            QUOTA_RESERVATION_BYTES * 2 + 10,
+            QUOTA_RESERVATION_BYTES * 2
+        )
+        .await
+        .unwrap());
+    server.abort();
+    let _ = server.await;
+}
+
+async fn wait_for_cancelled_proxy(database: &Database, month: &str, bytes: u64) {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let usage = database.traffic_overview(month).await.unwrap();
+            if usage.request_count != 0 {
+                assert_eq!(usage.request_count, 1);
+                assert_eq!(usage.response_bytes, bytes);
+                assert_eq!(usage.error_count, 1);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("cancelled proxy must release quota and record partial usage");
 }
 
 #[test]

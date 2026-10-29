@@ -18,6 +18,8 @@ export type PublicConfig = {
     monthly_gb: number
     timezone: string
     on_exceeded: string
+    month?: string
+    status?: 'available' | 'exhausted' | 'reserved' | 'unavailable'
   }
   user_access?: { enabled: boolean; mode: string }
   registration?: {

@@ -1,5 +1,6 @@
 import { CommandBlock } from '../components/command-block'
 import { ConsumerTheme } from '../components/consumer-theme'
+import { isPublicQuotaBlocked, PublicQuotaNotice } from '../components/public-quota-notice'
 import { Modal } from 'antd'
 import { request } from '../services/request'
 import { Action, Field, TextArea } from '../components/controls'
@@ -31,6 +32,7 @@ function PublicPageContent() {
       monthly_gb: 500,
       timezone: 'local',
       on_exceeded: 'stop_proxy',
+      status: 'unavailable',
     },
   })
   const [catalog, setCatalog] = React.useState<SourceCatalog | null>(null)
@@ -49,10 +51,25 @@ function PublicPageContent() {
   }, [locale])
 
   React.useEffect(() => {
-    request('/api/public-config')
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('config unavailable')))
-      .then((value: PublicConfig) => setConfig(value))
-      .catch(() => undefined)
+    let active = true
+    let pending = false
+    const controller = new AbortController()
+    const loadConfig = async () => {
+      if (pending) return
+      pending = true
+      try {
+        const response = await request('/api/public-config', { cache: 'no-store', signal: controller.signal })
+        if (!response.ok) throw new Error('config unavailable')
+        const value: PublicConfig = await response.json()
+        if (active) setConfig(value)
+      } catch {
+        if (active) setConfig(current => ({ ...current, quota: { ...current.quota, status: 'unavailable' } }))
+      } finally { pending = false }
+    }
+    void loadConfig()
+    const interval = window.setInterval(loadConfig, 30_000)
+    window.addEventListener('focus', loadConfig)
+    return () => { active = false; controller.abort(); window.clearInterval(interval); window.removeEventListener('focus', loadConfig) }
   }, [])
 
   React.useEffect(() => {
@@ -130,6 +147,7 @@ function PublicPageContent() {
       </header>
 
       <HttpSecurityBanner locale={locale} />
+      <PublicQuotaNotice quota={config.quota} locale={locale} />
       <AccelerationWorkbench locale={locale} baseUrl={baseUrl} config={config} catalog={catalog} health={sourceHealth} labels={t} onCopy={copyCommand} copied={copied} />
 
       <SiteFooter footerText={config.site?.footer_text} />
@@ -140,6 +158,11 @@ function PublicPageContent() {
 }
 
 export function AccelerationWorkbench({ baseUrl, config, catalog, health, labels, onCopy, copied, locale }: { locale: Locale; baseUrl: string; config: PublicConfig; catalog: SourceCatalog | null; health: SourceHealthReport | null; labels: Record<string, string>; onCopy: (id: string, value: string) => void; copied: string | null }) {
+  const quotaBlocked = isPublicQuotaBlocked(config.quota)
+  const quotaUnknown = config.quota.status === 'unavailable'
+  const serviceStatus = quotaBlocked
+    ? (config.quota.on_exceeded === 'throttle' ? (locale === 'zh' ? '请求受限' : 'Rate limited') : (locale === 'zh' ? '代理暂停' : 'Proxy paused'))
+    : quotaUnknown ? (locale === 'zh' ? '状态待确认' : 'Status unavailable') : labels.online
   const [githubInput, setGithubInput] = React.useState('')
   const [dockerInput, setDockerInput] = React.useState('')
   const [selectedTarget, setSelectedTarget] = React.useState<SourceTarget | null>(null)
@@ -175,7 +198,7 @@ export function AccelerationWorkbench({ baseUrl, config, catalog, health, labels
   return <section className="accelerator-shell">
     <div className="accelerator-hero">
       <div><h1>{labels.accelerationTitle}</h1><p>{labels.subtitle}</p></div>
-      <div className="hero-stats"><Metric icon={<CheckCircle2 size={18} />} label={labels.status} value={labels.online} tone="ok" /><Metric icon={<PackageOpen size={18} />} label={labels.adapters} value={String(config.enabled_proxies.length)} /></div>
+      <div className={`hero-stats${quotaBlocked ? ' quota-blocked' : ''}`}><Metric icon={quotaBlocked || quotaUnknown ? <CircleAlert size={18} /> : <CheckCircle2 size={18} />} label={labels.status} value={serviceStatus} tone={quotaBlocked || quotaUnknown ? undefined : 'ok'} /><Metric icon={<PackageOpen size={18} />} label={labels.adapters} value={String(config.enabled_proxies.length)} /></div>
     </div>
     <div className="quick-converters">
       <LinkConverter title={labels.quickGithubTitle} icon={<Github size={19} />} hint={labels.quickGithubHint} value={githubInput} onChange={setGithubInput} output={githubLink} outputLabel={labels.proxyLink} placeholder="https://github.com/owner/repo/releases/download/…" copyLabel={labels.createAndCopy} copiedLabel={labels.copied} copied={copied === 'quick-github'} onCopy={() => githubLink && onCopy('quick-github', githubLink)} />

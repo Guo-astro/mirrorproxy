@@ -68,6 +68,40 @@ sudo -u mirrorproxy /opt/mirrorproxy/mirrorproxy-server   --config /opt/mirrorpr
 | 404 或 manifest unknown | 检查上游包名、仓库、标签与启用的代理目标，不要猜 URL |
 | 地域为 Unknown | 可能是私网 IP、无 XDB 数据或可信代理配置不正确 |
 
+## 月流量仍有剩余，下载却被全局配额拦截
+
+月流量按配置时区的自然月分别记录，不跨月累计，也无需定时清零。请求准入检查的是**已计费流量加在途预留**，后台剩余量则只扣已计费流量。每次代理请求预留 8 MiB，双向计费时为 16 MiB。
+
+v1.7.1 及更早版本中，请求处理被取消或响应体被丢弃，可能导致 SQLite 中的预留未释放、部分已输出流量未入账。取消结算修复会对请求所属月份的全局、用户和计费组预留只结算一次，覆盖返回响应头前断开和传输途中断开。按响应体已输出的字节及现有计费倍数入账，这并非 TCP 确认接收量。配置及数据库结构保持兼容。进程终止或数据库写入失败仍可能阻止结算；仅升级程序不会清除历史孤立预留。
+
+HEAD、204 和 304 响应也会释放预留，即使 HTTP 服务不读取响应体；这些正常响应不会被记为客户端断连。
+
+全局额度阻止新请求时，前台首页会显示醒目的月限额提示，并同步修改服务状态。提示区分已计费流量耗尽与额度暂不可用，兼容停止代理和请求限流策略；每 30 秒及切回窗口时刷新，额度恢复或换月后自动消失。外观沿用前台设计，支持中英文、深浅色主题和移动端。`/api/config` 与 `/api/public-config` 新增 `quota.month`、`quota.status`（`available`、`exhausted`、`reserved`，查询失败为 `unavailable`），响应设置 `Cache-Control: no-store`。状态按全局准入逻辑计算，包含下一次请求所需预留，不依赖历史 `quota_exceeded` 标记，也不公开账号流量明细。旧客户端可忽略新增字段，新控制台也兼容没有这些字段的旧服务端。
+
+排查时先确认实际数据库路径，再执行只读查询：
+
+```sql
+SELECT month,
+       ROUND(response_bytes / 1073741824.0, 4) AS billed_gib,
+       ROUND(reserved_bytes / 1073741824.0, 4) AS reserved_gib,
+       quota_exceeded
+FROM traffic_monthly ORDER BY month DESC LIMIT 3;
+```
+
+确认存在孤立预留后，停止共享此数据库的**所有** MirrorProxy 进程，确认没有进程仍打开数据库，再制作一致的 SQLite 备份；启用了主密钥时另行保管密钥。仅在停服期间，在同一事务中清理预留：
+
+```sql
+BEGIN IMMEDIATE;
+UPDATE traffic_monthly SET reserved_bytes = 0;
+UPDATE user_traffic_monthly SET reserved_bytes = 0;
+UPDATE group_traffic_monthly SET reserved_bytes = 0;
+COMMIT;
+```
+
+如果当月已计费量低于生效的全局限额，或限额已关闭，再清除**当月**残留的 `quota_exceeded` 标记。以数据库中持久化的运行配置及其时区为准，不要只看 TOML 默认值。保留 `response_bytes`、账号额度和历史账单；无法从预留总数还原过去漏记的部分流量。不要定时清零，也不要在仍有在途请求时清理预留。
+
+启动后验证真实包下载及其发布的摘要、月流量计数和服务日志。需要回滚时再次停止所有使用该数据库的进程，按[数据库恢复流程](Advanced-Deployment-zh-CN)恢复已校验的备份。恢复备份也会恢复孤立预留，并丢失备份之后的写入；回滚到受影响版本会重新引入请求取消缺陷。
+
 ## 改了配置文件，却没有变化
 
 首次运行会把一部分运行配置保存到 SQLite，之后通常由后台管理；不是所有 TOML 字段都会在重启时覆盖数据库。

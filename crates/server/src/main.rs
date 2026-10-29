@@ -15,6 +15,7 @@ mod proxy;
 mod secrets;
 mod source_health;
 mod static_assets;
+mod traffic;
 mod upstream_selection;
 
 use std::{
@@ -44,8 +45,8 @@ use chrono::{Datelike, Local, NaiveDate, Utc};
 use chrono_tz::Tz;
 use clap::{Parser, Subcommand};
 use config::{AcmeConfig, Config, OutboundProxyConfig};
-use database::{AdminUsernameChangeOutcome, Database, ProxyTrafficRecord};
-use geoip::{AccessDecision, GeoIpService, GeoLocation, IpAccessPolicy, IpNetwork};
+use database::{AdminUsernameChangeOutcome, Database};
+use geoip::{AccessDecision, GeoIpService, IpAccessPolicy, IpNetwork};
 use hmac::{Hmac, Mac};
 use mirrorproxy_catalog as catalog;
 use observability::Observability;
@@ -65,6 +66,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use traffic::{track_proxy_response, ProxyTraffic, ReservationError};
 use webauthn_rs::prelude::{
     PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
     Webauthn, WebauthnBuilder,
@@ -3078,65 +3080,37 @@ async fn rate_limit_middleware(
             .quota
             .default_user_monthly_gb
             .map(|gb| gb.saturating_mul(1024 * 1024 * 1024));
-        let (reserved_bytes, group_id) = if let Some(context) = &user_context {
-            match state
-                .database
-                .try_reserve_hierarchical_bytes(
-                    &month,
-                    context.user_id,
-                    global_limit,
-                    default_user_limit,
-                    reservation_bytes,
-                )
-                .await
-            {
-                Ok(database::HierarchicalReservationOutcome::Reserved { group_id }) => {
-                    (reservation_bytes, group_id)
-                }
-                Ok(database::HierarchicalReservationOutcome::Exceeded { scope }) => {
-                    if scope == "global" {
-                        let _ = state.database.mark_month_quota_exceeded(&month).await;
-                    }
-                    return quota_rejection(&state, &config, scope);
-                }
-                Err(error) => {
-                    tracing::error!(%error, "hierarchical quota reservation failed");
-                    return quota_rejection(&state, &config, "internal");
-                }
-            }
-        } else if let Some(limit) = global_limit {
-            match state
-                .database
-                .try_reserve_monthly_bytes(&month, limit, reservation_bytes)
-                .await
-            {
-                Ok(true) => (reservation_bytes, None),
-                Ok(false) => return quota_rejection(&state, &config, "global"),
-                Err(error) => {
-                    tracing::error!(%error, "global quota reservation failed");
-                    return quota_rejection(&state, &config, "internal");
-                }
-            }
-        } else {
-            (0, None)
-        };
-        let response = next.run(request).await;
-        return track_proxy_response(
-            response,
+        let traffic = ProxyTraffic::new(
             state.database.clone(),
             state.observability.clone(),
             day,
-            month,
+            month.clone(),
             target_code,
             method,
             path,
-            reserved_bytes,
             accounting_multiplier,
-            user_context.map(|context| context.user_id),
-            group_id,
+            user_context.as_ref().map(|context| context.user_id),
             config.quota.request_event_retention_days,
             location,
         );
+        let traffic = match traffic
+            .reserve(global_limit, default_user_limit, reservation_bytes)
+            .await
+        {
+            Ok(traffic) => traffic,
+            Err(ReservationError::Exceeded(scope)) => {
+                if scope == "global" && user_context.is_some() {
+                    let _ = state.database.mark_month_quota_exceeded(&month).await;
+                }
+                return quota_rejection(&state, &config, scope);
+            }
+            Err(ReservationError::Database(error)) => {
+                tracing::error!(%error, "quota reservation failed");
+                return quota_rejection(&state, &config, "internal");
+            }
+        };
+        let response = next.run(request).await;
+        return track_proxy_response(response, traffic);
     }
 
     next.run(request).await
@@ -3301,170 +3275,6 @@ fn proxy_target_for_path(path: &str) -> Option<&'static str> {
     } else {
         None
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn track_proxy_response(
-    response: Response,
-    database: Arc<Database>,
-    observability: Arc<Observability>,
-    day: String,
-    month: String,
-    target_code: &'static str,
-    method: String,
-    path: String,
-    reserved_bytes: u64,
-    accounting_multiplier: u64,
-    user_id: Option<i64>,
-    group_id: Option<i64>,
-    request_event_retention_days: u32,
-    location: GeoLocation,
-) -> Response {
-    let status_code = response.status().as_u16();
-    let (parts, body) = response.into_parts();
-    let stream = body.into_data_stream();
-    let tracked = futures_util::stream::unfold(
-        (
-            stream,
-            0_u64,
-            false,
-            database,
-            observability,
-            day,
-            month,
-            target_code,
-            method,
-            path,
-            reserved_bytes,
-            user_id,
-            group_id,
-            request_event_retention_days,
-            location,
-        ),
-        move |(
-            mut stream,
-            response_bytes,
-            stream_error,
-            database,
-            observability,
-            day,
-            month,
-            target_code,
-            method,
-            path,
-            reserved_bytes,
-            user_id,
-            group_id,
-            request_event_retention_days,
-            location,
-        )| async move {
-            match futures_util::StreamExt::next(&mut stream).await {
-                Some(Ok(chunk)) => Some((
-                    Ok::<_, axum::Error>(chunk.clone()),
-                    (
-                        stream,
-                        response_bytes.saturating_add(chunk.len() as u64),
-                        stream_error,
-                        database,
-                        observability,
-                        day,
-                        month,
-                        target_code,
-                        method,
-                        path,
-                        reserved_bytes,
-                        user_id,
-                        group_id,
-                        request_event_retention_days,
-                        location,
-                    ),
-                )),
-                Some(Err(error)) => {
-                    if let Err(record_error) = database
-                        .record_proxy_response(ProxyTrafficRecord {
-                            day: &day,
-                            month: &month,
-                            target_code,
-                            method: &method,
-                            path: &path,
-                            status_code,
-                            response_bytes: response_bytes.saturating_mul(accounting_multiplier),
-                            delivered_response_bytes: response_bytes,
-                            stream_error: true,
-                            reserved_bytes,
-                            user_id,
-                            group_id,
-                            request_event_retention_days,
-                            location: &location,
-                        })
-                        .await
-                    {
-                        tracing::error!(%record_error, "failed to record proxy traffic");
-                    }
-                    observability.observe_proxy_body(
-                        target_code,
-                        status_code,
-                        response_bytes,
-                        true,
-                    );
-                    Some((
-                        Err(error),
-                        (
-                            stream,
-                            response_bytes,
-                            true,
-                            database,
-                            observability,
-                            day,
-                            month,
-                            target_code,
-                            method,
-                            path,
-                            reserved_bytes,
-                            user_id,
-                            group_id,
-                            request_event_retention_days,
-                            location,
-                        ),
-                    ))
-                }
-                None => {
-                    if stream_error {
-                        return None;
-                    }
-                    if let Err(record_error) = database
-                        .record_proxy_response(ProxyTrafficRecord {
-                            day: &day,
-                            month: &month,
-                            target_code,
-                            method: &method,
-                            path: &path,
-                            status_code,
-                            response_bytes: response_bytes.saturating_mul(accounting_multiplier),
-                            delivered_response_bytes: response_bytes,
-                            stream_error,
-                            reserved_bytes,
-                            user_id,
-                            group_id,
-                            request_event_retention_days,
-                            location: &location,
-                        })
-                        .await
-                    {
-                        tracing::error!(%record_error, "failed to record proxy traffic");
-                    }
-                    observability.observe_proxy_body(
-                        target_code,
-                        status_code,
-                        response_bytes,
-                        false,
-                    );
-                    None
-                }
-            }
-        },
-    );
-    Response::from_parts(parts, Body::from_stream(tracked))
 }
 
 fn is_proxy_path(path: &str) -> bool {
@@ -3664,10 +3474,14 @@ struct PublicQuotaConfig {
     monthly_gb: u64,
     timezone: String,
     on_exceeded: String,
+    month: String,
+    status: &'static str,
 }
 
 async fn public_config(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let config = state.config();
+    let (_, month) = quota_period(&config.quota.timezone);
+    let quota_status = public_quota_status(&state.database, &config, &month).await;
     let email_login_enabled = match state.database.smtp_settings().await {
         Ok(Some(settings)) => settings.enabled,
         Ok(None) => false,
@@ -3676,7 +3490,7 @@ async fn public_config(State(state): State<AppState>, headers: HeaderMap) -> imp
             false
         }
     };
-    Json(PublicConfig {
+    let public_config = PublicConfig {
         download: config.download.clone(),
         public_base_url: state.public_base_url(&headers),
         site: config.site.clone(),
@@ -3687,6 +3501,8 @@ async fn public_config(State(state): State<AppState>, headers: HeaderMap) -> imp
             monthly_gb: config.quota.monthly_gb,
             timezone: config.quota.timezone.clone(),
             on_exceeded: config.quota.on_exceeded.clone(),
+            month,
+            status: quota_status,
         },
         user_access: PublicUserAccessConfig {
             enabled: !config.user_access.base_domain.is_empty(),
@@ -3697,7 +3513,39 @@ async fn public_config(State(state): State<AppState>, headers: HeaderMap) -> imp
             allowed_email_domains: config.registration.allowed_email_domains.clone(),
             email_login_enabled,
         },
-    })
+    };
+    ([(header::CACHE_CONTROL, "no-store")], Json(public_config))
+}
+
+async fn public_quota_status(database: &Database, config: &Config, month: &str) -> &'static str {
+    if !config.quota.enabled {
+        return "available";
+    }
+    let (billed, reserved) = match database.monthly_quota_totals(month).await {
+        Ok(totals) => totals,
+        Err(error) => {
+            tracing::warn!(%error, "failed to resolve public quota availability");
+            return "unavailable";
+        }
+    };
+    let limit = config
+        .quota
+        .monthly_gb
+        .saturating_mul(1024 * 1024 * 1024)
+        .min(i64::MAX as u64);
+    let reservation =
+        QUOTA_RESERVATION_BYTES.saturating_mul(if config.quota.bidirectional_accounting {
+            2
+        } else {
+            1
+        });
+    if billed >= limit {
+        "exhausted"
+    } else if billed.saturating_add(reserved).saturating_add(reservation) > limit {
+        "reserved"
+    } else {
+        "available"
+    }
 }
 
 #[derive(Deserialize)]
