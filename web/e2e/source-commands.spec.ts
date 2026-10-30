@@ -52,19 +52,24 @@ test('keeps multiline source commands fully visible with occupying scrollbars', 
         const manual = dialog.locator('.config-option').last()
         const code = manual.locator('.consumer-command-scroll')
         await body.evaluate(element => { element.scrollTop = element.scrollHeight })
-        const dimensions = await code.evaluate(element => {
-          const range = document.createRange()
-          range.selectNodeContents(element.querySelector('code')!)
-          const text = range.getBoundingClientRect()
-          const box = element.getBoundingClientRect()
-          return { client: element.clientHeight, scroll: element.scrollHeight, textTop: text.top, textBottom: text.bottom, top: box.top, bottom: box.top + element.clientHeight }
-        })
-        expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client + 1)
-        expect(dimensions.textTop).toBeGreaterThanOrEqual(dimensions.top)
-        expect(dimensions.textBottom).toBeLessThanOrEqual(dimensions.bottom)
-        expect(await code.evaluate(element => element.getBoundingClientRect().bottom), `${name}: horizontal scrollbar must fit the viewport`).toBeLessThanOrEqual(550)
-        expect(dimensions.textBottom, `${name} at ${width}px: last line must fit the viewport`).toBeLessThanOrEqual(550)
-        expect(await code.evaluate(element => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(await body.evaluate(element => element.getBoundingClientRect().bottom + 1))
+        // Opening/centering can still change geometry after the animation poll.
+        // Sample every bound in one frame and retry until the layout settles.
+        await expect(async () => {
+          const dimensions = await code.evaluate(element => {
+            const range = document.createRange()
+            range.selectNodeContents(element.querySelector('code')!)
+            const text = range.getBoundingClientRect()
+            const box = element.getBoundingClientRect()
+            const body = element.closest('.ant-modal-body')!.getBoundingClientRect()
+            return { client: element.clientHeight, scroll: element.scrollHeight, textTop: text.top, textBottom: text.bottom, top: box.top, bottom: box.top + element.clientHeight, boxBottom: box.bottom, bodyBottom: body.bottom }
+          })
+          expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client + 1)
+          expect(dimensions.textTop).toBeGreaterThanOrEqual(dimensions.top)
+          expect(dimensions.textBottom).toBeLessThanOrEqual(dimensions.bottom)
+          expect(dimensions.boxBottom, `${name}: horizontal scrollbar must fit the viewport`).toBeLessThanOrEqual(550)
+          expect(dimensions.textBottom, `${name} at ${width}px: last line must fit the viewport`).toBeLessThanOrEqual(550)
+          expect(dimensions.boxBottom).toBeLessThanOrEqual(dimensions.bodyBottom + 1)
+        }).toPass({ timeout: 5000 })
         await code.evaluate(element => { element.scrollLeft = element.scrollWidth })
         await manual.locator('.command-copy').click()
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(await code.textContent())

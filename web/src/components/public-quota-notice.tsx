@@ -11,7 +11,6 @@ export function PublicQuotaNotice({ quota, locale }: { quota: PublicConfig['quot
   const zh = locale === 'zh'
   const exhausted = quota.status === 'exhausted'
   const throttled = quota.on_exceeded === 'throttle'
-  const timezone = quota.timezone === 'local' ? (zh ? '服务器本地时间' : 'server local time') : quota.timezone
   return <Alert
     className="public-quota-notice"
     type="error"
@@ -24,7 +23,7 @@ export function PublicQuotaNotice({ quota, locale }: { quota: PublicConfig['quot
       <p>{exhausted
         ? (zh ? `本站代理${throttled ? '请求正在限流' : '下载已暂停'}。请于下月再试，或联系站点管理员。` : `Proxy ${throttled ? 'requests are rate limited' : 'downloads are paused'}. Please try again next month or contact the site operator.`)
         : (zh ? '本站代理请求暂时受限，请稍后重试或联系站点管理员。' : 'Proxy requests are temporarily limited. Please retry shortly or contact the site operator.')}</p>
-      <p className="public-quota-detail">{quota.month ? `${quota.month} · ` : ''}{quota.monthly_gb.toLocaleString(zh ? 'zh-CN' : 'en-US')} GB{zh ? '/月' : ' / month'}<span aria-hidden="true"> · </span>{zh ? `每月 1 日按${timezone}启用新额度` : `New allowance on the 1st of each month (${timezone})`}</p>
+      <p className="public-quota-detail">{quota.month ? `${quota.month} · ` : ''}{quota.monthly_gb.toLocaleString(zh ? 'zh-CN' : 'en-US')} GB{zh ? '/月' : ' / month'}<span aria-hidden="true"> · </span>{zh ? '每月1号重置额度' : 'Quota resets on the 1st of each month'}</p>
     </>}
   />
 }

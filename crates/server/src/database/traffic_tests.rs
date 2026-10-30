@@ -300,3 +300,140 @@ async fn public_quota_status_matches_admission_and_ignores_historical_exceeded_f
         "unavailable"
     );
 }
+
+#[tokio::test]
+async fn unlimited_user_settlement_preserves_another_global_reservation() {
+    let (database, _) = Database::open(":memory:").await.unwrap();
+    let user = database
+        .create_user("admin", "toggle@example.com", "Toggle", 12)
+        .await
+        .unwrap()
+        .unwrap();
+    // An in-flight request retains its enabled-quota configuration while a
+    // later authenticated request uses the newly disabled global limit.
+    let first = traffic(&database, None)
+        .reserve(Some(LIMIT), None, RESERVED)
+        .await
+        .unwrap();
+    let later = traffic(&database, Some(user.id))
+        .reserve(None, None, RESERVED)
+        .await
+        .unwrap();
+    drop(later);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while database
+            .traffic_overview(MONTH)
+            .await
+            .unwrap()
+            .request_count
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        reserved(&database).await,
+        RESERVED as i64,
+        "settling an unlimited request must not release another request's bytes"
+    );
+    drop(first);
+}
+
+#[tokio::test]
+async fn changing_billing_group_during_download_settles_original_group() {
+    let (database, _) = Database::open(":memory:").await.unwrap();
+    let user = database
+        .create_user("admin", "move@example.com", "Move", 12)
+        .await
+        .unwrap()
+        .unwrap();
+    let old = database
+        .create_billing_group("admin", "Old", Some(LIMIT))
+        .await
+        .unwrap()
+        .unwrap();
+    let new = database
+        .create_billing_group("admin", "New", Some(LIMIT))
+        .await
+        .unwrap()
+        .unwrap();
+    database
+        .set_user_billing_profile("admin", user.id, Some(old.id), "default", None)
+        .await
+        .unwrap();
+    let guard = traffic(&database, Some(user.id))
+        .reserve(Some(LIMIT), None, RESERVED)
+        .await
+        .unwrap();
+    database
+        .set_user_billing_profile("admin", user.id, Some(new.id), "default", None)
+        .await
+        .unwrap();
+    let body = track_proxy_response(Response::new(Body::from("hello")), guard).into_body();
+    axum::body::to_bytes(body, usize::MAX).await.unwrap();
+    assert_settled(&database, 10, 0).await;
+    let rows: Vec<(i64, i64, i64)> = sqlx::query_as("SELECT group_id, response_bytes, reserved_bytes FROM group_traffic_monthly WHERE month = ?")
+        .bind(MONTH).fetch_all(&database.pool).await.unwrap();
+    assert_eq!(rows, vec![(old.id, 10, 0)]);
+}
+
+#[tokio::test]
+async fn group_rejection_rolls_back_global_and_user_reservations_without_global_cap() {
+    let (database, _) = Database::open(":memory:").await.unwrap();
+    let user = database
+        .create_user("admin", "reject@example.com", "Reject", 12)
+        .await
+        .unwrap()
+        .unwrap();
+    let group = database
+        .create_billing_group("admin", "Full", Some(0))
+        .await
+        .unwrap()
+        .unwrap();
+    database
+        .set_user_billing_profile("admin", user.id, Some(group.id), "default", None)
+        .await
+        .unwrap();
+    let first = traffic(&database, None)
+        .reserve(Some(LIMIT), None, RESERVED)
+        .await
+        .unwrap();
+    assert!(matches!(
+        traffic(&database, Some(user.id))
+            .reserve(None, None, RESERVED)
+            .await,
+        Err(ReservationError::Exceeded("group"))
+    ));
+    assert_eq!(reserved(&database).await, RESERVED as i64);
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COALESCE(SUM(reserved_bytes), 0) FROM user_traffic_monthly")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, 0);
+    drop(first);
+    assert_settled(&database, 0, 1).await;
+}
+
+#[tokio::test]
+async fn concurrent_reservations_cannot_overbook_global_capacity() {
+    let (database, _) = Database::open(":memory:").await.unwrap();
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..20 {
+        let database = database.clone();
+        tasks.spawn(async move {
+            database
+                .try_reserve_monthly_bytes(MONTH, LIMIT, RESERVED)
+                .await
+                .unwrap()
+        });
+    }
+    let mut accepted = 0;
+    while let Some(result) = tasks.join_next().await {
+        accepted += usize::from(result.unwrap());
+    }
+    assert_eq!(accepted, 10);
+    assert_eq!(reserved(&database).await, LIMIT as i64);
+}

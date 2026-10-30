@@ -86,6 +86,11 @@ settlement; upgrading alone does not clear historical orphaned reservations.
 HEAD, 204 and 304 responses also release their reservations even when the HTTP
 server does not read a body; these are not recorded as client disconnects.
 
+Authenticated requests track global in-flight bytes even when the global cap is
+disabled. This keeps reservation and settlement balanced when the cap changes
+while downloads are active. Existing downloads settle against their original
+billing group if the user is moved to another group.
+
 The public homepage displays a prominent monthly-limit notice and changes its
 service status when global quota admission is blocked. It distinguishes exhausted
 billed traffic from temporarily unavailable capacity, supports both stop and

@@ -11,10 +11,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); docume
 it('announces an exhausted quota in both languages with the configured reset rule', () => {
   const { rerender } = render(<PublicQuotaNotice quota={quota} locale="en" />)
   expect(screen.getByRole('alert', { name: 'Monthly traffic limit reached' }).textContent).toContain('Proxy downloads are paused')
-  expect(screen.getByText(/New allowance on the 1st/).textContent).toContain('Asia/Shanghai')
+  expect(screen.getByText(/Quota resets on the 1st of each month/).textContent).toContain('500 GB / month')
   rerender(<PublicQuotaNotice quota={quota} locale="zh" />)
   expect(screen.getByRole('alert', { name: '本月流量额度已用尽' }).textContent).toContain('本站代理下载已暂停')
-  expect(screen.getByText(/每月 1 日/).textContent).toContain('500 GB/月')
+  expect(screen.getByText(/每月1号重置额度/).textContent).toContain('500 GB/月')
 })
 
 it('distinguishes temporary capacity limits and the throttle policy', () => {
@@ -23,7 +23,7 @@ it('distinguishes temporary capacity limits and the throttle policy', () => {
   expect(screen.queryByText('Monthly traffic limit reached')).toBeNull()
   rerender(<PublicQuotaNotice quota={{ ...quota, on_exceeded: 'throttle', timezone: 'local' }} locale="en" />)
   expect(screen.getByRole('alert').textContent).toContain('Proxy requests are rate limited')
-  expect(screen.getByRole('alert').textContent).toContain('server local time')
+  expect(screen.getByRole('alert').textContent).toContain('Quota resets on the 1st of each month')
 })
 
 it.each([

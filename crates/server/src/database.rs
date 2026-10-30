@@ -3004,6 +3004,19 @@ impl Database {
             }
         }
 
+        // Settlement releases the same reservation at every scope. Track the
+        // global reservation even without a cap so config changes cannot make
+        // this request release bytes owned by another in-flight request.
+        if global_limit.is_none() {
+            sqlx::query(
+                "UPDATE traffic_monthly SET reserved_bytes = reserved_bytes + ? WHERE month = ?",
+            )
+            .bind(bytes)
+            .bind(month)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
         sqlx::query("INSERT OR IGNORE INTO user_traffic_monthly (month, user_id) VALUES (?, ?)")
             .bind(month)
             .bind(user_id)
